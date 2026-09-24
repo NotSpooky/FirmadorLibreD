@@ -191,7 +191,7 @@ private SignatureResult validateXmlSignature(XmlDocument document, XmlNode eleme
     }
     if (!verification.signatureValid) {
       verdict.degrade(Indication.totalFailed, SubIndication.sigCryptoFailure,
-        message(ValidationMessage.Level.error, "BBB_CV_ISI_ANS"));
+        message(ValidationMessage.Level.error, "BBB_CV_ISI_ANS", verification.signatureFailure));
     }
   }
 

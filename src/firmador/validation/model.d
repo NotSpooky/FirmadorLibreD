@@ -143,11 +143,16 @@ struct Verdict {
 
   /// Incorpora el resultado de un paso: sus mensajes y su indicación, si es peor.
   void absorb(const Verdict step) pure @safe {
-    messages ~= step.messages;
-    if (severity(step.indication) > severity(indication)) {
-      indication = step.indication;
-      subIndication = step.subIndication;
-    }
+    absorbInto(this, step);
+  }
+}
+
+/// Añade a `target` (Verdict o TimestampResult) los mensajes del paso y su indicación, si es peor.
+private void absorbInto(T)(ref T target, const Verdict step) pure @safe {
+  target.messages ~= step.messages;
+  if (severity(step.indication) > severity(target.indication)) {
+    target.indication = step.indication;
+    target.subIndication = step.subIndication;
   }
 }
 
@@ -169,6 +174,11 @@ struct TimestampResult {
   SysTime productionTime;
   Certificate[] certificateChain;
   string filename;
+
+  /// Incorpora el resultado de una comprobación más: sus mensajes y su indicación, si es peor.
+  void absorb(const Verdict step) pure @safe {
+    absorbInto(this, step);
+  }
 }
 
 /// Resultado de una firma.

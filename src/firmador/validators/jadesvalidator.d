@@ -124,6 +124,7 @@ private SignatureResult validateJwsSignature(const Jws jws, const JwsSignature s
       message(ValidationMessage.Level.error, "BBB_CV_IRDOF_ANS"));
   } else if (signer !is null) {
     bool valid = false;
+    string failure;
     try {
       bool ecdsa;
       auto algorithm = signatureAlgorithmFromJws(requiredString(header, "alg", "La cabecera protegida"), ecdsa);
@@ -132,10 +133,11 @@ private SignatureResult validateJwsSignature(const Jws jws, const JwsSignature s
         ecdsa ? ecdsaRawToDer(value) : value.dup);
     } catch (Exception exception) {
       warning("No se pudo verificar la firma JWS: ", exception.msg);
+      failure = exception.msg;
     }
     if (!valid) {
       verdict.degrade(Indication.totalFailed, SubIndication.sigCryptoFailure,
-        message(ValidationMessage.Level.error, "BBB_CV_ISI_ANS"));
+        message(ValidationMessage.Level.error, "BBB_CV_ISI_ANS", failure));
     }
   }
 

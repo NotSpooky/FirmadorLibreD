@@ -284,21 +284,27 @@ private string resolveKeyPassword(Settings conf, const string[string] props) @tr
 
 /**
  * Pasa los ajustes a config.properties y, con `save`, lo escribe (setSettings). La
- * contraseña del almacén sólo se guarda en el archivo si no hay llavero del sistema.
+ * contraseña del almacén sólo se guarda en el archivo si no hay llavero del sistema. Si
+ * la escritura falla, las propiedades en memoria no cambian.
+ *
+ * Throws: Exception con la ruta del archivo si no se puede escribir.
  */
 void writeSettings(const Settings conf, bool save) @trusted {
   auto store = credentialStore;
   managerLock.lock();
   bool inKeyring = !keyPasswordInFile && store !is null && store.isAvailable();
-  currentProperties = settingsToProperties(conf, currentProperties, inKeyring ? null : obfuscate(conf.keyPassword));
-  auto snapshot = currentProperties.dup;
+  auto updated = settingsToProperties(conf, currentProperties, inKeyring ? null : obfuscate(conf.keyPassword));
   managerLock.unlock();
-  if (!save) return;
-  string path = configFilePath();
-  withContext("No se pudo guardar la configuración en " ~ path, {
-    writeFileAtomically(path, formatProperties(snapshot, "Firmador Libre settings", storeTimestamp()));
-    info("Configuración guardada en ", path);
-  });
+  if (save) {
+    string path = configFilePath();
+    withContext("No se pudo guardar la configuración en " ~ path, {
+      writeFileAtomically(path, formatProperties(updated, "Firmador Libre settings", storeTimestamp()));
+      info("Configuración guardada en ", path);
+    });
+  }
+  managerLock.lock();
+  currentProperties = updated;
+  managerLock.unlock();
 }
 
 /**
@@ -374,6 +380,44 @@ void forgetCurrentSettings() @trusted {
   cachedSettings = null;
 }
 
+/// Clave de config.properties con la última carpeta usada en un selector de archivos.
+private enum string lastDirectoryKey = "lastDirectory";
+
+/**
+ * Última carpeta usada en un selector de archivos (gui/desktop/common.d), guardada en
+ * config.properties fuera de Settings para que no viaje en JSON ni la revierta una copia
+ * vieja de los ajustes. Puede ya no existir.
+ *
+ * Returns: la ruta, o null si no se ha usado ninguna.
+ */
+string lastDirectory() @trusted {
+  managerLock.lock();
+  scope (exit) managerLock.unlock();
+  if (auto directory = lastDirectoryKey in currentProperties) return *directory;
+  return null;
+}
+
+/**
+ * Recuerda `directory` como la última carpeta usada y lo guarda en config.properties junto
+ * con los ajustes vigentes; si es la misma de antes no escribe nada. La carpeta queda
+ * recordada en memoria aunque el guardado falle.
+ *
+ * Params:
+ *   directory = ruta de la carpeta.
+ * Throws: Exception con la ruta del archivo si no se puede escribir.
+ */
+void rememberDirectory(string directory) @trusted {
+  enforce(directory.length, "No se indicó la carpeta que se debe recordar");
+  // Antes de cambiar la clave: si los ajustes no se habían leído, leerlos reemplaza las propiedades.
+  auto settings = currentSettings();
+  managerLock.lock();
+  auto previous = lastDirectoryKey in currentProperties;
+  bool unchanged = previous !is null && *previous == directory;
+  if (!unchanged) currentProperties[lastDirectoryKey] = directory;
+  managerLock.unlock();
+  if (!unchanged) writeSettings(settings, true);
+}
+
 /// Directorio de las configuraciones por documento de la lista guardada (docSettings).
 string documentSettingsDirectory() @trusted {
   return buildPath(configDirectory(), "docSettings");
@@ -432,6 +476,28 @@ unittest {
   auto loaded = readSettings();
   assert(loaded.reason == "Prueba");
   assert(loaded.keyPassword == "clave");
+}
+
+@("should keep the last directory across a later settings save and a restart when remembering it")
+unittest {
+  import std.file : tempDir, rmdirRecurse;
+  string directory = buildPath(tempDir, "firmador-prueba-carpeta");
+  if (exists(directory)) rmdirRecurse(directory);
+  mkdirRecurse(directory);
+  scope (exit) rmdirRecurse(directory);
+  setConfigPath(buildPath(directory, "config.properties"));
+  scope (exit) setConfigPath(null);
+  forgetCurrentSettings();
+  scope (exit) forgetCurrentSettings();
+  writeSettings(new Settings(), true);
+
+  rememberDirectory("/carpeta/que/ya/no/existe");
+  writeSettings(currentSettings(), true);
+  managerLock.lock();
+  currentProperties = null;
+  managerLock.unlock();
+  readSettings();
+  assert(lastDirectory() == "/carpeta/que/ya/no/existe");
 }
 
 @("should keep one token-store password when starting without a config file and never replace it when the keyring fails")

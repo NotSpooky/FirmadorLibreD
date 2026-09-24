@@ -504,7 +504,7 @@ private HttpResponse sessionRequest(ConnectionManager manager, string service, c
   auto connection = manager.find(service);
   enforce(connection !is null, format("No hay una conexión para el servicio %s", service));
   auto headers = sessionHeaders(tokens);
-  headers["Content-Type"] = "application/json";
+  if (body.length) headers["Content-Type"] = "application/json";
   auto response = httpRequest(method, urlOf(connection), body, headers);
   if (response.status == 403) manager.forbidden(service);
   return response;
@@ -726,17 +726,27 @@ immutable(ubyte)[] virtualPagePreview(ConnectionManager manager, Document docume
 }
 
 /**
- * Pide al servicio que vuelva a publicar los documentos virtuales (reloadVirtualDocuments);
- * llegan como evento «load». true si respondió 200.
+ * Pide al servicio que vuelva a publicar los documentos virtuales (reloadVirtualDocuments),
+ * con la sesión de la primera tarjeta detectada que tenga una en el servicio; llegan como
+ * evento «load». Un 403 cierra la conexión (sessionRequest). true si respondió 200.
  */
 bool reloadVirtualDocuments(ConnectionManager manager, Connection connection) @trusted {
   try {
-    auto cards = manager.cards().readListSmartCard();
-    if (cards.length == 0) return false;
-    string alias_ = cardTokenAlias(cards[0].identification, connection.service);
-    string firmadorId = tokenOf(readTokenStore(), alias_, TokenType.firmadorId);
-    auto response = httpGet(withQuery(connection.url(connection.config.virtualDocumentsUrl, "documentos virtuales"),
-      [["firmador_id", firmadorId]]));
+    auto entries = readTokenStore();
+    auto card = detectedCard(manager,
+      (candidate) => hasToken(entries, cardTokenAlias(candidate.identification, connection.service), TokenType.access));
+    if (card is null) {
+      error("Ninguna tarjeta detectada tiene una sesión iniciada en ", connection.name);
+      return false;
+    }
+    auto tokens = tokensFor(card.identification, connection.service);
+    auto response = sessionRequest(manager, connection.service, tokens, "GET",
+      (target) => withQuery(target.url(target.config.virtualDocumentsUrl, "documentos virtuales"),
+        [["firmador_id", tokens.firmadorId]]), null);
+    if (response.status != 200 && response.status != 403) {
+      error(format("La recarga de los documentos virtuales de %s respondió %d: %s", connection.name, response.status,
+        response.text));
+    }
     return response.status == 200;
   } catch (Exception exception) {
     error("Error al recargar los documentos virtuales de ", connection.name, ": ", exception.msg);

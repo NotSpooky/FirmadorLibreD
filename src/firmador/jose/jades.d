@@ -525,7 +525,8 @@ immutable(ubyte)[] addJadesValidationData(const(ubyte)[] document, size_t index,
  * de sus sigTst y arcTst (buscados también en `pool`); en las revocaciones, las que ya
  * incluye. Es lo que recibe SigningServices.validationData (firmador.signers.common).
  *
- * Throws: JwsException si la firma no incluye su certificado de firma.
+ * Throws: JwsException si la firma no incluye su certificado de firma; Exception si el
+ * certificado de la autoridad de un sello no está en el sello ni en `pool`.
  */
 ValidationData jadesSigningMaterial(const JwsSignature signature, CertificatePool pool) @trusted {
   auto embedded = jadesEmbeddedData(signature);
@@ -543,8 +544,7 @@ ValidationData jadesSigningMaterial(const JwsSignature signature, CertificatePoo
   foreach (component; signature.etsiU) {
     if (component.name != "sigTst" && component.name != "arcTst") continue;
     foreach (der; tstContainerTokens(component.value)) {
-      auto authority = timestampSignerCertificate(parseTimeStampToken(der), pool);
-      if (authority !is null) material.addCertificate(authority);
+      material.addCertificate(timestampSignerCertificate(parseTimeStampToken(der), pool));
     }
   }
   return material;

@@ -26,10 +26,10 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.validators.pdfvalidator;
 
-import std.algorithm : canFind, sort;
+import std.algorithm : min;
 import std.datetime.systime : Clock, SysTime;
 import std.format : format;
-import std.logger : info, trace, warning;
+import std.logger : trace, warning;
 
 import firmador.asn1.der : joinBytes;
 import firmador.asn1.oids;
@@ -99,46 +99,60 @@ DocumentValidationResult validatePdf(immutable(ubyte)[] pdf, string documentName
     timestamp.result = readTimestamp(TimestampResult.Kind.document, field.fieldName,
       () => parseTimeStampToken(trimContents(field.contents)),
       (token) => joinBytes(signedRanges(pdf, field.byteRange)), baseContext);
-    checkByteRange(field, pdf.length, fields, timestamp.result.messages);
+    timestamp.result.absorb(byteRangeVerdict(field, pdf.length, fields));
     timestamp.result.filename = field.fieldName;
     documentTimestamps ~= timestamp;
   }
 
-  long lastSignatureEnd = 0;
+  // Fin de lo que cubre la primera firma: un sello que termina antes no protege ninguna.
+  long firstSignatureEnd = long.max;
   foreach (field; fields) {
     if (field.type == "DocTimeStamp" || field.subFilter == "ETSI.RFC3161") continue;
     auto signature = validatePdfSignature(pdf, field, fields, documentTimestamps, pool, baseContext,
       dss.certificates.length > 0);
     signature.pdfAnnotationChanges = annotationsChangedAfter(pdf, field, finalAnnotations, finalPages,
       signature.messages);
-    long end = coveredEnd(field.byteRange);
-    if (end > lastSignatureEnd) lastSignatureEnd = end;
+    firstSignatureEnd = min(firstSignatureEnd, coveredEnd(field.byteRange));
     result.signatures ~= signature;
   }
+  // Un sello que no protege ninguna firma se informa como sello independiente; los demás van
+  // como sellos de archivo de las firmas que cubren (validatePdfSignature).
   foreach (timestamp; documentTimestamps) {
-    // Un sello que no protege ninguna firma se informa como sello independiente.
-    if (lastSignatureEnd == 0 || timestamp.coveredEnd <= lastSignatureEnd) {
-      if (result.signatures.length == 0) result.documentTimestamps ~= timestamp.result;
-    }
+    if (timestamp.coveredEnd <= firstSignatureEnd) result.documentTimestamps ~= timestamp.result;
   }
   return result;
 }
 
-private void checkByteRange(const PdfSignatureField field, size_t fileLength, const PdfSignatureField[] all,
-    ref ValidationMessage[] messages) @safe {
+/**
+ * Comprueba el /ByteRange de una firma o sello: que empiece en 0, deje un solo hueco (el
+ * de /Contents) y no pase del final del archivo, y que ese hueco no se cruce con el de
+ * otro campo de `all`.
+ *
+ * Params:
+ *   field = campo que se comprueba.
+ *   fileLength = tamaño del PDF, en bytes.
+ *   all = todos los campos de firma y sello del documento (puede incluir a `field`).
+ * Returns: aprobado, o totalFailed/formatFailure con un mensaje por cada problema.
+ */
+private Verdict byteRangeVerdict(const PdfSignatureField field, size_t fileLength, const PdfSignatureField[] all)
+    @safe {
+  Verdict verdict;
   auto range = field.byteRange;
-  if (range.length != 4 || range[0] != 0 || range[1] <= 0 || range[2] <= range[1]
+  if (range.length != 4 || range[0] != 0 || range[1] <= 0 || range[2] <= range[1] || range[3] < 0
       || range[2] + range[3] > fileLength) {
-    messages ~= message(ValidationMessage.Level.error, "BBB_FC_DASTHVBR_ANS");
-    return;
+    verdict.degrade(Indication.totalFailed, SubIndication.formatFailure,
+      message(ValidationMessage.Level.error, "BBB_FC_DASTHVBR_ANS"));
+    return verdict;
   }
   foreach (other; all) {
     if (other.fieldName == field.fieldName || other.byteRange.length != 4) continue;
     // Los huecos de /Contents de dos firmas nunca pueden cruzarse.
     if (other.byteRange[1] < range[2] && range[1] < other.byteRange[2] && other.byteRange[1] != range[1]) {
-      messages ~= message(ValidationMessage.Level.error, "BBB_FC_DBTOOST_ANS");
+      verdict.degrade(Indication.totalFailed, SubIndication.formatFailure,
+        message(ValidationMessage.Level.error, "BBB_FC_DBTOOST_ANS", other.fieldName));
     }
   }
+  return verdict;
 }
 
 private SignatureResult validatePdfSignature(immutable(ubyte)[] pdf, const PdfSignatureField field,
@@ -173,11 +187,9 @@ private SignatureResult validatePdfSignature(immutable(ubyte)[] pdf, const PdfSi
       message(ValidationMessage.Level.error, "BBB_FC_IEFF_ANS", exception.msg));
     return finishSignature(signature, verdict, family ~ "-B");
   }
-  checkByteRange(field, pdf.length, fields, verdict.messages);
-  if (verdict.messages.length && verdict.messages[$ - 1].key.canFind("BBB_FC_D")) {
-    verdict.degrade(Indication.totalFailed, SubIndication.formatFailure, verdict.messages[$ - 1]);
-    return finishSignature(signature, verdict, family ~ "-B");
-  }
+  auto byteRange = byteRangeVerdict(field, pdf.length, fields);
+  verdict.absorb(byteRange);
+  if (!byteRange.isPassed) return finishSignature(signature, verdict, family ~ "-B");
   if (coveredEnd(field.byteRange) != pdf.length) {
     // Hubo actualizaciones después de esta firma: se informa, no invalida la firma.
     verdict.warn(message(ValidationMessage.Level.info, "BBB_FC_ICFD_ANS"));
@@ -218,7 +230,8 @@ private SignatureResult validatePdfSignature(immutable(ubyte)[] pdf, const PdfSi
 /**
  * Compara las anotaciones de la versión firmada con las del documento final (sin contar
  * los campos de firma, que se añaden al firmar de nuevo). Informa también si cambió el
- * número de páginas.
+ * número de páginas, y si la versión firmada no se pudo abrir para compararla (entonces
+ * no se sabe si hubo cambios y devuelve false).
  */
 private bool annotationsChangedAfter(immutable(ubyte)[] pdf, const PdfSignatureField field,
     const PdfAnnotation[] finalAnnotations, int finalPages, ref ValidationMessage[] messages) @trusted {
@@ -232,7 +245,8 @@ private bool annotationsChangedAfter(immutable(ubyte)[] pdf, const PdfSignatureF
     signedAnnotations = revision.annotations();
     signedPages = revision.pageCount();
   } catch (Exception exception) {
-    trace("No se pudo abrir la versión firmada de ", field.fieldName, ": ", exception.msg);
+    warning("No se pudo abrir la versión firmada de ", field.fieldName, ": ", exception.msg);
+    messages ~= message(ValidationMessage.Level.warning, "validation_signed_revision_unreadable", exception.msg);
     return false;
   }
   if (signedPages != finalPages) messages ~= message(ValidationMessage.Level.warning, "BBB_FC_DSFREAP_ANS");
@@ -285,4 +299,54 @@ unittest {
   auto broken = validatePdf(tampered.idup, "alterado.pdf", new OfflineValidationSource, false);
   assert(broken.signatures[0].indication == Indication.totalFailed);
   assert(broken.signatures[0].subIndication == SubIndication.hashFailure);
+}
+
+@("should report only the document timestamps that protect no signature when timestamps precede and follow it")
+unittest {
+  import firmador.crypto.openssl : makeTestIdentity;
+  import firmador.pdf.pades;
+  // Un sello ilegible basta: se informa igual, como fallido.
+  TimeStampToken fakeStamp(const(ubyte)[] digest) @safe {
+    TimeStampToken token;
+    token.der = [0x30, 0x03, 0x02, 0x01, 0x01];
+    token.info.genTime = Clock.currTime;
+    return token;
+  }
+  auto identity = makeTestIdentity("Firmante con sellos", "x");
+  auto certificate = parseCertificate(identity.certificateDer);
+  auto stampedFirst = addDocumentTimestamp(cast(immutable(ubyte)[]) import("nonPreview.pdf"), &fakeStamp);
+  PadesSignatureParameters parameters;
+  parameters.signingTime = Clock.currTime;
+  auto prepared = preparePadesSignature(stampedFirst, parameters);
+  auto attributes = padesSignedAttributes(preparedDigest(prepared), certificate);
+  auto signed = completePadesSignature(prepared,
+    padesCms(attributes, identity.key.sign(DigestAlgorithm.sha256, attributes), true, certificate, [], null));
+  auto archived = addDocumentTimestamp(signed, &fakeStamp);
+
+  auto result = validatePdf(archived, "sellado.pdf", new OfflineValidationSource, false);
+  assert(result.signatures.length == 1);
+  assert(result.documentTimestamps.length == 1);
+  assert(result.documentTimestamps[0].indication != Indication.passed);
+  assert(result.signatures[0].timestamps.length == 1);
+  assert(result.signatures[0].timestamps[0].kind == TimestampResult.Kind.archive);
+}
+
+@("should fail the byte range when it leaves the file or its gap crosses another field's gap")
+unittest {
+  PdfSignatureField field(string name, long[] range) {
+    PdfSignatureField result;
+    result.fieldName = name;
+    result.byteRange = range;
+    return result;
+  }
+  auto first = field("Firma1", [0, 100, 200, 300]);
+  assert(byteRangeVerdict(first, 500, [first]).isPassed);
+  assert(byteRangeVerdict(first, 499, [first]).indication == Indication.totalFailed);
+  assert(byteRangeVerdict(field("Firma1", [0, 100, 100, 300]), 500, []).subIndication == SubIndication.formatFailure);
+  // Un hueco dentro del de la primera firma, empezando en otro punto.
+  auto crossing = field("Firma2", [0, 150, 180, 320]);
+  auto verdict = byteRangeVerdict(first, 500, [first, crossing]);
+  assert(verdict.indication == Indication.totalFailed && verdict.messages.length == 1);
+  // Una firma posterior cubre la anterior entera, con su hueco más adelante.
+  assert(byteRangeVerdict(first, 800, [first, field("Firma2", [0, 600, 700, 100])]).isPassed);
 }

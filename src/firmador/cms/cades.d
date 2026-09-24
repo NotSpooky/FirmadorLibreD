@@ -76,7 +76,8 @@ private const(SignerInfo) onlySigner(const SignedData data) @safe {
  * revocaciones, las que ya incluye. Es lo que recibe SigningServices.validationData
  * (firmador.signers.common).
  *
- * Throws: Exception si el certificado de un firmante no está en la firma ni en `pool`.
+ * Throws: Exception si el certificado de un firmante o de la autoridad de un sello no está
+ * en la firma ni en `pool`.
  */
 ValidationData cadesSigningMaterial(const(ubyte)[] cms, CertificatePool pool) @safe {
   auto data = parseSignedData(cms);
@@ -89,8 +90,7 @@ ValidationData cadesSigningMaterial(const(ubyte)[] cms, CertificatePool pool) @s
     material.addCertificate(certificate);
     foreach (oid; [oidSignatureTimeStampToken, oidArchiveTimestampV3]) {
       foreach (attribute; signer.unsignedAttributesOf(oid)) {
-        auto authority = timestampSignerCertificate(parseTimeStampToken(attribute.values[0].raw), pool);
-        if (authority !is null) material.addCertificate(authority);
+        material.addCertificate(timestampSignerCertificate(parseTimeStampToken(attribute.values[0].raw), pool));
       }
     }
   }

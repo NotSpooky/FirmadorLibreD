@@ -25,7 +25,9 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 module firmador.validation.cmsverify;
 
 import std.algorithm : canFind;
-import std.logger : trace;
+import std.exception : enforce;
+import std.format : format;
+import std.logger : warning;
 
 import firmador.asn1.oids;
 import firmador.cms.signeddata;
@@ -43,6 +45,8 @@ struct CmsSignerVerification {
   Verdict verdict;
   bool hashValid;
   bool signatureValid;
+  /// Por qué no se pudo verificar la firma (algoritmo no admitido…), o null.
+  string signatureFailure;
 }
 
 /**
@@ -55,9 +59,18 @@ Certificate findSignerCertificate(const SignedData signedData, const SignerInfo 
   return null;
 }
 
-/// Certificado de la autoridad que firmó el sello (su único firmante), o null si no está.
+/**
+ * Certificado de la autoridad que firmó el sello (su único firmante), del propio sello o
+ * de `pool`. Lo piden los niveles LT y LTA para incluir su cadena y su revocación.
+ *
+ * Throws: Exception con la fecha del sello si el certificado no está en ninguno de los dos:
+ * sin él, los datos de validación de la firma quedarían incompletos.
+ */
 Certificate timestampSignerCertificate(const TimeStampToken token, CertificatePool pool) @safe {
-  return findSignerCertificate(token.signedData, token.signedData.signerInfos[0], pool);
+  auto authority = findSignerCertificate(token.signedData, token.signedData.signerInfos[0], pool);
+  enforce(authority !is null, format("El sello de tiempo del %s no incluye el certificado de la autoridad que lo "
+    ~ "firmó, ni está entre los certificados conocidos", token.info.genTime.toISOExtString));
+  return authority;
 }
 
 /**
@@ -111,12 +124,13 @@ CmsSignerVerification verifyCmsSigner(const SignedData signedData, const SignerI
     result.signatureValid = verifySignature(result.signingCertificate.subjectPublicKeyInfoDer, algorithm,
       signer.signedAttributesForSignature, signer.signature);
   } catch (Exception exception) {
-    trace("No se pudo verificar la firma CMS: ", exception.msg);
+    warning("No se pudo verificar la firma CMS: ", exception.msg);
     result.signatureValid = false;
+    result.signatureFailure = exception.msg;
   }
   if (!result.signatureValid) {
     result.verdict.degrade(Indication.totalFailed, SubIndication.sigCryptoFailure,
-      message(ValidationMessage.Level.error, "BBB_CV_ISI_ANS"));
+      message(ValidationMessage.Level.error, "BBB_CV_ISI_ANS", result.signatureFailure));
   }
   return result;
 }

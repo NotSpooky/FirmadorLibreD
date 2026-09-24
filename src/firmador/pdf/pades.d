@@ -262,7 +262,10 @@ immutable(ubyte)[] completePadesSignature(const PreparedSignature prepared, cons
  * Lo que necesita el nivel LT del PDF: en `certificates`, los firmantes y las autoridades
  * de sellado de todas sus firmas y sellos (buscados también en `pool`); en las
  * revocaciones, las del DSS y las de las firmas. Es lo que recibe
- * SigningServices.validationData (firmador.signers.common).
+ * SigningServices.validationData (firmador.signers.common). Las firmas ilegibles se omiten.
+ *
+ * Throws: Exception si el certificado de la autoridad de un sello no está en el sello ni en
+ * `pool`.
  */
 ValidationData padesSigningMaterial(immutable(ubyte)[] pdf, CertificatePool pool) @trusted {
   auto document = PdfDocument.open(pdf);
@@ -275,21 +278,26 @@ ValidationData padesSigningMaterial(immutable(ubyte)[] pdf, CertificatePool pool
     if (certificate !is null) material.addCertificate(certificate);
   }
   foreach (field; document.signatureFields()) {
+    SignedData signedData;
+    TimeStampToken[] timestamps;
     try {
       auto contents = trimContents(field.contents);
-      auto signedData = parseSignedData(contents);
+      signedData = parseSignedData(contents);
       foreach (signer; signedData.signerInfos) {
-        add(findSignerCertificate(signedData, signer, pool));
         foreach (attribute; signer.unsignedAttributesOf(oidSignatureTimeStampToken)) {
-          add(timestampSignerCertificate(parseTimeStampToken(attribute.values[0].raw), pool));
+          timestamps ~= parseTimeStampToken(attribute.values[0].raw);
         }
       }
-      if (signedData.eContentType == oidTstInfo) add(timestampSignerCertificate(parseTimeStampToken(contents), pool));
-      material.crls ~= signedData.crls;
-      material.ocspResponses ~= signedData.ocspResponses;
+      if (signedData.eContentType == oidTstInfo) timestamps ~= parseTimeStampToken(contents);
     } catch (Exception exception) {
       warning("Se omite una firma ilegible del PDF (", field.fieldName, "): ", exception.msg);
+      continue;
     }
+    foreach (signer; signedData.signerInfos) add(findSignerCertificate(signedData, signer, pool));
+    // Fuera del try: una autoridad que no se encuentra deja incompleto el nivel LT y se informa.
+    foreach (timestamp; timestamps) material.addCertificate(timestampSignerCertificate(timestamp, pool));
+    material.crls ~= signedData.crls;
+    material.ocspResponses ~= signedData.ocspResponses;
   }
   return material;
 }

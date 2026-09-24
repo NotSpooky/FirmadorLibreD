@@ -616,7 +616,8 @@ Certificate matchSigningCertificate(const SigningCertificateReference[] referenc
  * autoridades de sellado (buscados también en `pool`); en las revocaciones, las que ya
  * incluye. Es lo que recibe SigningServices.validationData (firmador.signers.common).
  *
- * Throws: XmlException si la firma no identifica su certificado.
+ * Throws: XmlException si la firma no identifica su certificado; Exception si el
+ * certificado de la autoridad de un sello no está en el sello ni en `pool`.
  */
 ValidationData xadesSigningMaterial(XmlNode signatureElement, CertificatePool pool) @trusted {
   auto embedded = embeddedValidationData(signatureElement);
@@ -631,8 +632,7 @@ ValidationData xadesSigningMaterial(XmlNode signatureElement, CertificatePool po
   }
   material.addCertificate(signer);
   foreach (der; xadesTimestampTokens(signatureElement)) {
-    auto authority = timestampSignerCertificate(parseTimeStampToken(der), pool);
-    if (authority !is null) material.addCertificate(authority);
+    material.addCertificate(timestampSignerCertificate(parseTimeStampToken(der), pool));
   }
   return material;
 }

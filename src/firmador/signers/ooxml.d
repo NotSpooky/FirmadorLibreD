@@ -72,10 +72,8 @@ final class OoxmlSigner : ServicedSigner {
       assembly.baseline = (const(ubyte)[] value) @safe => package_(completeOoxmlSignature(prepared, value));
       assembly.upgraded = (const(ubyte)[] value) @safe {
         auto signatureXml = addOoxmlXlProperties(completeOoxmlSignature(prepared, value), revocationDataFor(certificate),
-          &services.timestampDigest, (const TimeStampToken token) @safe {
-            auto authority = timestampSignerCertificate(token, services.pool);
-            return authority is null ? ValidationData.init : revocationDataFor(authority);
-          });
+          &services.timestampDigest,
+          (const TimeStampToken token) @safe => revocationDataFor(timestampSignerCertificate(token, services.pool)));
         info("Firma OOXML en nivel XAdES-X-L");
         return package_(signatureXml);
       };

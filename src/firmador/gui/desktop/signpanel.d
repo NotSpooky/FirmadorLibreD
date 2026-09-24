@@ -438,12 +438,7 @@ final class SignPanel : VerticalLayout {
     updateSizeLabel();
     int pageCount = pages.pageCount;
     pageSelector.setPages(pageCount);
-    int configured = currentSettings().pageNumber;
-    pageSelector.set(configured != 0 && configured <= pageCount && configured >= -pageCount ? configured : 1, false);
-    auto settings = currentSettings();
-    pages.moveSignature(pageIndexFor(pageSelector.value, pageCount),
-      settings.signXf.isNull ? settings.signX : settings.signXf.get,
-      settings.signYf.isNull ? settings.signY : settings.signYf.get);
+    placeConfiguredSignature(currentSettings());
     if (isPdf(document.mimeType)) {
       showPdfControls();
     } else if (isOpenXml(document.mimeType) || isOpenDocument(document.mimeType)) {
@@ -480,10 +475,22 @@ final class SignPanel : VerticalLayout {
     zoomBox.selectedItemIndex = zoomIndexFor(settings.previewZoom);
     pages.setZoom(zoomAt(zoomBox.selectedItemIndex));
     if (current !is null) {
-      pageSelector.set(settings.pageNumber, false);
-      pages.moveSignature(pageIndexFor(pageSelector.value, pages.pageCount), settings.signX, settings.signY);
+      placeConfiguredSignature(settings);
       scheduleSignaturePreview();
     }
+  }
+
+  /**
+   * Pone el recuadro en la página y la posición configuradas. La página se interpreta como
+   * en el selector (pageIndexFor): 0 o negativa cuenta desde el final y una fuera de rango
+   * queda en la más cercana. La posición es la exacta de la vista previa si la hay
+   * (signXf/signYf) o, si no, signX/signY.
+   */
+  private void placeConfiguredSignature(const Settings settings) {
+    int index = pageIndexFor(settings.pageNumber, pages.pageCount);
+    pageSelector.set(index + 1, false);
+    pages.moveSignature(index, settings.signXf.isNull ? settings.signX : settings.signXf.get,
+      settings.signYf.isNull ? settings.signY : settings.signYf.get);
   }
 
   // Ajustes con que se firma -------------------------------------------------

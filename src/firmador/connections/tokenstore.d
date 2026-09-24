@@ -128,6 +128,11 @@ string[string] openTokenStore(const(ubyte)[] sealed, const(char)[] password) @sa
   return entries;
 }
 
+/// Hay un token de ese tipo guardado para el alias en las entradas ya descifradas.
+bool hasToken(const string[string] entries, string alias_, TokenType type) pure nothrow @safe {
+  return (entryKey(alias_, type) in entries) !is null;
+}
+
 /**
  * Token de un alias en las entradas ya descifradas.
  *

@@ -28,7 +28,7 @@ module firmador.gui.desktop.common;
 import std.algorithm : countUntil, endsWith;
 import std.array : replace;
 import std.conv : ConvException, to;
-import std.file : exists, isDir;
+import std.file : exists, FileException, isDir;
 import std.path : baseName, dirName, extension, stripExtension;
 import std.string : strip, toLower;
 import std.utf : toUTF32, toUTF8;
@@ -47,8 +47,10 @@ import dlangui.widgets.scrollbar;
 import dlangui.widgets.widget;
 
 import firmador.documents.document : Document;
+import firmador.gui.desktop.uithread : reportUiFailure;
 import firmador.i18n : htmlToText, t;
 import firmador.settings : Settings;
+import firmador.settingsmanager : lastDirectory, rememberDirectory;
 
 /**
  * Área con desplazamiento vertical que ajusta el contenido al ancho visible: el texto se
@@ -165,7 +167,7 @@ string withOutputExtension(string chosen, string outputExtension) pure @safe {
   return outputExtension.length && extension(chosen).length == 0 ? chosen ~ outputExtension : chosen;
 }
 
-/// Elige archivos para abrir; entrega las rutas (vacío si se cancela).
+/// Elige archivos para abrir, desde `directory` o la última carpeta usada; entrega las rutas (vacío si se cancela).
 void chooseFiles(Window parent, string title, bool multiple, string directory, void delegate(string[] paths) done)
     @trusted {
   auto dialog = fileDialog(parent, title, FileDialogFlag.FileMustExist, directory);
@@ -174,41 +176,78 @@ void chooseFiles(Window parent, string title, bool multiple, string directory, v
     if (result is null || result.id != StandardAction.Open) return done(null);
     string[] paths = multiple ? dialog.filenames : null;
     if (paths.length == 0 && dialog.filename.length) paths = [dialog.filename];
+    if (paths.length) rememberChosenDirectory(dirName(paths[0]));
     done(paths);
   };
   dialog.show();
 }
 
-/// Elige una carpeta; entrega la ruta (null si se cancela).
+/// Elige una carpeta, desde `directory` o la última usada; entrega la ruta (null si se cancela).
 void chooseDirectory(Window parent, string title, string directory, void delegate(string path) done) @trusted {
   auto dialog = fileDialog(parent, title, FileDialogFlag.SelectDirectory, directory);
   dialog.dialogResult = (Dialog source, const Action result) {
     if (result is null || result.id != StandardAction.OpenDirectory) return done(null);
     string chosen = dialog.filename;
     while (chosen.length > 1 && (chosen.endsWith("/") || chosen.endsWith("\\"))) chosen = chosen[0 .. $ - 1];
-    done(chosen.length ? chosen : dialog.path);
+    if (chosen.length == 0) chosen = dialog.path;
+    rememberChosenDirectory(chosen);
+    done(chosen);
   };
   dialog.show();
 }
 
-/// Elige dónde guardar, proponiendo carpeta y nombre; entrega la ruta (null si se cancela).
+/// Elige dónde guardar, proponiendo carpeta (o la última usada) y nombre; entrega la ruta (null si se cancela).
 void chooseSaveFile(Window parent, string title, string directory, string proposedName,
     void delegate(string path) done) @trusted {
   auto dialog = fileDialog(parent, title, FileDialogFlag.Save, directory);
   dialog.filename = proposedName;
   dialog.dialogResult = (Dialog source, const Action result) {
     if (result is null || result.id != StandardAction.Save) return done(null);
-    done(result.stringParam.length ? result.stringParam : dialog.filename);
+    string chosen = result.stringParam.length ? result.stringParam : dialog.filename;
+    rememberChosenDirectory(dirName(chosen));
+    done(chosen);
   };
   dialog.show();
 }
 
-/// Diálogo de archivos modal y redimensionable del tipo dado, que empieza en `directory` si existe.
+/**
+ * Diálogo de archivos modal y redimensionable del tipo dado. Empieza en `directory` o, sin
+ * él, en la última carpeta usada (firmador.settingsmanager.lastDirectory); si esa carpeta
+ * ya no existe, en la más cercana de sus superiores que sí exista, y si no queda ninguna,
+ * donde dlangui decida (la carpeta actual o la personal).
+ */
 private FileDialog fileDialog(Window parent, string title, uint kind, string directory) @trusted {
   auto dialog = new FileDialog(UIString.fromRaw(title.toUTF32), parent, null,
     DialogFlag.Modal | DialogFlag.Resizable | kind);
-  if (directory.length && exists(directory) && isDir(directory)) dialog.path = directory;
+  for (string candidate = directory.length ? directory : lastDirectory(); candidate.length;) {
+    bool usable;
+    try {
+      usable = exists(candidate) && isDir(candidate);
+    } catch (FileException ignored) {
+      // Se borró entre las dos consultas o no se puede leer: se prueba con la superior.
+    }
+    if (usable) {
+      dialog.path = candidate;
+      break;
+    }
+    string above = dirName(candidate);
+    if (above == candidate) break;
+    candidate = above;
+  }
   return dialog;
+}
+
+/**
+ * Recuerda la carpeta para el próximo selector de archivos (la de lo último que se eligió
+ * o se abrió); si no se puede guardar, se avisa al usuario y se sigue.
+ */
+void rememberChosenDirectory(string directory) @trusted {
+  if (directory.length == 0) return;
+  try {
+    rememberDirectory(directory);
+  } catch (Exception failure) {
+    reportUiFailure("No se pudo recordar la última carpeta usada", failure);
+  }
 }
 
 /**
@@ -311,4 +350,6 @@ unittest {
   assert(nextPageValue(-5, 5) == 1 && nextPageValue(-6, 5) == 5 && nextPageValue(9, 5) == 4);
   assert(nextPageValue(int.min, 3) >= 1 && nextPageValue(1, 0) == 1);
   assert(pageIndexFor(-1, 5) == 4 && pageIndexFor(2, 5) == 1 && pageIndexFor(1, 0) == 0);
+  // Página configurada: 0 es la última y una fuera de rango queda en la más cercana.
+  assert(pageIndexFor(0, 5) == 4 && pageIndexFor(9, 5) == 4 && pageIndexFor(-9, 5) == 0);
 }

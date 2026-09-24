@@ -207,6 +207,21 @@ final class Settings {
     }}
   }
 
+  /**
+   * Toma todos los valores de `other`, también los que el constructor de copia no copia
+   * (contraseña del almacén, orígenes, modo…); conserva sus propios oyentes. Sirve para
+   * cambiar una copia completa y aplicarla después de guardarla
+   * (firmador.gui.desktop.configpanel).
+   */
+  void assign(const Settings other) @safe {
+    static foreach (index, field; Settings.tupleof) {{
+      static if (__traits(identifier, field) != "listeners") {
+        static if (is(typeof(field) == string[])) this.tupleof[index] = other.tupleof[index].dup;
+        else this.tupleof[index] = other.tupleof[index];
+      }
+    }}
+  }
+
   /// Orígenes autorizados, permanentes y de esta sesión, sin repetidos.
   string[] getAllowedHosts() const pure @safe {
     return (splitHosts(tempAllowedHosts) ~ splitHosts(registeredAllowedOrigins)).uniqueInOrder;
@@ -841,4 +856,22 @@ unittest {
   applyDocumentProperties(loaded, ["signWidth": "133", "signHeight": "33", "reason": "Otro"]);
   assert(loaded.reason == "Otro");
   assert("signwidth" !in settingsToProperties(new Settings(), ["signwidth": "133"], null));
+}
+
+@("should copy every value including the ones the copy constructor skips when assigning")
+unittest {
+  auto source = new Settings();
+  source.keyPassword = "clave";
+  source.simplified_mode = true;
+  source.setRegisteredAllowedOrigins(["https://a.cr"]);
+  source.pKCS12File = ["/tmp/a.p12"];
+  auto copied = new Settings(source);
+  assert(copied.keyPassword != "clave" && copied.simplified_mode.isNull);
+  auto assigned = new Settings();
+  assigned.assign(source);
+  assert(assigned.keyPassword == "clave" && assigned.simplified_mode.get);
+  assert(assigned.getRegisteredAllowedOrigins() == ["https://a.cr"]);
+  // Las listas no se comparten.
+  assigned.pKCS12File[0] = "/tmp/b.p12";
+  assert(source.pKCS12File[0] == "/tmp/a.p12");
 }

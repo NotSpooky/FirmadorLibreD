@@ -476,30 +476,37 @@ final class ConfigPanel : VerticalLayout {
 
   /**
    * Pasa los campos a la configuración vigente (chargeSettings) y, con `save`, la escribe.
-   * Si algún valor no se puede leer se informa y no se cambia nada.
+   * Si algún valor no se puede leer o no se puede guardar, se informa y no se cambia nada.
    */
   private void apply(bool save) {
     auto settings = currentSettings();
     string previousLanguage = settings.language;
     string previousTheme = settings.themeMode;
-    // Primero se validan los campos sobre una copia; sólo si todos se leen se cambian los
-    // ajustes vigentes, que comparten los documentos abiertos.
+    // Los campos se leen y se guardan desde una copia completa; sólo si todo sale bien se
+    // cambian los ajustes vigentes, que comparten los documentos abiertos.
+    auto candidate = new Settings();
+    synchronized (settings) candidate.assign(settings);
     try {
-      fill(new Settings(settings));
+      fill(candidate);
     } catch (Exception exception) {
       showMessageDialog(window, t("guiswing_show_error_dialog_title"), exception.msg);
       return;
     }
-    synchronized (settings) fill(settings);
+    try {
+      writeSettings(candidate, save);
+    } catch (Exception exception) {
+      host.showError(exception);
+      return;
+    }
+    synchronized (settings) settings.assign(candidate);
     replaceCurrentSettings(settings);
     auto store = Pkcs12CredentialStore.instance();
     store.retainOnly(settings.pKCS12File);
     try {
       store.save();
-      writeSettings(settings, save);
     } catch (Exception exception) {
+      // Los ajustes ya están guardados; el almacén conserva en el archivo los que se quitaron.
       host.showError(exception);
-      return;
     }
     settings.updateConfig();
     host.applySettings();

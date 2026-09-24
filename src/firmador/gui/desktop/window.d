@@ -122,7 +122,6 @@ final class DesktopInterface : GuiInterface, ConnectionView {
   private Document remoteDocument;
   private RemoteDocumentSlot remoteSlot;
   private Document[] virtualDocumentsToSign;
-  private string lastDirectory;
   private bool closing;
 
   /**
@@ -199,9 +198,8 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     fileField.tooltipText = tip("document_selection_filefield_tooltip");
     selection.addChild(fileField);
     selection.addChild(makeButton("elegir", "document_selection_btn", "document_selection_btn_tooltip", () {
-      chooseFiles(window, t("document_selection_filedialog_title"), true, lastDirectory, (string[] paths) {
+      chooseFiles(window, t("document_selection_filedialog_title"), true, null, (string[] paths) {
         if (paths.length == 0) return;
-        lastDirectory = dirName(paths[0]);
         addFiles(paths, true);
       });
       return true;
@@ -820,7 +818,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
   private void setActiveDocument(Document document) {
     if (document is null || document.isVirtual) return;
     fileField.text = document.name.toUTF32;
-    if (document.pathname.length) lastDirectory = dirName(document.pathname);
+    if (document.pathname.length) rememberChosenDirectory(dirName(document.pathname));
   }
 
   /// Muestra el documento en la pestaña de firma (loadActiveDocument).

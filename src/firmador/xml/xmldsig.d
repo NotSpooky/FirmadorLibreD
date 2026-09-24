@@ -31,7 +31,7 @@ import std.array : split;
 import std.base64 : Base64;
 import std.exception : enforce;
 import std.format : format;
-import std.logger : trace;
+import std.logger : trace, warning;
 import std.string : strip, indexOf;
 import std.uri : decodeComponent;
 
@@ -473,6 +473,8 @@ struct XmlSignatureVerification {
   string[] failedReferences;
   /// Referencias que no se pudieron resolver o procesar.
   string[] missingReferences;
+  /// Por qué no se pudo verificar el valor de la firma (algoritmo no admitido…), o null.
+  string signatureFailure;
 }
 
 /**
@@ -504,8 +506,9 @@ XmlSignatureVerification verifyXmlSignature(XmlDocument document, const DsSignat
     result.signatureValid = verifySignature(certificate.subjectPublicKeyInfoDer, algorithm,
       canonicalSignedInfo(document, signature), value);
   } catch (Exception exception) {
-    trace("No se pudo verificar el valor de la firma XML: ", exception.msg);
+    warning("No se pudo verificar el valor de la firma XML: ", exception.msg);
     result.signatureValid = false;
+    result.signatureFailure = exception.msg;
   }
   return result;
 }
