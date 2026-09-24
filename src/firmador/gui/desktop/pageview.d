@@ -308,6 +308,8 @@ final class PageView : ScrollWidgetBase {
   private bool signatureShown;
   private SignaturePlacement placement;
   private bool dragging;
+  /// Punto del recuadro que se tomó al empezar a arrastrar, en puntos desde su esquina superior izquierda.
+  private float dragAnchorX = 0, dragAnchorY = 0;
   /// Se arrastra la esquina del recuadro; tamaño y escala al empezar.
   private bool resizing;
   private float resizeStartWidth = 0, resizeStartHeight = 0, resizeStartScale = 1;
@@ -650,11 +652,20 @@ final class PageView : ScrollWidgetBase {
     return x >= handle.left - 3 && y >= handle.top - 3 && x < handle.right + 3 && y < handle.bottom + 3;
   }
 
-  /// Centra el recuadro en el punto de la ventana, cambiando de página si hace falta.
-  private void placeSignatureAtPoint(int x, int y) {
+  /**
+   * Mueve el recuadro para que su punto (anchorX, anchorY) quede en el punto de la
+   * ventana, cambiando de página si hace falta.
+   *
+   * Params:
+   *   x = posición horizontal en la ventana, en píxeles.
+   *   y = posición vertical en la ventana, en píxeles.
+   *   anchorX = distancia horizontal desde la esquina superior izquierda del recuadro, en puntos.
+   *   anchorY = distancia vertical desde esa esquina, en puntos.
+   */
+  private void placeSignatureAtPoint(int x, int y, float anchorX, float anchorY) {
     int page = pageAt(y);
     Rect rc = pageRect(page);
-    moveSignature(page, (x - rc.left) / scale - signatureWidth / 2, (y - rc.top) / scale - signatureHeight / 2);
+    moveSignature(page, (x - rc.left) / scale - anchorX, (y - rc.top) / scale - anchorY);
   }
 
   override uint getCursorType(int x, int y) {
@@ -669,7 +680,7 @@ final class PageView : ScrollWidgetBase {
     if (event.action == MouseAction.ButtonDown && event.button == MouseButton.Left && inClient) {
       setFocus();
       if (event.doubleClick && signatureShown) {
-        placeSignatureAtPoint(event.x, event.y);
+        placeSignatureAtPoint(event.x, event.y, signatureWidth / 2, signatureHeight / 2);
         return true;
       }
       if (onResizeHandle(event.x, event.y)) {
@@ -681,6 +692,9 @@ final class PageView : ScrollWidgetBase {
       }
       if (insideSignature(event.x, event.y)) {
         dragging = true;
+        Rect box = signatureBox();
+        dragAnchorX = (event.x - box.left) / scale;
+        dragAnchorY = (event.y - box.top) / scale;
         return true;
       }
     }
@@ -700,7 +714,7 @@ final class PageView : ScrollWidgetBase {
       return true;
     }
     if (event.action == MouseAction.Move && dragging && (event.flags & MouseFlag.LButton)) {
-      placeSignatureAtPoint(event.x, event.y);
+      placeSignatureAtPoint(event.x, event.y, dragAnchorX, dragAnchorY);
       return true;
     }
     if ((event.action == MouseAction.ButtonUp || event.action == MouseAction.Cancel) && dragging) {
