@@ -20,6 +20,7 @@ Firmador fue creado y es mantenido por sus autores originales:
 * Victor Jiménez
 
 y por quienes han contribuido al proyecto a lo largo de los años (ver [AUTHORS.md](AUTHORS.md)).
+La versión en D es obra de Christian Durán Carvajal.
 
 * Sitio del proyecto: <https://firmador.libre.cr>
 * Código original (Java): <https://codeberg.org/firmador/firmador>
