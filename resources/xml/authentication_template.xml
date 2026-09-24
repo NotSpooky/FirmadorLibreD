@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AutorizacionIngreso xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" >
+    <Peticion>
+        <TipoDocumento>Autorización para Ingreso a Plataforma Digital</TipoDocumento>
+        <FechaEntidadSolicitante>{REQUEST_DATE}</FechaEntidadSolicitante>
+        <Dominio>{DOMAIN}</Dominio>
+        <TransaccionID>{TRANSACTION}</TransaccionID>
+    </Peticion>
+    <Firmante>
+        <Nombre>{SIGNER}</Nombre>
+        <Identificacion>{IDENTIFICATION}</Identificacion>
+    </Firmante>
+    <Detalles>
+        <CodigoAutorizacion>{AUTHCODE}</CodigoAutorizacion>
+        <FechaEmision>{EMITION_DATE}</FechaEmision>
+    </Detalles>
+</AutorizacionIngreso>

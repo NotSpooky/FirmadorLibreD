@@ -1,0 +1,92 @@
+{
+  "name": "firmador",
+  "description": "Firmador Libre: firma y valida documentos según la política de formatos oficiales de Costa Rica",
+  "homepage": "https://firmador.libre.cr",
+  "authors": [
+    "Firmador authors"
+  ],
+  "copyright": "Copyright (C) Firmador authors",
+  "license": "GPL-3.0-or-later",
+  "targetType": "executable",
+  "targetName": "firmador",
+  "targetPath": "bin",
+  "mainSourceFile": "src/firmador/app.d",
+  "sourcePaths": [
+    "src/firmador"
+  ],
+  "importPaths": [
+    "src",
+    "src/c"
+  ],
+  "cSourcePaths": [
+    "src/c"
+  ],
+  "stringImportPaths": [
+    "resources"
+  ],
+  "dependencies": {
+    "dlangui": "==0.10.8"
+  },
+  "subConfigurations": {
+    "dlangui": "minimal"
+  },
+  "preBuildCommands": [
+    "sh \"$PACKAGE_DIR/tools/prebuild.sh\""
+  ],
+  "lflags": [
+    "$PACKAGE_DIR/.build/libfirmadorshim.a"
+  ],
+  "libs-linux": [
+    "mupdf",
+    "libxml-2.0",
+    "libxslt",
+    "libcrypto",
+    "libpcsclite",
+    "libsecret-1"
+  ],
+  "libs-osx": [
+    "mupdf",
+    "libxml-2.0",
+    "libxslt",
+    "libcrypto"
+  ],
+  "lflags-osx": [
+    "-framework",
+    "PCSC",
+    "-framework",
+    "Security",
+    "-framework",
+    "CoreFoundation",
+    "-framework",
+    "CoreServices"
+  ],
+  "libs-windows": [
+    "mupdf",
+    "libxml2",
+    "libxslt",
+    "libcrypto",
+    "winscard",
+    "advapi32",
+    "crypt32",
+    "shell32",
+    "user32"
+  ],
+  "excludedSourceFiles-osx": [
+    "src/c/csecret.c"
+  ],
+  "excludedSourceFiles-windows": [
+    "src/c/csecret.c"
+  ],
+  "buildTypes": {
+    "release": {
+      "buildOptions": [
+        "optimize",
+        "inline",
+        "debugInfo"
+      ]
+    }
+  },
+  "cImportPaths": [
+    "src/cinclude"
+  ]
+}

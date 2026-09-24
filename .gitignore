@@ -1,0 +1,15 @@
+/bin/
+/.build/
+/.dub/
+/firmador-test-*
+/docs/build/
+build-dir/
+.flatpak-builder/
+*.flatpak
+repository/
+.idea
+*.patch
+*.o
+*.obj
+/src/cinclude/*
+!/src/cinclude/.gitkeep
