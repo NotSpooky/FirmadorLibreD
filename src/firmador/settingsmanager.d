@@ -44,6 +44,7 @@ import firmador.i18n : setMessagesLocale;
 import firmador.logging : setLogLevel;
 import firmador.settings;
 import firmador.util.datetime : formatJavaDate, DateLanguage, costaRicaTimeZone;
+import firmador.util.desktop : insideFlatpak;
 import firmador.util.properties : parseProperties, formatProperties;
 
 /// Llavero del sistema donde se guarda la contraseña del almacén de tokens.
@@ -122,8 +123,7 @@ string configFilePath() @trusted {
   string path = overridePath;
   managerLock.unlock();
   if (path.length) return path;
-  bool inFlatpak = environment.get("FIRMADORINFLATPAK", "false") == "true";
-  return buildPath(configDirectory(), inFlatpak ? "config-flatpak-properties" : "config.properties");
+  return buildPath(configDirectory(), insideFlatpak() ? "config-flatpak-properties" : "config.properties");
 }
 
 /// Línea de fecha que Properties.store añade tras el comentario.

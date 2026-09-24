@@ -24,7 +24,8 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  * «<artefacto>.sha256» publicado (@contract release-artifacts): en Linux reemplaza el
  * ejecutable, en Windows ejecuta el instalador en modo silencioso y en macOS reemplaza
  * el contenido del paquete Firmador.app. Dentro de flatpak no se instala nada: se avisa
- * y la actualización llega por flatpak.
+ * y la actualización llega por flatpak. No consulta nada mientras
+ * configuration.releaseCheckEnabled esté desactivado.
  */
 module firmador.plugins.checkupdate;
 
@@ -35,12 +36,11 @@ import std.conv : octal;
 import std.digest : toHexString, LetterCase;
 import std.digest.sha : sha256Of;
 import std.exception : enforce;
-import std.file : exists, getAttributes, isDir, mkdirRecurse, read, remove, rename, setAttributes, tempDir,
-  thisExePath, write;
+import std.file : isDir, mkdirRecurse, read, remove, rename, setAttributes, tempDir, thisExePath, write;
 import std.format : format;
 import std.logger : error, info, warning;
 import std.path : buildNormalizedPath, buildPath, dirName;
-import std.process : Config, environment, spawnProcess;
+import std.process : Config, spawnProcess;
 import std.string : indexOf, strip, toUpper;
 import std.uni : isWhite;
 
@@ -50,6 +50,7 @@ import firmador.gui.guiinterface : GuiInterface;
 import firmador.i18n : t;
 import firmador.net.http : httpGet, HttpOptions;
 import firmador.plugins.plugin : Plugin;
+import firmador.util.desktop : insideFlatpak;
 import firmador.util.zip : isSafeEntryName, readZip;
 
 /// Tamaño máximo de un artefacto descargado.
@@ -112,16 +113,20 @@ final class CheckUpdatePlugin : Plugin {
   override string name() const @safe { return checkUpdatePluginName; }
 
   override void start() @trusted {
-    info("Starting CheckUpdatePlugin");
-    auto worker = new Thread({
-      try {
-        check();
-      } catch (Exception exception) {
-        error("Error al buscar actualizaciones: ", exception.msg);
-      }
-    });
-    worker.isDaemon = true;
-    worker.start();
+    if (!releaseCheckEnabled) {
+      info("CheckUpdatePlugin desactivado (configuration.releaseCheckEnabled): no se buscan actualizaciones");
+    } else {
+      info("Starting CheckUpdatePlugin");
+      auto worker = new Thread({
+        try {
+          check();
+        } catch (Exception exception) {
+          error("Error al buscar actualizaciones: ", exception.msg);
+        }
+      });
+      worker.isDaemon = true;
+      worker.start();
+    }
   }
 
   override void stop() @safe {
@@ -163,7 +168,7 @@ final class CheckUpdatePlugin : Plugin {
 
   /// Se puede instalar sin permisos que no se tienen: fuera de flatpak y con el ejecutable escribible.
   private bool canInstall() @trusted {
-    if (environment.get("FIRMADORINFLATPAK", "false") == "true" || exists("/.flatpak-info")) return false;
+    if (insideFlatpak()) return false;
     version (OSX) {
       return true;
     } else {

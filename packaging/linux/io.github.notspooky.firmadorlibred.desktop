@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Firmador Libre
+GenericName=Firmador de documentos
+GenericName[en]=Document signer
+Comment=Firme y valide documentos según la Política de Formatos Oficiales de los Documentos Electrónicos Firmados Digitalmente de Costa Rica
+Comment[en]=Sign and validate documents following Costa Rica's official policy for digitally signed electronic documents
+Exec=firmador %U
+Icon=io.github.notspooky.firmadorlibred
+Terminal=false
+Categories=Office;
+Keywords=firma;firma digital;PDF;PAdES;XAdES;CAdES;BCCR;signature;
+MimeType=application/pdf;application/vnd.oasis.opendocument.text;application/vnd.oasis.opendocument.spreadsheet;application/vnd.oasis.opendocument.presentation;application/vnd.oasis.opendocument.graphics;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.openxmlformats-officedocument.presentationml.presentation;application/vnd.etsi.asic-e+zip;x-scheme-handler/firmador;
+StartupWMClass=firmador
+SingleMainWindow=true

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (C) Firmador authors -->
+<component type="desktop-application">
+  <id>io.github.notspooky.firmadorlibred</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>Firmador Libre</name>
+  <summary>Sign and validate documents with Costa Rica's digital signature</summary>
+  <summary xml:lang="es">Firme y valide documentos con la firma digital de Costa Rica</summary>
+
+  <developer id="io.github.notspooky">
+    <name>Firmador authors</name>
+    <name xml:lang="es">Autores de Firmador</name>
+  </developer>
+
+  <description>
+    <p>
+      Firmador Libre signs and validates documents following Costa Rica's official policy
+      for digitally signed electronic documents: PDF (PAdES), XML (XAdES), JSON (JAdES),
+      ASiC-E containers, OpenDocument, Office (OOXML) and CMS (CAdES) signatures, using a
+      digital signature card or a PKCS#12 store.
+    </p>
+    <p xml:lang="es">
+      Firmador Libre firma y valida documentos según la Política de Formatos Oficiales de
+      los Documentos Electrónicos Firmados Digitalmente de Costa Rica: PDF (PAdES), XML
+      (XAdES), JSON (JAdES), contenedores ASiC-E, OpenDocument, Office (OOXML) y firmas CMS
+      (CAdES), con la tarjeta de firma digital o un almacén PKCS#12.
+    </p>
+    <p>
+      Web pages can also request signatures from it through Firmador Remoto, and it works
+      from the command line for batch signing.
+    </p>
+    <p xml:lang="es">
+      Las páginas web también le pueden pedir firmas mediante Firmador Remoto, y funciona
+      desde la línea de comandos para firmar por lotes.
+    </p>
+    <p>
+      This is a native port of the Java application to D.
+    </p>
+    <p xml:lang="es">
+      Esta es una versión nativa, escrita en D, del programa original en Java.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.notspooky.firmadorlibred.desktop</launchable>
+
+  <url type="homepage">https://github.com/NotSpooky/FirmadorLibreD</url>
+  <url type="bugtracker">https://github.com/NotSpooky/FirmadorLibreD/issues</url>
+  <url type="vcs-browser">https://github.com/NotSpooky/FirmadorLibreD</url>
+
+  <provides>
+    <binary>firmador</binary>
+  </provides>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="2.0.0" date="2026-09-24" type="development"/>
+  </releases>
+</component>

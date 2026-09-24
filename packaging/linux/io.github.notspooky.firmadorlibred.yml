@@ -1,0 +1,198 @@
+# Flatpak de Firmador Libre. Compila lo que el runtime no trae (el cliente de pcsc-lite y
+# mupdf) y luego Firmador con DMD, sin red: las dependencias de dub (dub.selections.json)
+# llegan como fuentes git fijadas por commit. DMD sólo existe para x86_64. Cómo
+# construirlo e instalarlo: COMMANDS.md.
+id: io.github.notspooky.firmadorlibred
+runtime: org.freedesktop.Platform
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
+command: firmador
+finish-args:
+  # Ventana (SDL2) por X11, que en los escritorios Wayland da XWayland. En Wayland, SDL
+  # dibuja los bordes con libdecor, que carga GTK en el proceso, y los cargadores de
+  # imágenes de GTK dependen de un portal de flatpak.
+  - --socket=x11
+  - --share=ipc
+  - --device=dri
+  # Lectores de tarjetas, mediante el pcscd del sistema.
+  - --socket=pcsc
+  # Bibliotecas PKCS#11 de las tarjetas instaladas en el sistema, que se ven en
+  # /run/host/usr/lib (firmador.cards.pkcs11library).
+  - --filesystem=host-os:ro
+  # Documentos y ~/.config/firmadorlibre: los diálogos de archivos de dlangui no usan
+  # los portales.
+  - --filesystem=home
+  # Sello de tiempo, OCSP y CRL, conexiones, y Firmador Remoto (escucha en 127.0.0.1).
+  - --share=network
+  # Llavero del sistema (libsecret) y avisos del escritorio (notify-send).
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.freedesktop.Notifications
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/doc
+  - /share/man
+  - '*.a'
+modules:
+  # Sólo la biblioteca cliente: habla con el pcscd del sistema por el socket de flatpak.
+  - name: pcsc-lite
+    buildsystem: meson
+    config-opts:
+      - -Dlibsystemd=false
+      - -Dlibudev=false
+      - -Dpolkit=false
+      - -Dusb=false
+      - -Dserial=false
+    cleanup:
+      - /bin
+      - /sbin
+      - /lib/libpcscspy*
+      - /lib/systemd
+      - /share
+    sources:
+      - type: archive
+        url: https://pcsclite.apdu.fr/files/pcsc-lite-2.5.1.tar.xz
+        sha256: bfcfe38a20afc49849c6bf55325e38f449fc4b26d3923fdc32b969ae41a8741b
+
+  # Con FreeType, HarfBuzz, libjpeg, OpenJPEG, zlib y Brotli del runtime: dlangui carga
+  # el mismo FreeType, y dos copias en el proceso chocarían. mupdf no instala mupdf.pc,
+  # que tools/prebuild.sh necesita.
+  - name: mupdf
+    buildsystem: simple
+    build-commands:
+      - >-
+        make -j"${FLATPAK_BUILDER_N_JOBS}" build=release shared=yes prefix="${FLATPAK_DEST}" HAVE_X11=no HAVE_GLUT=no
+        USE_SYSTEM_FREETYPE=yes USE_SYSTEM_HARFBUZZ=yes USE_SYSTEM_LIBJPEG=yes USE_SYSTEM_OPENJPEG=yes
+        USE_SYSTEM_ZLIB=yes USE_SYSTEM_BROTLI=yes install-libs
+      - |
+        install -d "${FLATPAK_DEST}/lib/pkgconfig"
+        cat > "${FLATPAK_DEST}/lib/pkgconfig/mupdf.pc" <<'PC'
+        prefix=/app
+        libdir=${prefix}/lib
+        includedir=${prefix}/include
+
+        Name: mupdf
+        Description: Library for rendering PDF documents
+        Version: 1.28.4
+        Libs: -L${libdir} -lmupdf
+        Cflags: -I${includedir}
+        PC
+    sources:
+      - type: archive
+        url: https://mupdf.com/downloads/archive/mupdf-1.28.4-source.tar.gz
+        sha256: 2d97e043a616f96b148657c9c3d81ad71c4bd2052c59a2a3315ad842599340f9
+
+  - name: firmador
+    buildsystem: simple
+    build-options:
+      append-path: /run/build/firmador/.dmd/linux/bin64
+      env:
+        DUB_HOME: /run/build/firmador/.dub-home
+    build-commands:
+      # Todo dub.selections.json: dub también resuelve las dependencias de las otras
+      # configuraciones de dlangui (dsfml, glx-d, x11), aunque no las compila.
+      - dub add-local .dub-packages/arsd-official 10.9.10
+      - dub add-local .dub-packages/bindbc-common 0.1.6
+      - dub add-local .dub-packages/bindbc-freetype 1.2.6
+      - dub add-local .dub-packages/bindbc-loader 1.1.5
+      - dub add-local .dub-packages/bindbc-opengl 1.1.2
+      - dub add-local .dub-packages/bindbc-sdl 1.4.8
+      - dub add-local .dub-packages/dlangui 0.10.8
+      - dub add-local .dub-packages/dsfml 2.1.1
+      - dub add-local .dub-packages/glx-d 1.1.0
+      - dub add-local .dub-packages/icontheme 1.2.3
+      - dub add-local .dub-packages/inilike 1.2.3
+      - dub add-local .dub-packages/isfreedesktop 0.1.1
+      - dub add-local .dub-packages/x11 1.0.21
+      - dub add-local .dub-packages/xdgpaths 0.2.5
+      # dub exige que exista antes del paso previo, que lo llena.
+      - mkdir -p src/cinclude
+      - dub build --skip-registry=all --build=release --compiler=dmd
+      - packaging/linux/install.sh "${FLATPAK_DEST}"
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - .build
+          - .dub
+          - .flatpak-builder
+          - bin
+          - build-dir
+          - firmadorlibre.flatpak
+          - repository
+          - src/cinclude
+      - type: archive
+        url: https://downloads.dlang.org/releases/2.x/2.113.0/dmd.2.113.0.linux.tar.xz
+        sha256: b342ab8bd40cc0c46407692b31d7cd69661ff01da686234f426949e881727294
+        dest: .dmd
+      - type: git
+        url: https://github.com/adamdruppe/arsd.git
+        tag: v10.9.10
+        commit: ee9d7eed7d2935766155d6dce621797e880f94e2
+        dest: .dub-packages/arsd-official
+      - type: git
+        url: https://github.com/BindBC/bindbc-common.git
+        tag: v0.1.6
+        commit: 0f14f8b1a60232a52c515c2152b5da9157b38b22
+        dest: .dub-packages/bindbc-common
+      - type: git
+        url: https://github.com/BindBC/bindbc-freetype.git
+        tag: v1.2.6
+        commit: ee0883cd3b00fedf974c15b170465ce12025b6f7
+        dest: .dub-packages/bindbc-freetype
+      - type: git
+        url: https://github.com/BindBC/bindbc-loader.git
+        tag: v1.1.5
+        commit: c8726dbedc646827e857373d1bd22f8dccc03cf4
+        dest: .dub-packages/bindbc-loader
+      - type: git
+        url: https://github.com/BindBC/bindbc-opengl.git
+        tag: v1.1.2
+        commit: 1bf0fc8e580a423c237bb6355c9abdd4f9e1ff1c
+        dest: .dub-packages/bindbc-opengl
+      - type: git
+        url: https://github.com/BindBC/bindbc-sdl.git
+        tag: v1.4.8
+        commit: 49ddafae262fe7ebf5abc0dedb92661c30082bd2
+        dest: .dub-packages/bindbc-sdl
+      - type: git
+        url: https://github.com/buggins/dlangui.git
+        tag: v0.10.8
+        commit: b5546ee80bca1ccd7b4736c6239bf9c942117d0d
+        dest: .dub-packages/dlangui
+      - type: git
+        url: https://github.com/Jebbs/DSFML.git
+        tag: v2.1.1
+        commit: 208ca646f2e762533fcb3227ce32effe49b1118e
+        dest: .dub-packages/dsfml
+      - type: git
+        url: https://github.com/GrimMaple/glx-d.git
+        tag: v1.1.0
+        commit: 2c567ebed22a72df3a5890f76658b822ed99bf8f
+        dest: .dub-packages/glx-d
+      - type: git
+        url: https://github.com/FreeSlave/icontheme.git
+        tag: v1.2.3
+        commit: ae61c82ed846e41d2e8f9e417a401b17939ff6d5
+        dest: .dub-packages/icontheme
+      - type: git
+        url: https://github.com/FreeSlave/inilike.git
+        tag: v1.2.3
+        commit: 2ddbb6eb55bb7d2d3c1e27072a4f71857e591cc3
+        dest: .dub-packages/inilike
+      - type: git
+        url: https://github.com/FreeSlave/isfreedesktop.git
+        tag: v0.1.1
+        commit: 784e76f1802ec63618161261f48884b72a3dc908
+        dest: .dub-packages/isfreedesktop
+      - type: git
+        url: https://github.com/nomad-software/x11.git
+        tag: v1.0.21
+        commit: dcea00f21805fc8e1bbd032c91231f0c9569957b
+        dest: .dub-packages/x11
+      - type: git
+        url: https://github.com/FreeSlave/xdgpaths.git
+        tag: v0.2.5
+        commit: 650d51eea7b6c400e127e126016b5718060eb847
+        dest: .dub-packages/xdgpaths

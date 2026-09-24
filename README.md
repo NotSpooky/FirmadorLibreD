@@ -105,19 +105,49 @@ El paso previo (`tools/prebuild.sh`) reúne las cabeceras de C que ImportC neces
 según `pkg-config` y compila el puente con mupdf.
 
 
+## Instalación en Linux
+
+**Flatpak** (no necesita las bibliotecas de arriba: compila mupdf y el cliente de PC/SC,
+y usa el runtime de freedesktop 26.08):
+
+```sh
+flatpak-builder --user --install --install-deps-from=flathub --force-clean \
+  build-dir packaging/linux/io.github.notspooky.firmadorlibred.yml
+flatpak run io.github.notspooky.firmadorlibred
+```
+
+Dentro de flatpak, Firmador usa el `pcscd` del sistema para los lectores y las
+bibliotecas de las tarjetas instaladas en el sistema (Athena o JCOP4), y guarda su
+configuración en `~/.config/firmadorlibre/config-flatpak-properties`.
+
+**En el sistema**, después de `dub build --build=release`:
+
+```sh
+sudo packaging/linux/install.sh          # en /usr/local
+packaging/linux/install.sh ~/.local      # sólo para el usuario
+```
+
+Instala el ejecutable, la entrada del menú (abre PDF, OpenDocument, Office y ASiC-E, y
+los enlaces `firmador:` de Firmador Remoto) y los íconos. El resto de comandos (armar el
+archivo `.flatpak` para publicar, diagnosticar…) está en [COMMANDS.md](COMMANDS.md).
+
+
 ## Pendiente (TODO)
 
-* **Empaquetado**: flatpak, instalador de Windows y paquete `.app` de macOS (con el
-  esquema `firmador:` en su `Info.plist`), y publicar los ejecutables que busca el aviso
-  de actualizaciones.
+Lo principal; el detalle está en [PENDING.md](PENDING.md).
+
+* **Empaquetado**: instalador de Windows y paquete `.app` de macOS (con el esquema
+  `firmador:` en su `Info.plist`). El flatpak de Linux está listo, falta publicarlo.
+* **Aviso de actualizaciones**: está desactivado (`releaseCheckEnabled` en
+  `configuration.d`) hasta que apunte a las versiones publicadas de este repositorio.
 * **Probar en Windows y macOS**: el código para ambos está escrito (llavero del sistema,
   enlaces `firmador:` en macOS, consola en Windows) pero sólo se ha probado en Linux.
 * **Ícono en la bandeja del sistema**: dlangui no lo ofrece; hoy los avisos con la
   ventana oculta usan las notificaciones del escritorio.
 * **Accesibilidad**: dlangui no expone la interfaz a lectores de pantalla como lo hacía
   Swing; la navegación con teclado sí funciona.
-* **Documentación**: `PROJECT_STRUCTURE.md`, `COMMANDS.md` y `CONTRACTS.md`, y portar el
-  manual de usuario y las preguntas frecuentes.
+* **Documentación**: `CONTRACTS.md`, y portar el manual de usuario y las preguntas
+  frecuentes.
 * **Pruebas**: una configuración de `dub test` sin el aviso del archivo principal, y
   portar las pruebas de la versión Java que falten.
 * **Migración de sesiones**: los tokens de las conexiones externas se guardaban en
@@ -133,6 +163,7 @@ firmador/
 ├── resources/               Lo que va dentro del ejecutable: textos traducidos,
 │                            certificados de la jerarquía nacional, plantillas
 ├── tools/prebuild.sh        Prepara las cabeceras de C y el puente con mupdf
+├── packaging/linux/         Flatpak, entrada del menú, AppStream, íconos e instalador
 └── src/
     ├── c/, shim/            Enlaces a bibliotecas de C (ImportC) y puente con mupdf
     └── firmador/
@@ -158,4 +189,4 @@ firmador/
 ```
 
 Cada archivo empieza con una descripción de lo que hace y de qué parte de la versión
-Java proviene.
+Java proviene. El mapa completo está en [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md).

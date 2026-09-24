@@ -20,16 +20,26 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 /**
  * Abrir enlaces y archivos con el programa del escritorio (java.awt.Desktop en la
  * versión Java): xdg-open en Linux (también dentro de flatpak, por el portal), open en
- * macOS y ShellExecute en Windows. Los procesos se lanzan sin shell y desligados.
+ * macOS y ShellExecute en Windows. Los procesos se lanzan sin shell y desligados. También
+ * dice si Firmador corre dentro de flatpak (packaging/linux).
  */
 module firmador.util.desktop;
 
 import std.algorithm : startsWith;
 import std.exception : enforce;
+import std.file : exists;
 import std.format : format;
 import std.logger : error, info;
-import std.process : Config, ProcessException, spawnProcess;
+import std.process : Config, environment, ProcessException, spawnProcess;
 import std.string : strip, toLower;
+
+/**
+ * Firmador corre dentro de flatpak: flatpak pone /.flatpak-info en todo sandbox, y el
+ * lanzador de la versión Java definía FIRMADORINFLATPAK=true.
+ */
+bool insideFlatpak() @safe {
+  return environment.get("FIRMADORINFLATPAK", "false") == "true" || exists("/.flatpak-info");
+}
 
 /// Error al abrir un enlace o un archivo.
 class DesktopException : Exception {

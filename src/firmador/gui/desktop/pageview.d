@@ -332,6 +332,7 @@ final class PageView : ScrollWidgetBase {
    * puntos; null oculta el recuadro.
    */
   void setSignatureImage(ColorDrawBuf image, float widthPoints, float heightPoints) @trusted {
+    if (signatureImage !is image) release(signatureImage);
     signatureImage = image;
     signatureWidth = widthPoints;
     signatureHeight = heightPoints;
@@ -601,6 +602,7 @@ final class PageView : ScrollWidgetBase {
 
   /// Olvida las páginas dibujadas (otro documento).
   private void discardRenders() {
+    foreach (image; cache) release(image);
     cache = null;
     cacheScale = null;
     pending = null;
@@ -659,16 +661,18 @@ final class PageView : ScrollWidgetBase {
    */
   private void deliverRender(int page, int requestGeneration, float renderedScale, ColorDrawBuf image) {
     runOnUi(() {
-      if (requestGeneration != generation) return;
+      if (requestGeneration != generation) return release(image);
       // Si falló queda como pedida, para no reintentarla sin fin hasta que cambie la escala.
       if (image is null) return;
       if ((page in pending) !is null && pending[page] == renderedScale) pending.remove(page);
       // Una versión de otra escala no reemplaza a la de la escala vigente.
-      if ((page in cacheScale) !is null && cacheScale[page] == scale && renderedScale != scale) return;
+      if ((page in cacheScale) !is null && cacheScale[page] == scale && renderedScale != scale) return release(image);
+      if (auto previous = page in cache) release(*previous);
       cache[page] = image;
       cacheScale[page] = renderedScale;
       cacheOrder = cacheOrder.remove!(cached => cached == page) ~ page;
       while (cacheOrder.length > cacheLimit) {
+        release(cache[cacheOrder[0]]);
         cache.remove(cacheOrder[0]);
         cacheScale.remove(cacheOrder[0]);
         cacheOrder = cacheOrder[1 .. $];
@@ -677,12 +681,24 @@ final class PageView : ScrollWidgetBase {
     });
   }
 
-  /// Detiene el hilo de dibujo (al cerrar la ventana).
+  /// Detiene el hilo de dibujo y libera las imágenes (al cerrar la ventana).
   void stopRendering() @trusted {
     synchronized (renderLock) {
       renderStopping = true;
       renderWakeup.notifyAll();
     }
+    discardRenders();
+    release(signatureImage);
+    signatureImage = null;
+  }
+
+  /**
+   * Libera una imagen que sólo guarda esta vista. No son recursos de dlangui (que los
+   * libera con sus widgets): si quedaran para el recolector, se liberarían después de que
+   * dlangui se cierra al salir.
+   */
+  private static void release(ColorDrawBuf image) {
+    if (image !is null) destroy(image);
   }
 }
 

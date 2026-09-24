@@ -71,7 +71,7 @@ import firmador.gui.desktop.connectionpanel : ConnectionPanel;
 import firmador.gui.desktop.dialogs;
 import firmador.gui.desktop.directorypanel : DirectoryPanel;
 import firmador.gui.desktop.documentlist : DocumentListPanel;
-import firmador.gui.desktop.logpanel : LogPanel;
+import firmador.gui.desktop.logpanel : LogBuffer, LogPanel;
 import firmador.gui.desktop.richtext : RichText;
 import firmador.gui.desktop.signpanel : SignPanel;
 import firmador.gui.desktop.uithread;
@@ -173,6 +173,8 @@ final class DesktopInterface : GuiInterface, ConnectionView {
   private ConnectionPanel connectionPanel;
   private ConfigPanel configPanel;
   private AboutPanel aboutPanel;
+  private LogBuffer logBuffer;
+  /// Pestaña de bitácoras; null mientras no se muestra (dlangui la destruye al quitarla).
   private LogPanel logPanel;
   private ProgressDialog progress;
   private ProgressDialog loading;
@@ -293,8 +295,8 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     tabs.addTab(connectionPanel, dt("guiswing_tab_connection"), null, false, tip("guiswing_tab_connection_tooltip"));
     tabs.addTab(configPanel, dt("guiswing_tab_settings"), null, false, tip("guiswing_tab_settings_tooltip"));
     tabs.addTab(aboutPanel, dt("guiswing_tab_about"), null, false, tip("guiswing_tab_about_tooltip"));
-    logPanel = new LogPanel;
-    if (settings.showLogs) tabs.addTab(logPanel, dt("guiswing_tab_logs"), null, false, tip("guiswing_tab_logs_tooltip"));
+    logBuffer = new LogBuffer;
+    if (settings.showLogs) showLogTab();
     root.addChild(tabs);
     notifications = new NotificationBar;
     root.addChild(notifications);
@@ -394,14 +396,20 @@ final class DesktopInterface : GuiInterface, ConnectionView {
   /// Muestra u oculta la pestaña de bitácoras según la configuración (updateConfig).
   void applySettings() @trusted {
     auto settings = currentSettings();
-    bool shown = tabs.tabControl.tabIndex(logPanel.id) >= 0;
-    if (settings.showLogs && !shown) {
-      tabs.addTab(logPanel, dt("guiswing_tab_logs"), null, false, tip("guiswing_tab_logs_tooltip"));
-    } else if (!settings.showLogs && shown) {
+    if (settings.showLogs && logPanel is null) {
+      showLogTab();
+    } else if (!settings.showLogs && logPanel !is null) {
+      // removeTab destruye el panel: se vuelve a crear si se pide otra vez.
       tabs.removeTab(logPanel.id);
+      logPanel = null;
     }
     signPanel.updateConfig();
     if (documentList !is null) documentList.reloadView();
+  }
+
+  private void showLogTab() {
+    logPanel = new LogPanel(logBuffer);
+    tabs.addTab(logPanel, dt("guiswing_tab_logs"), null, false, tip("guiswing_tab_logs_tooltip"));
   }
 
   /// Trae la ventana al frente (bringToFront).

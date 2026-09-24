@@ -20,7 +20,8 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 /**
  * Qué biblioteca PKCS#11 se usa (CRSigner.getPkcs11Lib): la de la variable LIBASEP11, la
  * que se configuró a mano, la del controlador JCOP4 si está instalado, o la de Athena en
- * su ruta de cada sistema.
+ * su ruta de cada sistema. Dentro de flatpak, las de JCOP4 y Athena se buscan en el
+ * sistema anfitrión (packaging/linux).
  */
 module firmador.cards.pkcs11library;
 
@@ -28,7 +29,9 @@ import std.file : exists, isFile;
 import std.path : buildPath;
 import std.process : environment;
 
-import firmador.configuration : athenaPkcs11Library, jcop4Pkcs11Library, pkcs11LibraryEnvironmentVariable;
+import firmador.configuration : athenaPkcs11Library, flatpakHostRoot, jcop4Pkcs11Library,
+  pkcs11LibraryEnvironmentVariable;
+import firmador.util.desktop : insideFlatpak;
 
 /// Candidatos en orden de preferencia (función pura para poder probar la precedencia).
 string choosePkcs11Library(string environmentValue, string configuredLibrary, string jcop4Library,
@@ -45,8 +48,9 @@ string pkcs11LibraryPath(string configuredLibrary) @trusted {
     string jcop4 = buildPath(environment.get("PROGRAMFILES", `C:\Program Files`), jcop4Pkcs11Library);
     string athena = buildPath(environment.get("SystemRoot", `C:\Windows`), athenaPkcs11Library);
   } else {
-    string jcop4 = jcop4Pkcs11Library;
-    string athena = athenaPkcs11Library;
+    string hostRoot = insideFlatpak() ? flatpakHostRoot : "";
+    string jcop4 = hostRoot ~ jcop4Pkcs11Library;
+    string athena = hostRoot ~ athenaPkcs11Library;
   }
   string installedJcop4 = exists(jcop4) && isFile(jcop4) ? jcop4 : null;
   return choosePkcs11Library(environment.get(pkcs11LibraryEnvironmentVariable), configuredLibrary, installedJcop4,

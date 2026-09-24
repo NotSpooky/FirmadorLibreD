@@ -72,6 +72,14 @@ enum int remoteMaxConnections = 16;
 /// Esquema de URL con el que el navegador lanza Firmador Remoto.
 enum string remoteUrlScheme = "firmador:";
 
+/**
+ * El aviso de actualizaciones (firmador.plugins.checkupdate) consulta y descarga las
+ * versiones publicadas. Desactivado hasta que las URL de abajo apunten a las versiones
+ * publicadas de este proyecto (@contract release-artifacts): las de la versión Java no
+ * son ejecutables de esta.
+ */
+enum bool releaseCheckEnabled = false;
+
 /// Consulta de la última versión publicada.
 enum string releaseUrlCheck = baseUrl ~ "/version.txt";
 
@@ -199,6 +207,9 @@ version (Windows) {
   enum string athenaPkcs11Library = "/usr/lib/x64-athena/libASEP11.so";
   enum string jcop4Pkcs11Library = "/usr/lib/SCMiddleware/libidop11.so";
 }
+
+/// Dónde ve flatpak el sistema anfitrión (permiso host-os), para usar sus bibliotecas PKCS#11.
+enum string flatpakHostRoot = "/run/host";
 
 /// Nombres de clase de los plugins, iguales a los de la versión Java para conservar config.properties.
 enum string dummyPluginName = "cr.libre.firmador.plugins.DummyPlugin";
