@@ -69,7 +69,7 @@ import firmador.gui.desktop.dialogs;
 import firmador.gui.desktop.directorypanel : DirectoryPanel;
 import firmador.gui.desktop.documentlist : DocumentListPanel;
 import firmador.gui.desktop.logpanel : LogBuffer, LogPanel;
-import firmador.gui.desktop.notificationbar : NotificationBar;
+import firmador.gui.desktop.notificationbar : NotificationBar, NotificationOverlay;
 import firmador.gui.desktop.richtext : RichText;
 import firmador.gui.desktop.signpanel : SignPanel;
 import firmador.gui.desktop.uithread;
@@ -235,8 +235,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     if (settings.showLogs) showLogTab();
     root.addChild(tabs);
     notifications = new NotificationBar;
-    root.addChild(notifications);
-    window.mainWidget = root;
+    window.mainWidget = new NotificationOverlay(root, notifications);
     tabs.selectTab(0, true);
     connectionPanel.refreshAll();
 
