@@ -477,7 +477,7 @@ final class ConfigPanel : VerticalLayout {
     pkcs11Library.text = settings.extraPKCS11Lib.toUTF32;
     pkcs12Files = settings.pKCS12File.dup;
     refreshPkcs12();
-    allowedOrigins.text = settings.getAllowedHosts().join("\n").toUTF32;
+    allowedOrigins.text = settings.getRegisteredAllowedOrigins().join("\n").toUTF32;
     scaleFactor.text = format("%g", settings.pDFImgScaleFactor).toUTF32;
     sofficePath.text = settings.sofficePath.toUTF32;
     preferredBrowser.text = settings.preferredBrowser.toUTF32;

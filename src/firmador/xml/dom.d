@@ -38,6 +38,11 @@ class XmlException : Exception {
   this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
     super(message, file, line);
   }
+
+  /// Con la causa encadenada.
+  this(string message, Throwable cause, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
+    super(message, file, line, cause);
+  }
 }
 
 /// Espacio de nombres de XMLDSig.
@@ -446,6 +451,10 @@ final class XmlDocument {
     int result = xmlC14NExecute(document, &isVisible, &selection, mode,
       inclusivePrefixes.length ? prefixes.ptr : null, withComments ? 1 : 0, output);
     scope (exit) xmlOutputBufferClose(output);
+    // Un error al decidir qué nodos entran no puede cruzar libxml2: se guardó y se lanza aquí.
+    if (selection.failure !is null) {
+      throw new XmlException("La canonicalización XML falló: " ~ selection.failure.msg, selection.failure);
+    }
     enforce!XmlException(result >= 0, "La canonicalización XML falló");
     auto content = xmlOutputBufferGetContent(output);
     size_t length = xmlOutputBufferGetSize(output);
@@ -460,14 +469,24 @@ private bool isBlank(string text) pure nothrow @safe @nogc {
   return true;
 }
 
+/// Qué nodos entran en la canonicalización, y el primer error al decidirlo.
 private struct Selection {
   bool delegate(xmlNode*, xmlNode*) visible;
+  Exception failure;
 }
 
+/**
+ * Llamada de libxml2 para cada nodo. Una excepción no puede cruzar el código de C: se
+ * guarda en la selección, que canonicalizeSelection lanza al terminar, y los nodos
+ * restantes quedan fuera.
+ */
 private extern (C) int isVisible(void* userData, xmlNode* node, xmlNode* parent) nothrow @system {
+  auto selection = cast(Selection*) userData;
+  if (selection.failure !is null) return 0;
   try {
-    return (cast(Selection*) userData).visible(node, parent) ? 1 : 0;
-  } catch (Exception) {
+    return selection.visible(node, parent) ? 1 : 0;
+  } catch (Exception exception) {
+    selection.failure = exception;
     return 0;
   }
 }
@@ -579,4 +598,17 @@ unittest {
   assert(serialized.canFind("<r:b>\n    <r:c>\n      <r:d/>\n    </r:c>\n  </r:b>"), serialized);
   document.removeIndented(document.root.child("urn:r", "b").child("urn:r", "c"));
   assert((cast(string) document.serialize()).canFind("<r:b>\n  </r:b>"));
+}
+
+@("should fail with the cause when deciding which nodes to canonicalize throws")
+unittest {
+  import std.exception : collectException;
+  auto document = XmlDocument.parse(cast(const(ubyte)[]) `<a><b/></a>`);
+  scope (exit) document.close();
+  auto failure = collectException!XmlException(document.canonicalizeDocumentExcluding(
+    CanonicalizationMethod.inclusive10, (element) {
+      if (element.localName == "b") throw new XmlException("XPath no válida");
+      return false;
+    }));
+  assert(failure !is null && failure.next !is null && failure.next.msg == "XPath no válida");
 }

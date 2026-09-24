@@ -106,7 +106,8 @@ TstInfo parseTstInfo(const(ubyte)[] der) @safe {
   reader.next("la versión del TSTInfo");
   info.policy = reader.next("la política del sello").oidValue;
   auto imprint = reader.next("el resumen sellado").reader();
-  info.imprintAlgorithm = digestFromOid(imprint.next("el algoritmo sellado").children()[0].oidValue);
+  info.imprintAlgorithm = digestFromOid(parseAlgorithmIdentifier(imprint.next("el algoritmo sellado"),
+    "El algoritmo del resumen sellado").oid);
   info.imprint = imprint.next("el valor sellado").octetStringValue.idup;
   info.serialNumber = reader.next("el serial del sello").integerValue;
   info.genTime = reader.next("la fecha del sello").timeValue;

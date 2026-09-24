@@ -109,7 +109,7 @@ bool authorizeOrigin(GuiInterface gui, Settings settings, string origin) @truste
   synchronized (settings) {
     final switch (answer) {
       case HostAuthorization.always:
-        settings.setRegisteredAllowedOrigins(settings.getAllowedHosts() ~ origin);
+        settings.registerAllowedOrigin(origin);
         writeSettings(settings, true);
         break;
       case HostAuthorization.once:

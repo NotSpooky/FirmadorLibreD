@@ -30,7 +30,6 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.gui.desktop.connectionpanel;
 
-import core.thread : Thread;
 import std.algorithm : endsWith;
 import std.file : readText;
 import std.format : format;
@@ -47,10 +46,9 @@ import dlangui.widgets.widget;
 
 import firmador.connections.config;
 import firmador.connections.connection;
-import firmador.connections.external : reloadVirtualDocuments;
 import firmador.gui.desktop.common;
 import firmador.gui.desktop.dialogs;
-import firmador.gui.desktop.uithread : runOnUi;
+import firmador.gui.desktop.uithread : runInBackground, runOnUi;
 import firmador.gui.desktop.window : DesktopInterface;
 import firmador.gui.guiinterface : NotificationType;
 import firmador.i18n : t;
@@ -239,7 +237,7 @@ final class ConnectionPanel : VerticalLayout {
     details.addChild(connect);
     if (connection.kind == ConnectionKind.external && connection.isLogged()) {
       auto request = makeButton("pedir-documentos", "connection_panel_get_documents_title",
-        "coonection_panel_get_documents", () { requestDocuments(connection); return true; });
+        "coonection_panel_get_documents", () { host.requestVirtualDocuments(connection); return true; });
       details.addChild(request);
     }
     if (remote) {
@@ -299,13 +297,11 @@ final class ConnectionPanel : VerticalLayout {
 
   private Widget deniedOriginRow(string origin) {
     return originRow(origin, "connection_panel_authorize", () {
-      auto worker = new Thread({
+      runInBackground("Error autorizando el origen " ~ origin, {
         // Si el servidor ya está preguntando por este origen, se espera su respuesta.
         authorizeOrigin(host, currentSettings(), origin);
         runOnUi(() => refreshAll());
-      });
-      worker.isDaemon = true;
-      worker.start();
+      }, () => refreshAll());
       return true;
     });
   }
@@ -342,7 +338,7 @@ final class ConnectionPanel : VerticalLayout {
     bool running = connection.isRunning();
     selected = connection;
     appendLog(connection.name, t(running ? "connection_panel_disconnecting" : "connection_panel_connecting"));
-    auto worker = new Thread({
+    runInBackground("Error en la conexión " ~ connection.name, {
       bool started;
       try {
         if (running) {
@@ -364,22 +360,7 @@ final class ConnectionPanel : VerticalLayout {
         }
         refreshAll();
       });
-    });
-    worker.isDaemon = true;
-    worker.start();
-  }
-
-  private void requestDocuments(Connection connection) {
-    auto worker = new Thread({
-      bool requested = reloadVirtualDocuments(host.connections, connection);
-      runOnUi(() {
-        host.showNotification(t(requested ? "connection_panel_success_get_virtual_documents"
-          : "connection_panel_error_get_virtual_documents"), requested ? NotificationType.success
-          : NotificationType.error);
-      });
-    });
-    worker.isDaemon = true;
-    worker.start();
+    }, () => refreshAll());
   }
 
   private void removeConnection(Connection connection) {
@@ -438,7 +419,7 @@ final class ConnectionPanel : VerticalLayout {
       confirmUnsigned(config, description);
       return;
     }
-    auto worker = new Thread({
+    runInBackground("Error al revisar la firma del archivo de conexión", {
       ConnectionSignature signature;
       bool readable = true;
       try {
@@ -464,8 +445,6 @@ final class ConnectionPanel : VerticalLayout {
         }
       });
     });
-    worker.isDaemon = true;
-    worker.start();
   }
 
   private void confirmUnsigned(ConnectionConfig config, string description) {

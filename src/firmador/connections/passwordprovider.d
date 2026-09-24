@@ -93,7 +93,7 @@ private abstract class CachedCredentialStore : SecureCredentialStore {
       return lookup();
     } catch (Exception exception) {
       error("No se pudo leer la contraseña del llavero del sistema: ", exception.msg);
-      return null;
+      throw new Exception("No se pudo leer la contraseña del llavero del sistema: " ~ exception.msg, exception);
     }
   }
 

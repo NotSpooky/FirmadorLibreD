@@ -157,6 +157,7 @@ private int startWindowToolkit(string[] arguments) @trusted {
 extern (C) int UIAppMain(string[] toolkitArguments) {
   import dlangui.core.logger : Log, ToolkitLogLevel = LogLevel;
   import dlangui.platforms.common.platform : Platform;
+  import firmador.gui.desktop.uithread : reportUiFailure;
   import firmador.gui.desktop.window : DesktopInterface;
   // La bitácora de dlangui es muy detallada; sus avisos y errores siguen apareciendo.
   Log.setLogLevel(ToolkitLogLevel.Warn);
@@ -180,7 +181,17 @@ extern (C) int UIAppMain(string[] toolkitArguments) {
     import firmador.gui.desktop.macurl : setUrlTarget;
     setUrlTarget((string origin) => desktop.handleRemoteLaunch(origin));
   }
-  int result = Platform.instance.enterMessageLoop();
+  // dlangui no atrapa los errores de los eventos (clics, teclas): uno sin atrapar sale del
+  // ciclo de eventos, que se informa y se retoma. Los Error (fallos internos) sí lo cierran.
+  int result;
+  while (true) {
+    try {
+      result = Platform.instance.enterMessageLoop();
+      break;
+    } catch (Exception exception) {
+      reportUiFailure("Error al atender un evento de la ventana", exception);
+    }
+  }
   // Lo que quedó sin referencias se libera ahora, mientras dlangui (y FreeType) siguen
   // activos: sus destructores no pueden correr después de que dlangui se cierre.
   import core.memory : GC;

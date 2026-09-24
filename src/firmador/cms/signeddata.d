@@ -167,6 +167,8 @@ private CmsAttribute[] parseAttributes(const DerElement element) @safe {
     CmsAttribute attribute;
     attribute.oid = reader.next("el tipo del atributo").oidValue;
     attribute.values = reader.next("los valores del atributo").children();
+    // RFC 5652: attrValues es SET SIZE (1..MAX); quien lee el atributo toma el primero.
+    enforce!Asn1Exception(attribute.values.length > 0, format("El atributo %s no trae valores", attribute.oid));
     attribute.raw = attributeElement.raw.idup;
     attributes ~= attribute;
   }
@@ -187,16 +189,17 @@ private SignerInfo parseSignerInfo(const DerElement element) @safe {
     signer.sidIssuer = parseName(sidReader.next("el emisor del firmante"));
     signer.sidSerial = sidReader.next("el serial del firmante").integerValue;
   }
-  signer.digestAlgorithm = digestFromOid(reader.next("el resumen del firmante").children()[0].oidValue);
+  signer.digestAlgorithm = digestFromOid(parseAlgorithmIdentifier(reader.next("el resumen del firmante"),
+    "El algoritmo de resumen del firmante").oid);
   DerElement signedAttributes;
   if (reader.nextContext(0, signedAttributes)) {
     signer.signedAttributesRaw = signedAttributes.raw.idup;
     signer.signedAttributes = parseAttributes(signedAttributes);
   }
-  auto signatureAlgorithm = reader.next("el algoritmo de firma").children();
-  signer.signatureAlgorithmOid = signatureAlgorithm[0].oidValue;
-  if (signatureAlgorithm.length > 1 && !signatureAlgorithm[1].isUniversal(UniversalTag.null_))
-    signer.signatureAlgorithmParameters = signatureAlgorithm[1].raw.idup;
+  auto signatureAlgorithm = parseAlgorithmIdentifier(reader.next("el algoritmo de firma"),
+    "El algoritmo de firma del firmante");
+  signer.signatureAlgorithmOid = signatureAlgorithm.oid;
+  signer.signatureAlgorithmParameters = signatureAlgorithm.parameters;
   signer.signature = reader.next("la firma").octetStringValue.idup;
   DerElement unsignedAttributes;
   if (reader.nextContext(1, unsignedAttributes)) signer.unsignedAttributes = parseAttributes(unsignedAttributes);
@@ -240,7 +243,7 @@ SigningCertificateReference[] signingCertificateReferences(const SignerInfo sign
   auto attribute = v2 !is null ? v2 : v1;
   if (attribute is null || attribute.values.length == 0) return references;
   // SigningCertificateV2 ::= SEQUENCE { certs SEQUENCE OF ESSCertIDv2, policies OPTIONAL }
-  auto certs = attribute.values[0].children()[0].children();
+  auto certs = attribute.values[0].reader().next("los certificados del firmante").children();
   foreach (essCertId; certs) {
     auto reader = essCertId.reader();
     SigningCertificateReference reference;
@@ -249,7 +252,7 @@ SigningCertificateReference[] signingCertificateReferences(const SignerInfo sign
       reference.digest = DigestAlgorithm.sha256;
       DerElement first = reader.next("el identificador del certificado");
       if (first.isSequence) {
-        reference.digest = digestFromOid(first.children()[0].oidValue);
+        reference.digest = digestFromOid(parseAlgorithmIdentifier(first, "El resumen del certificado del firmante").oid);
         first = reader.next("el resumen del certificado");
       }
       reference.certificateHash = first.octetStringValue.idup;

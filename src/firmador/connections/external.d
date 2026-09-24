@@ -516,14 +516,48 @@ private CardSignInfo cardForDocumentSerial(ConnectionManager manager, string ser
   return null;
 }
 
+/// Agrupa, en el orden de llegada, los elementos que tienen la misma clave.
+private T[][] groupInOrder(alias key, T)(T[] items) {
+  T[][] groups;
+  foreach (item; items) {
+    auto itemKey = key(item);
+    ptrdiff_t found = -1;
+    foreach (index, group; groups) {
+      if (key(group[0]) == itemKey) {
+        found = index;
+        break;
+      }
+    }
+    if (found < 0) groups ~= [item];
+    else groups[found] ~= item;
+  }
+  return groups;
+}
+
+/**
+ * Lotes de documentos virtuales para requestHashesToSign: cada pedido va a un solo
+ * servicio y se firma con la tarjeta de un solo titular.
+ */
+Document[][] signingBatches(Document[] documents) @safe {
+  import std.typecons : tuple;
+  return groupInOrder!(document => tuple(document.service, document.serial))(documents);
+}
+
 /**
  * Pide al servicio que prepare los resúmenes de los documentos con los ajustes dados
  * (getHashToSign; `settings` null usa los vigentes). Los resúmenes llegan después como
  * evento «firmar». Devuelve false si no se pudo, tras informarlo.
+ *
+ * Throws: Exception si los documentos no son de un mismo servicio y titular (se agrupan
+ * con signingBatches).
  */
 bool requestHashesToSign(ConnectionManager manager, Document[] documents, Settings settings) @trusted {
+  import std.algorithm : all;
   enforce(documents.length > 0, "No se indicaron documentos virtuales para firmar");
   string service = documents[0].service;
+  enforce(documents.all!(document => document.service == service && document.serial == documents[0].serial),
+    format("Los documentos virtuales de un pedido deben ser de un mismo servicio y titular (el primero es de %s)",
+    service));
   auto card = cardForDocumentSerial(manager, documents[0].serial);
   if (card is null) {
     error("No se encontró la tarjeta de firma de los documentos virtuales");
@@ -759,4 +793,10 @@ unittest {
   auto id = parseUUID("0b8e5c9e-6a4f-4f0a-9d7e-2f6c1a0b3c4d");
   assert(documentValidationUrl("https://s/api/get_validate_document/", id)
     == "https://s/api/0b8e5c9e-6a4f-4f0a-9d7e-2f6c1a0b3c4d/get_validate_document/");
+}
+
+@("should keep one batch per key in arrival order when grouping virtual documents")
+unittest {
+  assert(groupInOrder!(name => name[0])(["a1", "b1", "a2", "c1", "b2"]) == [["a1", "a2"], ["b1", "b2"], ["c1"]]);
+  assert(groupInOrder!(name => name[0])(cast(string[]) null).length == 0);
 }

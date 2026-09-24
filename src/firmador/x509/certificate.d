@@ -171,7 +171,7 @@ Certificate parseCertificate(const(ubyte)[] der) @safe {
   certificate.der = der.idup;
   certificate.tbsDer = tbs.raw.idup;
   certificate.signatureAlgorithmDer = signatureAlgorithm.raw.idup;
-  certificate.signatureAlgorithmOid = signatureAlgorithm.children()[0].oidValue;
+  certificate.signatureAlgorithmOid = parseAlgorithmIdentifier(signatureAlgorithm, "El algoritmo de firma del certificado").oid;
   certificate.signatureValue = signatureValue.bitStringBytes.idup;
 
   auto reader = tbs.reader();
@@ -192,7 +192,8 @@ Certificate parseCertificate(const(ubyte)[] der) @safe {
   auto spki = reader.next("la clave pública");
   certificate.subjectPublicKeyInfoDer = spki.raw.idup;
   auto spkiReader = spki.reader();
-  certificate.publicKeyAlgorithmOid = spkiReader.next("el algoritmo de la clave").children()[0].oidValue;
+  certificate.publicKeyAlgorithmOid = parseAlgorithmIdentifier(spkiReader.next("el algoritmo de la clave"),
+    "El algoritmo de la clave pública").oid;
   certificate.publicKeyBits = spkiReader.next("los bits de la clave").bitStringBytes.idup;
   DerElement ignored;
   reader.nextContext(1, ignored);
@@ -268,7 +269,9 @@ private void applyExtension(Certificate certificate, const Extension extension) 
       }
       break;
     case oidCertificatePolicies:
-      foreach (policy; value.children()) certificate.policyOids ~= policy.children()[0].oidValue;
+      foreach (policy; value.children()) {
+        certificate.policyOids ~= policy.reader().next("el identificador de la política del certificado").oidValue;
+      }
       break;
     case oidOcspNoCheck:
       certificate.ocspNoCheck = true;

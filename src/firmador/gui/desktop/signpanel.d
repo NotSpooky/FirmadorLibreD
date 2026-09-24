@@ -29,12 +29,10 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.gui.desktop.signpanel;
 
-import core.thread : Thread;
 import std.algorithm : canFind, countUntil, map;
 import std.array : array, replace;
 import std.datetime.systime : Clock;
 import std.format : format;
-import std.logger : error, info, warning;
 import std.path : dirName;
 import std.string : strip;
 import std.utf : toUTF32, toUTF8;
@@ -55,7 +53,7 @@ import firmador.documents.mimetype;
 import firmador.gui.desktop.common;
 import firmador.gui.desktop.dialogs;
 import firmador.gui.desktop.pageview;
-import firmador.gui.desktop.uithread : runOnUi;
+import firmador.gui.desktop.uithread : runInBackground, runOnUi;
 import firmador.gui.desktop.window : DesktopInterface;
 import firmador.gui.guiinterface : NotificationType;
 import firmador.i18n : t;
@@ -626,23 +624,18 @@ final class SignPanel : VerticalLayout {
     PageGeometry geometry = pages.pageGeometry(page);
     float scale = pages.currentScale;
     int generation = ++previewGeneration;
-    auto worker = new Thread(() {
-      try {
-        auto image = loadSignatureImage(documentSettings.image);
-        auto visible = visibleSignatureFor(appSettings, documentSettings, text, image, geometry);
-        auto preview = renderSignaturePreview(visible, geometry, scale);
-        auto buffer = drawBufFromRaster(preview.raster);
-        runOnUi(() {
-          if (generation != previewGeneration) return;
-          pages.setSignatureImage(buffer, preview.widthPoints, preview.heightPoints);
-          pages.showSignature(!withoutVisible.checked);
-        });
-      } catch (Exception exception) {
-        error("No se pudo dibujar la vista previa de la firma: ", exception.msg);
-      }
+    // Si falla (por ejemplo, la imagen de la firma no se puede leer) se avisa: la firma fallaría igual.
+    runInBackground("No se pudo dibujar la vista previa de la firma", {
+      auto image = loadSignatureImage(documentSettings.image);
+      auto visible = visibleSignatureFor(appSettings, documentSettings, text, image, geometry);
+      auto preview = renderSignaturePreview(visible, geometry, scale);
+      auto buffer = drawBufFromRaster(preview.raster);
+      runOnUi(() {
+        if (generation != previewGeneration) return;
+        pages.setSignatureImage(buffer, preview.widthPoints, preview.heightPoints);
+        pages.showSignature(!withoutVisible.checked);
+      });
     });
-    worker.isDaemon = true;
-    worker.start();
   }
 }
 

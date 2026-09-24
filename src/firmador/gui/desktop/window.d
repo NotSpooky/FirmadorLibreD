@@ -31,7 +31,6 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.gui.desktop.window;
 
-import core.thread : Thread;
 import std.algorithm : canFind, countUntil, filter, remove;
 import std.array : array, replace;
 import std.conv : ConvException, to;
@@ -84,7 +83,7 @@ import firmador.remote.dto : RemoteSignRequest;
 import firmador.remote.origins : authorizeOrigin, isOriginAllowed;
 import firmador.remote.slot : RemoteDocumentSlot;
 import firmador.settings : processOrigin, resolveOriginPort, Settings;
-import firmador.settingsmanager : configFilePath, currentSettings, writeSettings;
+import firmador.settingsmanager : configFilePath, currentSettings, settingsLoadProblem, writeSettings;
 import firmador.util.desktop : desktopNotification;
 import firmador.util.singleinstance;
 
@@ -217,6 +216,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     window = Platform.instance.createWindow((remoteOrigin !is null ? "Firmador remoto" : "Firmador").toUTF32, null,
       WindowFlag.Resizable, 1100, 800);
     registerUiWindow(window);
+    setUiErrorReporter((Exception failure) => showError(failure));
     if (settings.simplified_mode.isNull && remoteOrigin is null) {
       // La primera vez se pregunta el modo antes de armar las pestañas.
       window.mainWidget = new TextWidget(null, ""d);
@@ -226,7 +226,8 @@ final class DesktopInterface : GuiInterface, ConnectionView {
         try {
           writeSettings(settings, true);
         } catch (Exception exception) {
-          error("No se pudo guardar el modo elegido: ", exception.msg);
+          // Se sigue con el modo elegido; la pregunta vuelve en el próximo arranque.
+          reportUiFailure("No se pudo guardar el modo elegido", exception);
         }
         build(fileArguments, remoteOrigin);
       });
@@ -235,6 +236,8 @@ final class DesktopInterface : GuiInterface, ConnectionView {
       if (background) window.setWindowState(WindowState.minimized);
       else window.show();
     }
+    string settingsProblem = settingsLoadProblem();
+    if (settingsProblem !is null) showErrorAlert(t("guiswing_show_error_dialog_title"), settingsProblem);
     return true;
   }
 
@@ -323,9 +326,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     // Una página que lanzó Firmador pide atender Firmador Remoto; la configuración también.
     if (remoteOrigin !is null) startRemoteForOrigin(remoteOrigin);
     else if (settings.startFimadorRemote) connections.startRemote(cast(ushort) settings.portNumber);
-    Thread autoStart = new Thread({ connections.autoStart(); });
-    autoStart.isDaemon = true;
-    autoStart.start();
+    runInBackground("Error al iniciar las conexiones automáticas", { connections.autoStart(); });
 
     string[] existing;
     foreach (path; fileArguments) {
@@ -704,23 +705,15 @@ final class DesktopInterface : GuiInterface, ConnectionView {
 
   void signRequestsReceived(RemoteSignRequest[] requests, string service) @trusted {
     runOnUi(() => showLoading(t("guiswing_completing_documents")));
-    auto worker = new Thread({
-      bool signed;
-      try {
-        signed = completeSignRequests(connections, requests, service);
-      } catch (Exception exception) {
-        error("Error al completar la firma de los documentos virtuales: ", exception.msg);
-        showError(exception);
-      }
+    runInBackground("Error al completar la firma de los documentos virtuales", {
+      bool signed = completeSignRequests(connections, requests, service);
       runOnUi(() {
         hideLoading();
         if (signed && documentList !is null) {
           foreach (document; virtualDocumentsToSign) documentList.removeDocument(document);
         }
       });
-    });
-    worker.isDaemon = true;
-    worker.start();
+    }, () => hideLoading());
   }
 
   void virtualReport(UUID documentId, string report) @trusted {
@@ -938,17 +931,16 @@ final class DesktopInterface : GuiInterface, ConnectionView {
       return;
     }
     document.setValidating(true);
-    auto worker = new Thread({
+    void finish(bool requested) {
+      showNotification(t(requested ? "guiswing_success_validate_document" : "guiswing_error_validate_document"),
+        requested ? NotificationType.success : NotificationType.error);
+      if (!requested) document.setValidating(false);
+      if (onComplete !is null) onComplete();
+    }
+    runInBackground("Error al validar el documento virtual " ~ document.name, {
       bool requested = validateVirtualDocument(connections, document);
-      runOnUi(() {
-        showNotification(t(requested ? "guiswing_success_validate_document" : "guiswing_error_validate_document"),
-          requested ? NotificationType.success : NotificationType.error);
-        if (!requested) document.setValidating(false);
-        if (onComplete !is null) onComplete();
-      });
-    });
-    worker.isDaemon = true;
-    worker.start();
+      runOnUi(() => finish(requested));
+    }, () => finish(false));
   }
 
   /// Imagen de una página de un documento virtual (getPageImageFromApi), desde un hilo de fondo.
@@ -1011,27 +1003,39 @@ final class DesktopInterface : GuiInterface, ConnectionView {
       showErrorAlert(t("guiswing_show_error_not_logged_title"), t("guiswing_show_error_not_logged") ~ " "
         ~ invalid.join(", ") ~ " " ~ t("guiswing_show_error_not_logged3"));
     }
-    if (valid.length) signVirtual(valid, null);
+    // Cada servicio prepara sólo sus documentos, con la tarjeta de su titular.
+    foreach (batch; signingBatches(valid)) signVirtual(batch, null);
   }
 
+  /// Pide al servicio de los documentos (uno solo; ver signingBatches) los resúmenes a firmar.
   private void signVirtual(Document[] documents, Settings settings) {
     if (!connections.requireSession(documents[0].service, "guiswing_show_error_not_logged3")) return;
     virtualDocumentsToSign ~= documents;
     showLoading(t("guiswing_obtaining_data_documents"));
-    auto worker = new Thread({
-      bool requested;
-      try {
-        requested = requestHashesToSign(connections, documents, settings);
-      } catch (Exception exception) {
-        error("Error al pedir los resúmenes a firmar: ", exception.msg);
-      }
-      if (!requested) {
-        runOnUi(() => hideLoading());
-        showNotification(t("guiswing_show_error_getHashToSign_title"), NotificationType.warning);
-      }
-    });
-    worker.isDaemon = true;
-    worker.start();
+    void failed() {
+      hideLoading();
+      showNotification(t("guiswing_show_error_getHashToSign_title"), NotificationType.warning);
+    }
+    runInBackground("Error al pedir los resúmenes a firmar a " ~ documents[0].service, {
+      if (!requestHashesToSign(connections, documents, settings)) runOnUi(() => failed());
+    }, () => failed());
+  }
+
+  /**
+   * Vuelve a pedir en segundo plano los documentos virtuales de la conexión y avisa del
+   * resultado. `onDone` corre en la ventana al terminar, haya salido bien o no.
+   */
+  void requestVirtualDocuments(Connection connection, void delegate() onDone = null) @trusted {
+    void finish(bool requested) {
+      showNotification(t(requested ? "connection_panel_success_get_virtual_documents"
+        : "connection_panel_error_get_virtual_documents"), requested ? NotificationType.success
+        : NotificationType.error);
+      if (onDone !is null) onDone();
+    }
+    runInBackground("Error al pedir los documentos virtuales de " ~ connection.name, {
+      bool requested = reloadVirtualDocuments(connections, connection);
+      runOnUi(() => finish(requested));
+    }, () => finish(false));
   }
 
   /// Rechaza el documento de Firmador Remoto y se lo comunica al navegador.
@@ -1104,20 +1108,14 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     if (!metadata.minimized) bringToFront();
     string origin = metadata.url;
     if (rawOrigin !is null && !isOriginAllowed(settings, origin)) {
-      auto worker = new Thread({
-        bool authorized;
-        try {
-          authorized = authorizeOrigin(this, settings, origin);
-        } catch (Exception exception) {
-          error("Error autorizando el origen ", origin, ": ", exception.msg);
-        }
-        runOnUi(() {
-          if (authorized) showRemoteConnection(cast(ushort) port);
-          else showNotification(t("remote_http_worker_error_origin_not_allowed") ~ " " ~ origin, NotificationType.error);
-        });
-      });
-      worker.isDaemon = true;
-      worker.start();
+      void finish(bool authorized) {
+        if (authorized) showRemoteConnection(cast(ushort) port);
+        else showNotification(t("remote_http_worker_error_origin_not_allowed") ~ " " ~ origin, NotificationType.error);
+      }
+      runInBackground("Error autorizando el origen " ~ origin, {
+        bool authorized = authorizeOrigin(this, settings, origin);
+        runOnUi(() => finish(authorized));
+      }, () => finish(false));
       return;
     }
     showRemoteConnection(cast(ushort) port);

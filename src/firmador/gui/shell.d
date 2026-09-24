@@ -39,11 +39,12 @@ import std.format : format;
 import std.json : JSONType, JSONValue, toJSON;
 import std.logger : error, info, warning;
 import std.path : dirName;
-import std.stdio : stderr, stdin, stdout;
+import std.stdio : stderr, stdout;
 import std.string : join, strip, toLower;
 
 import firmador.cards.cardinfo : CardSignInfo, matchesIdentifier;
 import firmador.cards.detector : createPinOnlyCard, SmartCardDetector;
+import firmador.configuration : shellMaxLineLength;
 import firmador.documents.document : Document;
 import firmador.documents.mimetype : detectMimeType;
 import firmador.gui.console;
@@ -267,16 +268,28 @@ final class ShellInterface : ConsoleInterface {
     stdout.writeln("Firmador Shell - Escuchando comandos");
     stdout.writeln("Comandos disponibles: sign, signremote, validate, getcertificates, preview, help, exit|quit");
     stdout.writeln("Escriba 'help' para ver la sintaxis completa.");
+    // La línea trae el PIN: se lee en un arreglo propio que se borra tras cada comando.
+    auto buffer = new char[shellMaxLineLength];
+    scope (exit) buffer[] = '\0';
     while (true) {
       stdout.write("> ");
       stdout.flush();
-      string line = stdin.readln();
-      if (line is null) break;
-      // Sólo se quita el salto de línea: el PIN es el último campo y sus espacios cuentan.
-      while (line.length && (line[$ - 1] == '\n' || line[$ - 1] == '\r')) line = line[0 .. $ - 1];
+      size_t length;
+      bool received;
+      try {
+        received = readStandardInputLine(buffer, length);
+      } catch (Exception tooLong) {
+        reportFailure(tooLong);
+        stdout.flush();
+        continue;
+      }
+      if (!received) break;
+      // Sólo se quitó el salto de línea: el PIN es el último campo y sus espacios cuentan.
+      char[] line = buffer[0 .. length];
+      scope (exit) line[] = '\0';
       if (line.strip.length == 0) continue;
       auto parts = splitCommand(line);
-      string command = parts[0].strip.toLower;
+      string command = parts[0].strip.toLower.idup;
       try {
         if (command == "exit" || command == "quit") {
           stdout.writeln("Saliendo...");
@@ -292,34 +305,29 @@ final class ShellInterface : ConsoleInterface {
     }
   }
 
-  private void dispatch(string command, string[] parts) @trusted {
+  /// Atiende un comando; `parts` apunta a la línea leída, que run borra al terminar.
+  private void dispatch(string command, const(char[])[] parts) @trusted {
     switch (command) {
       case "sign":
         if (parts.length < 3) return printError("Uso incorrecto. Formato: sign|<json_file>|<pin>");
-        auto batch = parseSignBatch(readCommandJson(parts[1]));
-        auto pin = parts[2].dup;
-        scope (exit) pin[] = '\0';
-        executeSign(batch, pin);
+        executeSign(parseSignBatch(readCommandJson(parts[1].idup)), parts[2]);
         break;
       case "signremote":
         if (parts.length < 3) return printError("Uso incorrecto. Formato: signremote|<json_file>|<pin>");
-        auto remoteBatch = parseSignRemoteBatch(readCommandJson(parts[1]));
-        auto remotePin = parts[2].dup;
-        scope (exit) remotePin[] = '\0';
-        executeSignRemote(remoteBatch, remotePin);
+        executeSignRemote(parseSignRemoteBatch(readCommandJson(parts[1].idup)), parts[2]);
         break;
       case "validate":
         if (parts.length < 2) return printError("Uso incorrecto. Formato: validate|<json_file>");
-        executeValidate(parseValidateBatch(readCommandJson(parts[1])));
+        executeValidate(parseValidateBatch(readCommandJson(parts[1].idup)));
         break;
       case "getcertificates":
         JSONValue[] cards;
         foreach (card; detector.readSaveListSmartCard()) cards ~= card.toJson();
-        emit(JSONValue(cards), parts.length >= 2 ? parts[1].strip : null, "Certificados guardados en: ", true);
+        emit(JSONValue(cards), parts.length >= 2 ? parts[1].strip.idup : null, "Certificados guardados en: ", true);
         break;
       case "preview":
         if (parts.length < 2) return printError("Uso incorrecto. Formato: preview|<json_file>");
-        executePreview(parsePreviewRequest(readCommandJson(parts[1])));
+        executePreview(parsePreviewRequest(readCommandJson(parts[1].idup)));
         break;
       case "help":
         showHelp();
@@ -516,10 +524,10 @@ final class ShellInterface : ConsoleInterface {
 }
 
 /// «comando|json|pin»: a lo sumo tres partes, el PIN puede contener «|».
-string[] splitCommand(string line) pure @safe {
+inout(char)[][] splitCommand(inout(char)[] line) pure @safe {
   import std.string : indexOf;
-  string[] parts;
-  string rest = line;
+  inout(char)[][] parts;
+  inout(char)[] rest = line;
   while (parts.length < 2) {
     auto separator = rest.indexOf('|');
     if (separator < 0) break;

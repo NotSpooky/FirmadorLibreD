@@ -36,7 +36,7 @@ import std.algorithm : canFind, countUntil, filter, map, remove, sort, startsWit
 import std.array : array, join;
 import std.conv : to;
 import std.datetime.date : Date, DateTimeException;
-import std.file : exists, isDir, readText, rmdirRecurse;
+import std.file : exists, isDir, mkdirRecurse, readText, rename, rmdirRecurse;
 import std.format : format;
 import std.logger : error, info;
 import std.path : baseName, buildPath, dirName;
@@ -54,18 +54,18 @@ import dlangui.widgets.widget;
 
 import firmador.connections.config : ConnectionKind;
 import firmador.connections.connection : Connection;
-import firmador.connections.external : deleteVirtualDocument, reloadVirtualDocuments;
+import firmador.connections.external : deleteVirtualDocument;
 import firmador.documents.document : Document;
 import firmador.gui.desktop.common;
 import firmador.gui.desktop.dialogs;
 import firmador.gui.desktop.richtext : RichText;
-import firmador.gui.desktop.uithread : runOnUi;
+import firmador.gui.desktop.uithread : runInBackground, runOnUi;
 import firmador.gui.desktop.window : DesktopInterface;
 import firmador.gui.guiinterface : NotificationType;
 import firmador.i18n : t;
 import firmador.plugins.plugin : csvField;
-import firmador.settingsmanager : configDirectory, configFilePath, loadDocumentSettings, saveDocumentSettings,
-  writeFileAtomically;
+import firmador.settingsmanager : configFilePath, documentSettingsDirectory, loadDocumentSettings,
+  saveDocumentSettings, writeFileAtomically;
 import firmador.signers.detector : formatOf, selectableFormats, SignatureFormat, signerForFormat;
 
 /// Fila de document_list.csv.
@@ -643,21 +643,19 @@ final class DocumentListPanel : HorizontalLayout {
       (bool accepted) {
       if (!accepted) return;
       if (!host.connections.requireSession(document.service, "guiswing_show_error_not_logged4")) return;
-      import core.thread : Thread;
-      auto worker = new Thread({
+      void finish(bool deleted) {
+        if (deleted) {
+          removeDocument(document);
+          host.showNotification(t("list_document_delete_document"), NotificationType.success);
+        } else {
+          host.showNotification(t("list_document_panel_delete_error"), NotificationType.error);
+        }
+        host.clearDone();
+      }
+      runInBackground("Error al borrar el documento virtual " ~ document.name, {
         bool deleted = deleteVirtualDocument(host.connections, document);
-        runOnUi(() {
-          if (deleted) {
-            removeDocument(document);
-            host.showNotification(t("list_document_delete_document"), NotificationType.success);
-          } else {
-            host.showNotification(t("list_document_panel_delete_error"), NotificationType.error);
-          }
-          host.clearDone();
-        });
-      });
-      worker.isDaemon = true;
-      worker.start();
+        runOnUi(() => finish(deleted));
+      }, () => finish(false));
     });
   }
 
@@ -702,14 +700,32 @@ final class DocumentListPanel : HorizontalLayout {
     }
     string path = documentListPath();
     try {
-      string settingsDirectory = buildPath(configDirectory(), "docSettings");
-      if (exists(settingsDirectory)) rmdirRecurse(settingsDirectory);
+      // Las configuraciones nuevas se arman aparte y reemplazan a las anteriores sólo si la
+      // lista también se guarda: si algo falla, la lista y las configuraciones de antes siguen.
+      string settingsDirectory = documentSettingsDirectory();
+      string staging = settingsDirectory ~ ".nuevo";
+      string previous = settingsDirectory ~ ".anterior";
+      foreach (leftover; [staging, previous]) if (exists(leftover)) rmdirRecurse(leftover);
+      mkdirRecurse(staging);
       SavedDocument[] rows;
-      foreach (document; toSave) {
+      foreach (index, document; toSave) {
+        // Numeradas: dos documentos con el mismo nombre en carpetas distintas no se pisan.
+        string fileName = format("%03d %s.config", index + 1, document.name);
+        saveDocumentSettings(document.settings, document.name, buildPath(staging, fileName));
         rows ~= SavedDocument(document.name, document.pathname, document.pathToSave,
-          saveDocumentSettings(document.settings, document.name));
+          buildPath(settingsDirectory, fileName));
       }
-      writeFileAtomically(path, formatDocumentList(rows));
+      bool hadPrevious = exists(settingsDirectory);
+      if (hadPrevious) rename(settingsDirectory, previous);
+      try {
+        rename(staging, settingsDirectory);
+        writeFileAtomically(path, formatDocumentList(rows));
+      } catch (Exception exception) {
+        if (exists(settingsDirectory)) rmdirRecurse(settingsDirectory);
+        if (hadPrevious) rename(previous, settingsDirectory);
+        throw exception;
+      }
+      if (hadPrevious) rmdirRecurse(previous);
       info("Lista de documentos guardada en ", path);
       host.showNotification(t("list_document_save_done") ~ " " ~ path, NotificationType.success);
     } catch (Exception exception) {
@@ -764,18 +780,7 @@ final class DocumentListPanel : HorizontalLayout {
         return true;
       }
       source.enabled = false;
-      import core.thread : Thread;
-      auto worker = new Thread({
-        bool requested = reloadVirtualDocuments(host.connections, connection);
-        runOnUi(() {
-          source.enabled = true;
-          host.showNotification(t(requested ? "connection_panel_success_get_virtual_documents"
-            : "connection_panel_error_get_virtual_documents"), requested ? NotificationType.success
-            : NotificationType.error);
-        });
-      });
-      worker.isDaemon = true;
-      worker.start();
+      host.requestVirtualDocuments(connection, () { source.enabled = true; });
       return true;
     };
     connectionButtons.addChild(button);

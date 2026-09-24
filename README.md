@@ -134,7 +134,8 @@ archivo `.flatpak` para publicar, diagnosticar…) está en [COMMANDS.md](COMMAN
 
 ## Pendiente (TODO)
 
-Lo principal; el detalle está en [PENDING.md](PENDING.md).
+Lo principal; el detalle está en [PENDING.md](PENDING.md). Las mejoras del código
+(duplicados, núcleo funcional, errores que se tragan) están en [IMPROVEMENTS.md](IMPROVEMENTS.md).
 
 * **Empaquetado**: instalador de Windows y paquete `.app` de macOS (con el esquema
   `firmador:` en su `Info.plist`). El flatpak de Linux está listo, falta publicarlo.

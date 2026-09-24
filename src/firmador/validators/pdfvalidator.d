@@ -189,6 +189,8 @@ private SignatureResult validatePdfSignature(immutable(ubyte)[] pdf, const PdfSi
     if (signedData.signerInfos.length != 1) {
       verdict.degrade(Indication.totalFailed, SubIndication.formatFailure,
         message(ValidationMessage.Level.error, "BBB_FC_IOSIP_ANS"));
+      // Sin firmante no queda nada que verificar.
+      if (signedData.signerInfos.length == 0) return finish(signature, verdict, family ~ "-B");
     }
   } catch (Exception exception) {
     verdict.degrade(Indication.totalFailed, SubIndication.formatFailure,

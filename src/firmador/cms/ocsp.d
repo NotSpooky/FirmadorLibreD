@@ -150,10 +150,10 @@ OcspResponse parseOcspResponse(const(ubyte)[] der) @safe {
   auto basicReader = parseDer(basic).reader();
   auto tbs = basicReader.next("los datos de la respuesta");
   response.tbsResponseData = tbs.raw.idup;
-  auto algorithm = basicReader.next("el algoritmo de firma OCSP").children();
-  response.signatureAlgorithmOid = algorithm[0].oidValue;
-  if (algorithm.length > 1 && !algorithm[1].isUniversal(UniversalTag.null_))
-    response.signatureAlgorithmParameters = algorithm[1].raw.idup;
+  auto algorithm = parseAlgorithmIdentifier(basicReader.next("el algoritmo de firma OCSP"),
+    "El algoritmo de firma OCSP");
+  response.signatureAlgorithmOid = algorithm.oid;
+  response.signatureAlgorithmParameters = algorithm.parameters;
   response.signature = basicReader.next("la firma OCSP").bitStringBytes.idup;
   DerElement certificates;
   if (basicReader.nextContext(0, certificates)) {
@@ -180,7 +180,8 @@ private OcspSingleResponse parseSingleResponse(const DerElement element) @safe {
   OcspSingleResponse single;
   auto reader = element.reader();
   auto certId = reader.next("el identificador del certificado").reader();
-  single.certId.digest = digestFromOid(certId.next("el algoritmo del identificador").children()[0].oidValue);
+  single.certId.digest = digestFromOid(parseAlgorithmIdentifier(certId.next("el algoritmo del identificador"),
+    "El algoritmo del identificador OCSP").oid);
   single.certId.issuerNameHash = certId.next("el resumen del nombre del emisor").octetStringValue.idup;
   single.certId.issuerKeyHash = certId.next("el resumen de la clave del emisor").octetStringValue.idup;
   single.certId.serialNumber = certId.next("el serial").integerValue;

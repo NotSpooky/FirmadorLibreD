@@ -175,7 +175,7 @@ HashIndexCheck checkAtsHashIndex(const SignedData data, const SignerInfo signer,
   auto fields = index.children();
   size_t next = 0;
   if (fields.length == 4) {
-    check.digest = digestFromOid(fields[0].children()[0].oidValue);
+    check.digest = digestFromOid(parseAlgorithmIdentifier(fields[0], "El resumen del ats-hash-index-v3").oid);
     next = 1;
   }
   enforce!Asn1Exception(fields.length - next == 3, "ats-hash-index-v3 mal formado");

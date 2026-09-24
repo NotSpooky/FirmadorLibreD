@@ -66,6 +66,9 @@ enum size_t remoteMaxBodyBytes = 256 * 1024 * 1024;
 /// Tamaño máximo de la cabecera de una petición a Firmador Remoto.
 enum size_t remoteMaxHeaderBytes = 64 * 1024;
 
+/// Largo máximo de una línea de comando del modo -dshell (rutas y PIN incluidos).
+enum size_t shellMaxLineLength = 64 * 1024;
+
 /// Conexiones simultáneas que atiende cada puerto de Firmador Remoto.
 enum int remoteMaxConnections = 16;
 

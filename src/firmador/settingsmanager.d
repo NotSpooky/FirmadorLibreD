@@ -51,7 +51,12 @@ import firmador.util.properties : parseProperties, formatProperties;
 interface SecureCredentialStore {
   /// El llavero está disponible y es seguro.
   bool isAvailable();
-  /// Contraseña guardada, o null si no hay.
+  /**
+   * Contraseña guardada, o null si no hay.
+   *
+   * Throws: Exception si el llavero no responde (no es lo mismo que no tener contraseña:
+   * reemplazarla dejaría sin abrir los tokens guardados).
+   */
   string load();
   /// Guarda la contraseña; false si el llavero la rechazó.
   bool save(string password);
@@ -64,6 +69,10 @@ private __gshared string overridePath;
 private __gshared string[string] currentProperties;
 private __gshared Settings cachedSettings;
 private __gshared Mutex managerLock;
+/// La contraseña del almacén va en config.properties: no hay llavero o no la aceptó.
+private __gshared bool keyPasswordInFile;
+/// Por qué no se pudo usar la configuración guardada al arrancar (settingsLoadProblem).
+private __gshared string loadProblem;
 
 private enum string obfuscationPrefix = "OBF:";
 private enum string keyPasswordAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+[]{};:,.<>?";
@@ -202,7 +211,9 @@ string generateKeyPassword() @safe {
 
 /**
  * Lee config.properties y devuelve los ajustes (getSettings), con la contraseña del
- * almacén de tokens resuelta: la del llavero, la guardada en el archivo o una nueva.
+ * almacén de tokens resuelta (resolveKeyPassword). Si no se puede resolver, queda vacía:
+ * el almacén de tokens falla al usarse (firmador.connections.tokenstore) y no se
+ * reemplaza la contraseña que abre los tokens guardados.
  *
  * Throws: Exception si el archivo tiene un número que no se puede leer.
  */
@@ -210,36 +221,65 @@ Settings readSettings() @trusted {
   auto conf = new Settings();
   string path = configFilePath();
   auto props = loadProperties(path);
-  if (props is null) return conf;
-  applyProperties(conf, props);
-  setLogLevel(conf.advancedLogs);
-  managerLock.lock();
-  currentProperties = props;
-  managerLock.unlock();
-
-  auto store = credentialStore;
-  if (store !is null && store.isAvailable()) {
-    string existing = store.load();
-    if (existing.length) {
-      conf.keyPassword = existing;
-      info("Contraseña del almacén de tokens recuperada desde: ", store.storageInfo());
-    } else {
-      conf.keyPassword = generateKeyPassword();
-      info("Generando nueva contraseña del almacén de tokens");
-      if (!store.save(conf.keyPassword)) error("El llavero del sistema no aceptó la contraseña del almacén de tokens");
-      else info("Nueva contraseña guardada en: ", store.storageInfo());
-    }
-  } else {
-    info("Utilizando la contraseña del almacén de tokens guardada en la configuración");
-    string stored = "keyPassword" in props ? props["keyPassword"] : null;
-    if (stored.length == 0) {
-      conf.keyPassword = generateKeyPassword();
-      writeSettings(conf, true);
-    } else {
-      conf.keyPassword = deobfuscate(stored);
-    }
+  if (props !is null) {
+    applyProperties(conf, props);
+    setLogLevel(conf.advancedLogs);
+    managerLock.lock();
+    currentProperties = props;
+    managerLock.unlock();
+  }
+  try {
+    conf.keyPassword = resolveKeyPassword(conf, props);
+  } catch (Exception exception) {
+    error("No se pudo obtener la contraseña del almacén de tokens; las sesiones de las conexiones no estarán "
+      ~ "disponibles: ", exception.msg);
   }
   return conf;
+}
+
+/**
+ * Contraseña del almacén de tokens: la del llavero; si no está ahí, la guardada en
+ * config.properties (que se pasa al llavero si lo hay); si no hay ninguna, una nueva, que
+ * se guarda en el llavero o, si no lo hay o no la acepta, en config.properties.
+ *
+ * Params:
+ *   conf = los ajustes leídos; recibe la contraseña antes de guardarlos.
+ *   props = config.properties, o null si todavía no existe.
+ * Throws: Exception si el llavero no responde o la contraseña del archivo está dañada.
+ */
+private string resolveKeyPassword(Settings conf, const string[string] props) @trusted {
+  auto store = credentialStore;
+  bool keyring = store !is null && store.isAvailable();
+  if (keyring) {
+    string existing = store.load();
+    if (existing.length) {
+      info("Contraseña del almacén de tokens recuperada desde: ", store.storageInfo());
+      return existing;
+    }
+  }
+  string stored = props is null ? null : props.get("keyPassword", null);
+  // «OBF:» sin nada es una contraseña vacía, que nunca abrió el almacén: se trata como ausente.
+  string password = stored.length ? deobfuscate(stored) : null;
+  bool generated = password.length == 0;
+  if (generated) {
+    password = generateKeyPassword();
+    info("Generando nueva contraseña del almacén de tokens");
+  } else {
+    info("Utilizando la contraseña del almacén de tokens guardada en la configuración");
+  }
+  conf.keyPassword = password;
+  bool savedInKeyring = keyring && store.save(password);
+  if (savedInKeyring) {
+    info("Contraseña del almacén de tokens guardada en: ", store.storageInfo());
+  } else if (keyring) {
+    error("El llavero del sistema no aceptó la contraseña del almacén de tokens; se guarda en la configuración");
+  }
+  managerLock.lock();
+  keyPasswordInFile = !savedInKeyring;
+  managerLock.unlock();
+  // Guardar una nueva en el archivo, o sacar del archivo la que pasó al llavero.
+  if (generated ? !savedInKeyring : savedInKeyring) writeSettings(conf, true);
+  return password;
 }
 
 /**
@@ -248,8 +288,8 @@ Settings readSettings() @trusted {
  */
 void writeSettings(const Settings conf, bool save) @trusted {
   auto store = credentialStore;
-  bool inKeyring = store !is null && store.isAvailable();
   managerLock.lock();
+  bool inKeyring = !keyPasswordInFile && store !is null && store.isAvailable();
   currentProperties = settingsToProperties(conf, currentProperties, inKeyring ? null : obfuscate(conf.keyPassword));
   auto snapshot = currentProperties.dup;
   managerLock.unlock();
@@ -266,8 +306,9 @@ void writeSettings(const Settings conf, bool save) @trusted {
 
 /**
  * Ajustes vigentes de la aplicación (getAndCreateSettings): se leen una vez y se
- * comparten. Si el archivo no se puede interpretar se registra el error y se usan los
- * valores por omisión, que se guardan, como en la versión Java.
+ * comparten. Si el archivo no se puede interpretar se usan los valores por omisión y el
+ * archivo se aparta (con «.ilegible») en vez de reemplazarlo, para no perder los ajustes
+ * ni la contraseña guardada; settingsLoadProblem lo cuenta para avisarle al usuario.
  */
 Settings currentSettings() @trusted {
   managerLock.lock();
@@ -283,9 +324,26 @@ Settings currentSettings() @trusted {
     try {
       loaded = readSettings();
     } catch (Exception exception) {
-      error("No se pudo cargar la configuración, se usarán los valores por omisión: ", exception.msg);
       loaded = new Settings();
-      writeSettings(loaded, true);
+      string unreadable = configFilePath();
+      string setAside = unreadable ~ ".ilegible";
+      string problem = format("No se pudo leer la configuración (%s): se usan los valores por omisión", exception.msg);
+      try {
+        rename(unreadable, setAside);
+        problem ~= format(" y el archivo anterior quedó en %s", setAside);
+      } catch (Exception renameFailure) {
+        problem ~= format("; tampoco se pudo apartar %s (%s)", unreadable, renameFailure.msg);
+      }
+      error(problem);
+      managerLock.lock();
+      loadProblem = problem;
+      managerLock.unlock();
+      // Sin el archivo, la contraseña del almacén se resuelve de nuevo (llavero o nueva).
+      try {
+        loaded.keyPassword = resolveKeyPassword(loaded, null);
+      } catch (Exception keyFailure) {
+        error("No se pudo obtener la contraseña del almacén de tokens: ", keyFailure.msg);
+      }
     }
   }
   setLogLevel(loaded.advancedLogs);
@@ -294,6 +352,13 @@ Settings currentSettings() @trusted {
   scope (exit) managerLock.unlock();
   if (cachedSettings is null) cachedSettings = loaded;
   return cachedSettings;
+}
+
+/// Por qué no se pudo usar la configuración guardada al arrancar, o null si se usó.
+string settingsLoadProblem() @trusted {
+  managerLock.lock();
+  scope (exit) managerLock.unlock();
+  return loadProblem;
 }
 
 /// Reemplaza los ajustes vigentes (al aplicar la configuración) y actualiza idioma y bitácora.
@@ -312,18 +377,21 @@ void forgetCurrentSettings() @trusted {
   cachedSettings = null;
 }
 
+/// Directorio de las configuraciones por documento de la lista guardada (docSettings).
+string documentSettingsDirectory() @trusted {
+  return buildPath(configDirectory(), "docSettings");
+}
+
 /**
- * Guarda la configuración de un documento en docSettings/<nombre>.config y devuelve la ruta.
+ * Guarda la configuración de un documento en `path` (dentro de documentSettingsDirectory,
+ * o de uno provisional mientras se arma la lista; ver DocumentListPanel.saveDocumentList).
  *
  * Throws: Exception si no se puede escribir.
  */
-string saveDocumentSettings(const Settings settings, string documentName) @trusted {
-  string directory = buildPath(configDirectory(), "docSettings");
-  string path = buildPath(directory, documentName ~ ".config");
+void saveDocumentSettings(const Settings settings, string documentName, string path) @trusted {
   writeFileAtomically(path, formatProperties(documentSettingsToProperties(settings),
     "Firmador Libre settings for " ~ documentName, storeTimestamp()));
   info("Configuración del documento ", documentName, " guardada en ", path);
-  return path;
 }
 
 /**
@@ -367,4 +435,35 @@ unittest {
   auto loaded = readSettings();
   assert(loaded.reason == "Prueba");
   assert(loaded.keyPassword == "clave");
+}
+
+@("should keep one token-store password when starting without a config file and never replace it when the keyring fails")
+unittest {
+  import std.file : tempDir, rmdirRecurse;
+  string directory = buildPath(tempDir, "firmador-prueba-contrasena");
+  if (exists(directory)) rmdirRecurse(directory);
+  mkdirRecurse(directory);
+  scope (exit) rmdirRecurse(directory);
+  setConfigPath(buildPath(directory, "config.properties"));
+  scope (exit) setConfigPath(null);
+  scope (exit) keyPasswordInFile = false;
+
+  // Sin llavero ni archivo: una contraseña nueva que queda guardada para el próximo arranque.
+  auto first = readSettings();
+  assert(first.keyPassword.length == 32);
+  assert(readSettings().keyPassword == first.keyPassword);
+
+  // Un llavero que no responde: no se genera otra contraseña ni se guarda encima de la suya.
+  final class UnresponsiveKeyring : SecureCredentialStore {
+    bool saved;
+    bool isAvailable() { return true; }
+    string load() { throw new Exception("El servicio de secretos no responde"); }
+    bool save(string password) { saved = true; return true; }
+    string storageInfo() { return "llavero de prueba"; }
+  }
+  auto keyring = new UnresponsiveKeyring;
+  setSecureCredentialStore(keyring);
+  scope (exit) setSecureCredentialStore(null);
+  assert(readSettings().keyPassword.length == 0);
+  assert(!keyring.saved);
 }

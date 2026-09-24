@@ -129,11 +129,14 @@ SignatureAlgorithm signatureAlgorithmFrom(string oid, const(ubyte)[] parametersD
         // RSASSA-PSS-params: hashAlgorithm [0], maskGenAlgorithm [1], saltLength [2]
         foreach (field; parseDer(parametersDer).children()) {
           if (field.isContext(0)) {
-            algorithm.digest = digestFromOid(parseDer(field.content).children()[0].oidValue);
+            algorithm.digest = digestFromOid(parseAlgorithmIdentifier(parseDer(field.content),
+              "El resumen de RSA-PSS").oid);
           } else if (field.isContext(1)) {
-            auto mgf = parseDer(field.content).children();
-            enforce!CryptoException(mgf[0].oidValue == oidMgf1, "RSA-PSS con una función MGF distinta de MGF1");
-            algorithm.mgfDigest = digestFromOid(mgf[1].children()[0].oidValue);
+            auto mgf = parseAlgorithmIdentifier(parseDer(field.content), "La función MGF de RSA-PSS");
+            enforce!CryptoException(mgf.oid == oidMgf1, "RSA-PSS con una función MGF distinta de MGF1");
+            enforce!CryptoException(mgf.parameters.length > 0, "RSA-PSS con MGF1 sin su algoritmo de resumen");
+            algorithm.mgfDigest = digestFromOid(parseAlgorithmIdentifier(parseDer(mgf.parameters),
+              "El resumen de MGF1").oid);
           } else if (field.isContext(2)) {
             algorithm.saltLength = cast(int) parseDer(field.content).smallIntegerValue;
           }
@@ -188,8 +191,8 @@ bool verifySignature(const(ubyte)[] spkiDer, SignatureAlgorithm algorithm, const
  * Throws: CryptoException si el algoritmo no se admite.
  */
 bool isSignedBy(const Certificate certificate, const Certificate issuer) @safe {
-  auto algorithmElement = parseDer(certificate.signatureAlgorithmDer).children();
-  const(ubyte)[] parameters = algorithmElement.length > 1 ? algorithmElement[1].raw : null;
+  auto parameters = parseAlgorithmIdentifier(parseDer(certificate.signatureAlgorithmDer),
+    "El algoritmo de firma del certificado").parameters;
   auto algorithm = signatureAlgorithmFrom(certificate.signatureAlgorithmOid, parameters, DigestAlgorithm.sha256);
   return verifySignature(issuer.subjectPublicKeyInfoDer, algorithm, certificate.tbsDer, certificate.signatureValue);
 }

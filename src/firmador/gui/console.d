@@ -96,13 +96,48 @@ abstract class ConsoleInterface : GuiInterface {
 }
 
 /**
- * Lee un PIN de la entrada estándar sin búfer (para no robar datos a otro lector), hasta
- * el primer salto de línea, el final de la entrada o `maxLength` caracteres. Si la
- * entrada es una terminal, pide el PIN por la salida de error y no muestra lo que se
- * escribe. El llamador debe borrar el resultado con ceros.
+ * Lee una línea de la entrada estándar sin búfer, en `buffer`, sin el salto de línea
+ * (\n o \r\n). Nada queda en un búfer de la biblioteca de C ni en una cadena inmutable
+ * (que no se podrían borrar), ni se roban datos a otro lector de la entrada.
+ *
+ * Params:
+ *   buffer = dónde se lee; si la línea trae un PIN, el llamador lo borra con ceros.
+ *   length = cuántos caracteres de `buffer` ocupa la línea.
+ * Returns: false si la entrada terminó sin traer nada.
+ * Throws: Exception si la línea no cabe en `buffer`; el resto de ella se descarta y
+ * `buffer` queda en ceros.
+ */
+bool readStandardInputLine(char[] buffer, out size_t length) @trusted {
+  import std.format : format;
+  char character;
+  bool received;
+  while (readStandardInputByte(character)) {
+    received = true;
+    if (character == '\n') break;
+    if (length == buffer.length) {
+      // Se descarta el resto para que no se lea como otra línea.
+      while (readStandardInputByte(character) && character != '\n') {}
+      buffer[] = '\0';
+      length = 0;
+      throw new Exception(format("La línea de la entrada estándar supera los %d caracteres", buffer.length));
+    }
+    buffer[length++] = character;
+  }
+  if (length && buffer[length - 1] == '\r') length--;
+  return received;
+}
+
+/**
+ * Lee un PIN de la entrada estándar sin búfer (readStandardInputLine), hasta el primer
+ * salto de línea o el final de la entrada. Si la entrada es una terminal, pide el PIN
+ * por la salida de error y no muestra lo que se escribe. El llamador debe borrar el
+ * resultado con ceros.
+ *
+ * Throws: Exception si el PIN tiene más de `maxLength` caracteres.
  */
 char[] readPinFromStandardInput(size_t maxLength) @trusted {
   auto buffer = new char[maxLength];
+  scope (exit) buffer[] = '\0';
   size_t length;
   bool terminal = standardInputIsTerminal();
   if (terminal) {
@@ -118,15 +153,8 @@ char[] readPinFromStandardInput(size_t maxLength) @trusted {
       stderr.writeln();
     }
   }
-  while (length < maxLength) {
-    char character;
-    if (!readStandardInputByte(character)) break;
-    if (character == '\n' || character == '\r') break;
-    buffer[length++] = character;
-  }
-  auto pin = buffer[0 .. length].dup;
-  buffer[] = '\0';
-  return pin;
+  readStandardInputLine(buffer, length);
+  return buffer[0 .. length].dup;
 }
 
 /// La entrada estándar es una terminal (System.console().isTerminal()).

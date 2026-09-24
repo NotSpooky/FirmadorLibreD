@@ -65,10 +65,10 @@ CertificateRevocationList parseCrl(const(ubyte)[] der) @safe {
   auto reader = parseDer(der).reader();
   auto tbs = reader.next("TBSCertList");
   crl.tbsDer = tbs.raw.idup;
-  auto algorithm = reader.next("el algoritmo de firma de la CRL").children();
-  crl.signatureAlgorithmOid = algorithm[0].oidValue;
-  if (algorithm.length > 1 && !algorithm[1].isUniversal(UniversalTag.null_))
-    crl.signatureAlgorithmParameters = algorithm[1].raw.idup;
+  auto algorithm = parseAlgorithmIdentifier(reader.next("el algoritmo de firma de la CRL"),
+    "El algoritmo de firma de la CRL");
+  crl.signatureAlgorithmOid = algorithm.oid;
+  crl.signatureAlgorithmParameters = algorithm.parameters;
   crl.signature = reader.next("la firma de la CRL").bitStringBytes.idup;
   reader.finish("la CRL");
 

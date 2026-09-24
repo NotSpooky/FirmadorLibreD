@@ -271,6 +271,17 @@ final class Settings {
     registeredAllowedOrigins = origins.join("\n");
   }
 
+  /// Orígenes autorizados de forma permanente (los que se guardan en config.properties).
+  string[] getRegisteredAllowedOrigins() const pure @safe {
+    return splitHosts(registeredAllowedOrigins);
+  }
+
+  /// Autoriza un origen de forma permanente; los de esta sesión siguen siendo sólo de ella.
+  void registerAllowedOrigin(string origin) pure @safe {
+    string[] registered = splitHosts(registeredAllowedOrigins);
+    if (!registered.canFind(origin.strip)) setRegisteredAllowedOrigins(registered ~ origin.strip);
+  }
+
   /// Registra un oyente de cambios de configuración.
   void addListener(ConfigListener listener) @safe {
     listeners ~= listener;
@@ -808,6 +819,10 @@ unittest {
   assert(conf.getNoAuthorizedHosts() == ["https://malo.cr"]);
   conf.removeNoAuthorizedHost("https://malo.cr");
   assert(conf.getNoAuthorizedHosts().length == 0);
+  conf.addTempAllowedHost("https://sesion.cr");
+  conf.registerAllowedOrigin("https://siempre.cr");
+  conf.registerAllowedOrigin("https://siempre.cr");
+  assert(conf.getRegisteredAllowedOrigins() == ["https://a.cr", "https://siempre.cr"]);
 }
 
 @("should resolve the remote port only inside the allowed range when an origin asks for one")

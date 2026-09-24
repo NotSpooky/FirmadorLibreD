@@ -243,6 +243,31 @@ struct DerReader {
   }
 }
 
+/// AlgorithmIdentifier (RFC 5280): el OID y, si no son un NULL, los parámetros codificados.
+struct AlgorithmIdentifier {
+  string oid;
+  immutable(ubyte)[] parameters;
+}
+
+/**
+ * Lee un AlgorithmIdentifier de un documento que no es de confianza.
+ *
+ * Params:
+ *   element = la SEQUENCE del algoritmo.
+ *   what = qué algoritmo es, para el mensaje de error.
+ * Returns: el OID y los parámetros (vacíos si faltan o son un NULL).
+ * Throws: Asn1Exception si no trae el OID o trae campos de más.
+ */
+AlgorithmIdentifier parseAlgorithmIdentifier(const DerElement element, string what) pure @safe {
+  auto fields = element.children();
+  enforce!Asn1Exception(fields.length == 1 || fields.length == 2,
+    format("%s no es un AlgorithmIdentifier válido: tiene %d campos", what, fields.length));
+  AlgorithmIdentifier algorithm;
+  algorithm.oid = fields[0].oidValue;
+  if (fields.length == 2 && !fields[1].isUniversal(UniversalTag.null_)) algorithm.parameters = fields[1].raw.idup;
+  return algorithm;
+}
+
 /**
  * Lee un elemento al principio de `data` y devuelve cuántos bytes ocupa.
  *
@@ -720,4 +745,16 @@ unittest {
   assert(parseDer([0x1E, 0x02, 0x00, 0xE1]).stringValue == "á");
   assert(parseDer([0x14, 0x01, 0xE1]).stringValue == "á");
   assert(parseDer([0x03, 0x02, 0x05, 0xA0]).bitStringBits == [true, false, true]);
+}
+
+@("should reject an empty algorithm and drop NULL parameters when reading an AlgorithmIdentifier")
+unittest {
+  import std.exception : assertThrown;
+  // 30 00: SEQUENCE vacía, como la de un certificado manipulado.
+  assertThrown!Asn1Exception(parseAlgorithmIdentifier(parseDer([0x30, 0x00]), "El algoritmo"));
+  // sha256WithRSAEncryption con parámetros NULL.
+  immutable ubyte[] withNull = [0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B, 0x05,
+    0x00];
+  auto algorithm = parseAlgorithmIdentifier(parseDer(withNull), "El algoritmo");
+  assert(algorithm.oid == "1.2.840.113549.1.1.11" && algorithm.parameters.length == 0);
 }
