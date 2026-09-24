@@ -28,6 +28,9 @@ module firmador.gui.errors;
 import std.algorithm : canFind;
 import std.format : format;
 
+import cpkcs11 : CKR_PIN_EXPIRED, CKR_PIN_INCORRECT, CKR_PIN_LOCKED;
+
+import firmador.crypto.openssl : WrongPasswordException;
 import firmador.i18n : t;
 import firmador.signers.common : rootCause;
 import firmador.tokens.pkcs11 : Pkcs11Exception, Pkcs11LibraryException;
@@ -43,10 +46,32 @@ UserError userErrorFor(Throwable failure) @safe {
   auto cause = rootCause(failure);
   string detail = cause.msg.idup;
   if (auto pkcs11 = cast(Pkcs11Exception) cause) return pkcs11Error(detail);
+  if (cast(WrongPasswordException) cause) return UserError(t("guiswing_show_error_pkcs11_pinincorrect"), true);
   if (cast(Pkcs11LibraryException) cause && (detail.canFind("asepkcs") || detail.canFind("libASEP11"))) {
     return UserError(t("guiswing_show_error_installers"), false);
   }
   return UserError(format(t("guiswing_show_error_default"), typeid(cause).name, detail), false);
+}
+
+/**
+ * El fallo, o alguna excepción de su cadena, es un PIN o una contraseña rechazados, o un
+ * PIN bloqueado o vencido: volver a intentarlo con el mismo acercaría la tarjeta al
+ * bloqueo. Lo usa -dshell (firmador.gui.shell) para detener un lote.
+ *
+ * Params:
+ *   failure = lo que se informó con GuiInterface.showError.
+ * Returns: true si es un WrongPasswordException o un Pkcs11Exception de PIN.
+ */
+bool isAuthenticationFailure(Throwable failure) @safe {
+  for (auto current = failure; current !is null; current = current.next) {
+    if (cast(WrongPasswordException) current) return true;
+    if (auto pkcs11 = cast(Pkcs11Exception) current) {
+      if (pkcs11.code == CKR_PIN_INCORRECT || pkcs11.code == CKR_PIN_LOCKED || pkcs11.code == CKR_PIN_EXPIRED) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /// Explicación de un código de PKCS#11 (handlePKCS11Exception).
@@ -82,4 +107,19 @@ unittest {
   assert(missing.message == t("guiswing_show_error_installers"));
   auto other = userErrorFor(new Exception("disco lleno"));
   assert(other.message.canFind("object.Exception") && other.message.canFind("disco lleno"));
+}
+
+@("should tell PIN and password rejections apart by type when deciding whether to stop a batch")
+unittest {
+  import firmador.i18n : setMessagesLocale;
+  import firmador.signers.common : ReportedSigningFailure;
+  setMessagesLocale("es", "CR");
+  auto wrongPassword = new WrongPasswordException("rechazada");
+  assert(isAuthenticationFailure(wrongPassword));
+  auto shown = userErrorFor(wrongPassword);
+  assert(shown.warning && shown.message == t("guiswing_show_error_pkcs11_pinincorrect"));
+  // Encadenada dentro del aviso de los firmadores.
+  assert(isAuthenticationFailure(new ReportedSigningFailure("falló", new Pkcs11Exception(CKR_PIN_LOCKED, "C_Login"))));
+  assert(!isAuthenticationFailure(new Pkcs11Exception(0x05, "C_Sign")));
+  assert(!isAuthenticationFailure(new Exception("CKR_PIN_INCORRECT en el texto no basta")));
 }

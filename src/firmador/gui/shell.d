@@ -47,6 +47,7 @@ import firmador.configuration : shellMaxLineLength;
 import firmador.documents.document : Document;
 import firmador.documents.mimetype : detectMimeType;
 import firmador.gui.console;
+import firmador.gui.errors : isAuthenticationFailure;
 import firmador.i18n : htmlToText, t;
 import firmador.previewers.previewer : previewerFor;
 import firmador.remote.dto : remoteDocumentJson;
@@ -238,14 +239,14 @@ final class ShellInterface : ConsoleInterface {
 
   void showError(Throwable failure) @trusted {
     auto cause = rootCause(failure);
-    flagIfAuthenticationFailure(cause.msg.idup);
+    // Un PIN o una contraseña rechazados detienen el lote antes de bloquear la tarjeta.
+    if (isAuthenticationFailure(failure)) authenticationFailed = true;
     error("Error en modo -dshell: ", cause.msg);
     stderr.writeln("ERROR: ", typeid(cause).name, ": ", cause.msg);
   }
 
-  /// Los firmadores informan aquí el PIN incorrecto; no puede ir a la salida estándar.
+  /// Los avisos no pueden ir a la salida estándar, que es la de las respuestas.
   void showMessage(string message) @trusted {
-    flagIfAuthenticationFailure(message);
     info(message);
     stderr.writeln(message);
   }
@@ -258,14 +259,6 @@ final class ShellInterface : ConsoleInterface {
   /// El PIN llega con cada comando: no hay a quién pedirlo.
   CardSignInfo getPin() @safe {
     return null;
-  }
-
-  private void flagIfAuthenticationFailure(string message) @safe {
-    if (message.canFind(t("guiswing_show_error_pkcs11_pinincorrect")) || message.canFind("CKR_PIN_INCORRECT")
-        || message.canFind("CKR_PIN_LOCKED") || message.canFind("CKR_PIN_EXPIRED")
-        || message.canFind("contraseña del almacén PKCS#12 no es la correcta")) {
-      authenticationFailed = true;
-    }
   }
 
   /// Atiende comandos hasta «exit», «quit» o el final de la entrada.

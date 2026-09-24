@@ -157,7 +157,7 @@ final class PadesSigner : ServicedSigner {
       } catch (SignatureOverlapException exception) {
         error("Error al firmar (traslape de firma): ", exception.msg);
         gui.showMessage(t("signers_signature_overlap"));
-        throw new ReportedSigningFailure(exception.msg);
+        throw new ReportedSigningFailure(exception.msg, exception);
       }
       auto attributes = padesSignedAttributes(preparedDigest(prepared), certificate).idup;
       auto chain = services.intermediateChain(certificate);

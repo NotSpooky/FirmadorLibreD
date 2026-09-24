@@ -53,8 +53,9 @@ import firmador.x509.certificate;
 
 /// La operación no se pudo completar y el motivo ya se le mostró al usuario.
 class ReportedSigningFailure : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
+  /// Params: cause = la excepción que se avisó, encadenada para quien necesite su tipo.
+  this(string message, Throwable cause = null, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
+    super(message, file, line, cause);
   }
 }
 
@@ -161,25 +162,26 @@ SigningKey openSigningKey(GuiInterface gui, CardSignInfo card) @trusted {
       token = new Pkcs11SignatureToken(pkcs11LibraryPath(currentSettings().extraPKCS11Lib), card.pin, card.slotID);
     }
   } catch (WrongPasswordException exception) {
+    // Con la excepción y no con su texto: -dshell detiene el lote según el tipo (gui/errors.d).
     error("Error al obtener la conexión de firma: ", exception.msg);
-    gui.showMessage(t("guiswing_show_error_pkcs11_pinincorrect"));
-    throw new ReportedSigningFailure(exception.msg);
+    gui.showError(exception);
+    throw new ReportedSigningFailure(exception.msg, exception);
   } catch (Pkcs11LibraryException exception) {
     error("Error al conectar con el dispositivo: ", exception.msg);
     if (exception.msg.canFind("need 'arm64e'")) gui.showMessage(t("pin_dialog_warning_arm"));
     else gui.showError(exception);
-    throw new ReportedSigningFailure(exception.msg);
+    throw new ReportedSigningFailure(exception.msg, exception);
   } catch (Pkcs11Exception exception) {
     error("Error ", exception.msg, " obteniendo manejador de llaves privadas de la tarjeta");
     if (exception.msg == "CKR_TOKEN_NOT_RECOGNIZED") {
       info(exception.msg, " (dispositivo de firma no reconocido)");
     }
     gui.showError(exception);
-    throw new ReportedSigningFailure(exception.msg);
+    throw new ReportedSigningFailure(exception.msg, exception);
   } catch (Exception exception) {
     error("Error al obtener la conexión de firma: ", exception.msg);
     gui.showError(exception);
-    throw new ReportedSigningFailure(exception.msg);
+    throw new ReportedSigningFailure(exception.msg, exception);
   }
   gui.nextStep(t("signers_getting_key_handler"));
   // Como en CRSigner.getPrivateKey: la primera clave de no repudio. Las tarjetas de firma

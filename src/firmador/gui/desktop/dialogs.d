@@ -38,7 +38,7 @@ import std.conv : to;
 import std.format : format;
 import std.logger : error, info, warning;
 import std.uni : toUpper;
-import std.utf : toUTF32, toUTF8;
+import std.utf : codeLength, encode, toUTF32, toUTF8;
 
 import dlangui.core.events;
 import dlangui.core.signals;
@@ -244,13 +244,48 @@ private EditLine pinField() @trusted {
   return field;
 }
 
-/// Texto de un campo de PIN como SecretPin, borrando el campo.
-private SecretPin takePin(EditLine field) @trusted {
-  auto characters = field.text.toUTF8.dup;
+/**
+ * Texto en UTF-8 en un arreglo nuevo y modificable, codificado carácter por carácter sin
+ * pasar por una cadena inmutable, para que quien lo recibe pueda borrarlo.
+ *
+ * Params:
+ *   text = texto a codificar.
+ * Returns: el texto codificado, en un arreglo propio de quien llama.
+ * Throws: UTFException si `text` tiene un carácter que no es válido en Unicode.
+ */
+char[] wipeableUtf8(const(dchar)[] text) pure @safe {
+  size_t length;
+  foreach (dchar character; text) length += codeLength!char(character);
+  auto characters = new char[length];
+  size_t written;
+  foreach (dchar character; text) {
+    char[4] encoded;
+    size_t size = encode(encoded, character);
+    characters[written .. written + size] = encoded[0 .. size];
+    encoded[] = '\0';
+    written += size;
+  }
+  return characters;
+}
+
+/**
+ * Texto de un campo secreto (PIN o contraseña) en UTF-8 (wipeableUtf8) y vacía el campo.
+ * Quien llama debe borrar el arreglo (`characters[] = '\0'`) al terminar. Las copias que
+ * guarda dlangui mientras se escribe quedan fuera de su alcance.
+ *
+ * Throws: UTFException si el campo tiene un carácter que no es válido en Unicode.
+ */
+char[] takeSecretText(EditLine field) @trusted {
+  auto characters = wipeableUtf8(field.text);
   field.text = ""d;
-  auto pin = new SecretPin(characters);
-  characters[] = '\0';
-  return pin;
+  return characters;
+}
+
+/// Texto de un campo de PIN como SecretPin, vaciando el campo y borrando la copia intermedia.
+private SecretPin takePin(EditLine field) @trusted {
+  auto characters = takeSecretText(field);
+  scope (exit) characters[] = '\0';
+  return new SecretPin(characters);
 }
 
 /**
@@ -619,4 +654,16 @@ unittest {
   assert(!isValidPinText("12a"d));
   assert(remainingTimeText(65) == "Tiempo restante: 1:05");
   assert(remainingTimeText(120) == "Tiempo restante: 2:00");
+}
+
+@("should encode multi-byte characters like toUTF8 when copying a secret into a wipeable buffer")
+unittest {
+  import std.exception : assertThrown;
+  import std.utf : UTFException;
+  dstring secret = "pín€𝄞1"d;
+  auto characters = wipeableUtf8(secret);
+  assert(characters == secret.toUTF8);
+  characters[] = '\0';
+  assert(wipeableUtf8(""d).length == 0);
+  assertThrown!UTFException(wipeableUtf8([cast(dchar) 0xD800]));
 }

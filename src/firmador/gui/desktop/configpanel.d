@@ -396,8 +396,7 @@ final class ConfigPanel : VerticalLayout {
     dialog.addChild(password);
     dialog.addOkCancel();
     dialog.open((const Action result) {
-      auto characters = password.text.toUTF8.dup;
-      password.text = ""d;
+      auto characters = takeSecretText(password);
       scope (exit) characters[] = '\0';
       if (result is null || result.id != StandardAction.Ok) return;
       try {
