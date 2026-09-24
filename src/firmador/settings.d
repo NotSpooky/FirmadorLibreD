@@ -117,7 +117,7 @@ final class Settings {
   string fontAlignment = "RIGHT";
   string signRotation = "AUTOMATIC";
   /// Escala inicial de la previsualización: AUTO_WIDTH, FULL_PAGE o un porcentaje ("100").
-  string previewZoom = "AUTO_WIDTH";
+  string previewZoom = "FULL_PAGE";
   bool showLogs = false;
   string advancedLogs = "WARNING";
   bool showTrayNotifications = false;

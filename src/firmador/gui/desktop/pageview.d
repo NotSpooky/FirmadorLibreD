@@ -58,7 +58,7 @@ enum ZoomMode { autoWidth, fullPage, fixed }
 
 /// Escala elegida.
 struct Zoom {
-  ZoomMode mode = ZoomMode.autoWidth;
+  ZoomMode mode = ZoomMode.fullPage;
   /// Factor de los modos fijos (1 = 100 %).
   float factor = 1;
 }
@@ -70,16 +70,19 @@ string[] zoomSettingValues() pure @safe {
   return values;
 }
 
-/// Posición en el selector del valor guardado; 0 (ancho automático) si no se reconoce.
+/// Posición del modo por omisión (página completa) en el selector.
+private enum int fullPageIndex = 1;
+
+/// Posición en el selector del valor guardado; la de página completa si no se reconoce.
 int zoomIndexFor(string value) pure @safe {
   auto index = zoomSettingValues().countUntil(value);
-  return index < 0 ? 0 : cast(int) index;
+  return index < 0 ? fullPageIndex : cast(int) index;
 }
 
-/// Escala de la posición del selector.
+/// Escala de la posición del selector (página completa si no hay nada elegido).
 Zoom zoomAt(int index) pure nothrow @safe {
-  if (index <= 0) return Zoom(ZoomMode.autoWidth);
-  if (index == 1) return Zoom(ZoomMode.fullPage);
+  if (index < 0 || index == fullPageIndex) return Zoom(ZoomMode.fullPage);
+  if (index == 0) return Zoom(ZoomMode.autoWidth);
   return Zoom(ZoomMode.fixed, zoomPercents[min(index - 2, cast(int) zoomPercents.length - 1)] / 100f);
 }
 
@@ -709,7 +712,9 @@ unittest {
   assert(effectiveScale(Zoom(ZoomMode.fullPage), 612, 792, 322, 2000, 1.3) == 0.5);
   assert(effectiveScale(Zoom(ZoomMode.fixed, 2), 612, 792, 10, 10, 1.25) == 2.5);
   assert(zoomAt(zoomIndexFor("200")) == Zoom(ZoomMode.fixed, 2));
-  assert(zoomAt(zoomIndexFor("desconocido")).mode == ZoomMode.autoWidth);
+  assert(zoomAt(zoomIndexFor("desconocido")).mode == ZoomMode.fullPage);
+  import firmador.settings : Settings;
+  assert(zoomAt(zoomIndexFor(new Settings().previewZoom)).mode == ZoomMode.fullPage);
   assert(zoomSettingValues()[1] == "FULL_PAGE");
 }
 

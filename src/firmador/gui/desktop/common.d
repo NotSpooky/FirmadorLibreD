@@ -83,6 +83,22 @@ dstring tip(string key) @trusted {
   return htmlToText(t(key).replace("<br>", "\n")).strip.toUTF32;
 }
 
+/**
+ * Deja que las ayudas emergentes ocupen varias líneas. tip convierte los <br> en saltos
+ * de línea, que el estilo de una sola línea del tema de dlangui dibuja como un carácter
+ * sin glifo. Se llama una vez, al crear la ventana (firmador.gui.desktop.window).
+ *
+ * Throws: Exception si el tema no define el estilo de las ayudas emergentes.
+ */
+void allowMultilineTooltips() @trusted {
+  import std.exception : enforce;
+  import dlangui.widgets.styles : currentTheme, STYLE_TOOLTIP;
+  // Sin el estilo, get devuelve el del tema entero, que no se debe cambiar.
+  auto style = currentTheme.get(STYLE_TOOLTIP);
+  enforce(style.id == STYLE_TOOLTIP, "El tema de dlangui no define el estilo de las ayudas emergentes");
+  style.maxLines = 0;
+}
+
 /// Botón con texto, ayuda y acción.
 Button makeButton(string id, string labelKey, string tooltipKey, bool delegate() action) @trusted {
   auto button = new Button(id, dt(labelKey));
@@ -153,15 +169,15 @@ void chooseSaveFile(Window parent, string title, string directory, string propos
 }
 
 /**
- * Número de página del selector (pageSpinner): positivo desde el principio, negativo
- * desde el final; el cero se salta en la dirección en que se venía.
+ * Número de página del selector, siempre entre 1 y `pages`; lo que queda fuera da la
+ * vuelta (módulo). Los negativos cuentan desde el final, como en la versión Java (-1 es
+ * la última), y el 0, al que se llega con «−» desde la primera, también es la última.
  */
-int nextPageValue(int current, int requested, int pages) pure nothrow @safe @nogc {
+int nextPageValue(int requested, int pages) pure nothrow @safe @nogc {
   if (pages <= 0) return 1;
-  if (requested > pages) requested = pages;
-  if (requested < -pages) requested = -pages;
-  if (requested == 0) return current > 0 ? -1 : 1;
-  return requested;
+  long index = requested > 0 ? cast(long) requested - 1 : requested == 0 ? pages - 1 : cast(long) pages + requested;
+  long wrapped = index % pages;
+  return cast(int) (wrapped < 0 ? wrapped + pages : wrapped) + 1;
 }
 
 /// Índice (desde 0) de la página del selector.
@@ -171,7 +187,7 @@ int pageIndexFor(int value, int pages) pure nothrow @safe @nogc {
   return index < 0 ? 0 : index >= pages ? pages - 1 : index;
 }
 
-/// Selector de página con botones y negativos (página desde el final).
+/// Selector de página con botones; da la vuelta al pasar de la primera o de la última.
 final class PageSelector : HorizontalLayout {
   /// Se llama cuando el usuario cambia la página.
   void delegate(int value) onChange;
@@ -206,7 +222,7 @@ final class PageSelector : HorizontalLayout {
 
   /// Cambia el valor; con `notify` avisa a onChange.
   void set(int requested, bool notify) @trusted {
-    value_ = nextPageValue(value_, requested, pages);
+    value_ = nextPageValue(requested, pages);
     field.text = value_.to!dstring;
     if (notify && onChange !is null) onChange(value_);
   }
@@ -229,11 +245,11 @@ unittest {
   assert(withOutputExtension("/tmp/salida.PDF", ".pdf") == "/tmp/salida.PDF");
 }
 
-@("should skip page zero and count negative pages from the end when moving the page selector")
+@("should wrap around to the last or first page when the page selector goes past either end")
 unittest {
-  assert(nextPageValue(1, 0, 5) == -1);
-  assert(nextPageValue(-1, 0, 5) == 1);
-  assert(nextPageValue(3, 9, 5) == 5);
-  assert(nextPageValue(3, -9, 5) == -5);
+  assert(nextPageValue(0, 5) == 5 && nextPageValue(-1, 5) == 5);
+  assert(nextPageValue(6, 5) == 1 && nextPageValue(3, 5) == 3);
+  assert(nextPageValue(-5, 5) == 1 && nextPageValue(-6, 5) == 5 && nextPageValue(9, 5) == 4);
+  assert(nextPageValue(int.min, 3) >= 1 && nextPageValue(1, 0) == 1);
   assert(pageIndexFor(-1, 5) == 4 && pageIndexFor(2, 5) == 1 && pageIndexFor(1, 0) == 0);
 }

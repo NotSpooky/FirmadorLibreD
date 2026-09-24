@@ -216,6 +216,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     window = Platform.instance.createWindow((remoteOrigin !is null ? "Firmador remoto" : "Firmador").toUTF32, null,
       WindowFlag.Resizable, 1100, 800);
     registerUiWindow(window);
+    allowMultilineTooltips();
     setUiErrorReporter((Exception failure) => showError(failure));
     if (settings.simplified_mode.isNull && remoteOrigin is null) {
       // La primera vez se pregunta el modo antes de armar las pestañas.
