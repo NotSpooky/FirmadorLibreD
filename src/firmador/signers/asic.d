@@ -30,25 +30,18 @@ import std.datetime.systime : Clock, SysTime;
 import std.exception : enforce;
 import std.format : format;
 import std.logger : info;
+import std.path : extension;
 
 import firmador.cards.cardinfo : CardSignInfo;
 import firmador.containers.asic;
 import firmador.documents.mimetype : isAsic;
 import firmador.gui.guiinterface;
 import firmador.settings;
-import firmador.settingsmanager : currentSettings;
 import firmador.signers.common;
 import firmador.signers.documentsigner;
 import firmador.signers.xades : extendXadesDocument, raiseXadesLevel;
 import firmador.util.zip;
 import firmador.xml.xades;
-import firmador.xml.xmldsig : ExternalResolver;
-
-/// Resuelve las referencias de una firma de contenedor a sus archivos (URI con escapes).
-ExternalResolver containerResolver(const ContainerContent content) @safe {
-  auto entries = content.allEntries();
-  return (string uri) @safe => entryContent(entries, uri);
-}
 
 /// Contenedor ASiC-E que se firma: el recibido o uno nuevo con el documento y los adicionales.
 private ContainerContent asicContainerFor(const SigningInput input) @safe {
@@ -65,13 +58,9 @@ private ContainerContent asicContainerFor(const SigningInput input) @safe {
 }
 
 /// Firmador ASiC-E con XAdES.
-final class AsicSigner : DocumentSigner {
-  private GuiInterface gui;
-  private SigningServices services;
-
-  this(GuiInterface gui, SigningServices services = null) @safe {
-    this.gui = gui;
-    this.services = services is null ? SigningServices.online() : services;
+final class AsicSigner : ServicedSigner {
+  this(GuiInterface gui) @safe {
+    super(gui);
   }
 
   string formatName() const @safe {
@@ -82,7 +71,7 @@ final class AsicSigner : DocumentSigner {
     return ".asice";
   }
 
-  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @trusted {
+  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @safe {
     return signWithCard(gui, card, (SigningKey key) @safe {
       auto content = asicContainerFor(input);
       auto certificate = key.certificate;
@@ -103,9 +92,7 @@ final class AsicSigner : DocumentSigner {
       assembly.dataToSign = prepared.dataToSign;
       // Como la versión Java, la firma del contenedor queda en nivel B.
       assembly.baseline = (const(ubyte)[] value) @safe {
-        ContainerContent signed = content;
-        signed.signatureDocuments = content.signatureDocuments.dup;
-        putSignatureDocument(signed, signatureName, completeXadesSignature(prepared, value));
+        auto signed = withSignatureDocument(content, signatureName, completeXadesSignature(prepared, value));
         info("Firma añadida al contenedor ASiC-E como ", signatureName);
         return writeContainer(signed, signingTime);
       };
@@ -113,19 +100,15 @@ final class AsicSigner : DocumentSigner {
     });
   }
 
-  immutable(ubyte)[] extend(const ExtensionInput input) @trusted {
+  immutable(ubyte)[] extend(const ExtensionInput input) @safe {
     return extendReporting(gui, () @safe => extendContainer(input.signed, services));
   }
 }
 
 /// Firmador de documentos OpenDocument.
-final class OpenDocumentSigner : DocumentSigner {
-  private GuiInterface gui;
-  private SigningServices services;
-
-  this(GuiInterface gui, SigningServices services = null) @safe {
-    this.gui = gui;
-    this.services = services is null ? SigningServices.online() : services;
+final class OpenDocumentSigner : ServicedSigner {
+  this(GuiInterface gui) @safe {
+    super(gui);
   }
 
   string formatName() const @safe {
@@ -133,11 +116,11 @@ final class OpenDocumentSigner : DocumentSigner {
   }
 
   string signedExtension(string originalName) const @safe {
-    return extensionOfName(originalName);
+    return extension(originalName);
   }
 
-  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @trusted {
-    auto documentSettings = input.settings is null ? currentSettings() : cast(Settings) input.settings;
+  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @safe {
+    auto documentSettings = documentSettingsOf(input);
     return signWithCard(gui, card, (SigningKey key) @safe {
       auto content = classifyContainer(readZip(input.content));
       enforce(content.isOpenDocument, "El archivo no es un documento OpenDocument");
@@ -156,10 +139,7 @@ final class OpenDocumentSigner : DocumentSigner {
       SysTime signingTime = parameters.signingTime;
       auto resolver = containerResolver(content);
       immutable(ubyte)[] assemble(immutable(ubyte)[] signatures) @safe {
-        ContainerContent signed = content;
-        signed.signatureDocuments = content.signatureDocuments.dup;
-        putSignatureDocument(signed, openDocumentSignaturesName, signatures);
-        return writeContainer(signed, signingTime);
+        return writeContainer(withSignatureDocument(content, openDocumentSignaturesName, signatures), signingTime);
       }
       SignatureAssembly assembly;
       assembly.dataToSign = prepared.dataToSign;
@@ -170,7 +150,7 @@ final class OpenDocumentSigner : DocumentSigner {
     });
   }
 
-  immutable(ubyte)[] extend(const ExtensionInput input) @trusted {
+  immutable(ubyte)[] extend(const ExtensionInput input) @safe {
     return extendReporting(gui, () @safe => extendContainer(input.signed, services));
   }
 }

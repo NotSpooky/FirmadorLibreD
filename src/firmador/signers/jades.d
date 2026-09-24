@@ -25,29 +25,19 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 module firmador.signers.jades;
 
 import std.datetime.systime : Clock;
-import std.exception : enforce;
 
 import firmador.cards.cardinfo : CardSignInfo;
-import firmador.cms.tsp;
-import firmador.crypto.digest;
 import firmador.documents.mimetype : mimeTypeString;
 import firmador.gui.guiinterface;
 import firmador.jose.jades;
 import firmador.settings;
-import firmador.settingsmanager : currentSettings;
 import firmador.signers.common;
 import firmador.signers.documentsigner;
-import firmador.validation.cmsverify : findSignerCertificate;
-import firmador.x509.certificate;
 
 /// Firmador JAdES.
-final class JadesSigner : DocumentSigner {
-  private GuiInterface gui;
-  private SigningServices services;
-
-  this(GuiInterface gui, SigningServices services = null) @safe {
-    this.gui = gui;
-    this.services = services is null ? SigningServices.online() : services;
+final class JadesSigner : ServicedSigner {
+  this(GuiInterface gui) @safe {
+    super(gui);
   }
 
   string formatName() const @safe {
@@ -58,8 +48,8 @@ final class JadesSigner : DocumentSigner {
     return ".json";
   }
 
-  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @trusted {
-    auto documentSettings = input.settings is null ? currentSettings() : cast(Settings) input.settings;
+  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @safe {
+    auto documentSettings = documentSettingsOf(input);
     return signWithCard(gui, card, (SigningKey key) @safe {
       JadesParameters parameters;
       parameters.signingTime = Clock.currTime;
@@ -71,15 +61,8 @@ final class JadesSigner : DocumentSigner {
       SignatureAssembly assembly;
       assembly.dataToSign = prepared.dataToSign;
       assembly.baseline = (const(ubyte)[] value) @safe => completeJadesSignature(prepared, value);
-      assembly.upgraded = (const(ubyte)[] value) @safe {
-        auto signed = completeJadesSignature(prepared, value);
-        if (level == SignatureLevel.b) return signed;
-        signed = addJadesSignatureTimestamp(signed, 0, (digest) => services.timestampDigest(digest));
-        if (level == SignatureLevel.t) return signed;
-        signed = withJadesValidationData(signed, 0, services);
-        if (level == SignatureLevel.lt) return signed;
-        return addJadesArchiveTimestamp(signed, 0, (digest) => services.timestampDigest(digest));
-      };
+      assembly.upgraded = (const(ubyte)[] value) @safe => raiseJadesLevel(completeJadesSignature(prepared, value), 0,
+        level, services);
       return assembly;
     });
   }
@@ -88,51 +71,32 @@ final class JadesSigner : DocumentSigner {
    * Extiende a LTA todas las firmas del JWS (extendDocument de DSS con
    * JAdES_BASELINE_LTA): sigTst si falta, datos de validación y arcTst.
    */
-  immutable(ubyte)[] extend(const ExtensionInput input) @trusted {
-    return extendReporting(gui, () @trusted {
+  immutable(ubyte)[] extend(const ExtensionInput input) @safe {
+    return extendReporting(gui, () @safe {
       immutable(ubyte)[] detachedContent = input.singleDetached;
       immutable(ubyte)[] extended = input.signed;
       auto count = parseJws(extended).signatures.length;
       foreach (index; 0 .. count) {
         bool timestamped = false;
         foreach (component; parseJws(extended).signatures[index].etsiU) if (component.name == "sigTst") timestamped = true;
-        if (!timestamped) extended = addJadesSignatureTimestamp(extended, index, (digest) => services.timestampDigest(digest));
-        extended = withJadesValidationData(extended, index, services);
-        extended = addJadesArchiveTimestamp(extended, index, (digest) => services.timestampDigest(digest), detachedContent);
+        extended = raiseJadesLevel(extended, index, SignatureLevel.lta, services, detachedContent, timestamped);
       }
       return extended;
     });
   }
 }
 
-/// Añade los datos de validación del firmante y de las autoridades de sellado (nivel LT).
-private immutable(ubyte)[] withJadesValidationData(immutable(ubyte)[] document, size_t index,
-    SigningServices services) @trusted {
-  auto jws = parseJws(document);
-  auto signature = jws.signatures[index];
-  auto embedded = jadesEmbeddedData(signature);
-  Certificate[] certificates;
-  string thumbprint = optionalThumbprint(signature);
-  foreach (certificate; embedded.certificates) {
-    if (thumbprint is null || base64Url(certificate.digest(DigestAlgorithm.sha256)) == thumbprint) {
-      certificates ~= certificate;
-      break;
-    }
-  }
-  enforce(certificates.length, "La firma JAdES no incluye su certificado de firma");
-  foreach (component; signature.etsiU) {
-    if (component.name != "sigTst" && component.name != "arcTst") continue;
-    foreach (der; tstContainerTokens(component.value)) {
-      auto token = parseTimeStampToken(der);
-      auto tsa = findSignerCertificate(token.signedData, token.signedData.signerInfos[0], services.pool);
-      if (tsa !is null && !containsCertificate(certificates, tsa)) certificates ~= tsa;
-    }
-  }
-  auto data = services.validationData(certificates, embedded.ocspResponses, embedded.crls);
-  return addJadesValidationData(document, index, data);
-}
-
-private string optionalThumbprint(const JwsSignature signature) @safe {
-  import firmador.util.json : optionalString;
-  return optionalString(signature.header, "x5t#S256", "La cabecera protegida");
+/**
+ * Sube la firma `index` del JWS desde B hasta `level` (raiseLevel): sigTst, datos de
+ * validación y arcTst. `detachedContent` es el documento de una firma separada;
+ * `alreadyTimestamped`, para extender a LTA una firma que ya tiene su sigTst.
+ */
+private immutable(ubyte)[] raiseJadesLevel(immutable(ubyte)[] document, size_t index, SignatureLevel level,
+    SigningServices services, immutable(ubyte)[] detachedContent = null, bool alreadyTimestamped = false) @safe {
+  return raiseLevel(document, level,
+    (signed) => addJadesSignatureTimestamp(signed, index, &services.timestampDigest),
+    (signed) => addJadesValidationData(signed, index,
+      services.validationData(jadesSigningMaterial(parseJws(signed).signatures[index], services.pool))),
+    (signed) => addJadesArchiveTimestamp(signed, index, &services.timestampDigest, detachedContent),
+    alreadyTimestamped);
 }

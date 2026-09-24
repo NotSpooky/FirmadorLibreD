@@ -61,6 +61,12 @@ struct TimeStampToken {
   TstInfo info;
 }
 
+/**
+ * Sella un resumen SHA-256 ya calculado (SigningServices.timestampDigest en
+ * firmador.signers.common); lo reciben los formatos que agregan sellos.
+ */
+alias Timestamper = TimeStampToken delegate(const(ubyte)[] digest) @safe;
+
 /// El servicio de sellado rechazó la solicitud o respondió algo que no corresponde.
 class TimeStampException : Exception {
   this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {

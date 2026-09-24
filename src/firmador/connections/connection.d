@@ -27,6 +27,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.connections.connection;
 
+import core.atomic : atomicLoad, atomicStore;
 import core.thread : Thread;
 import core.time : dur;
 import std.algorithm : countUntil, remove, sort;
@@ -89,6 +90,76 @@ interface ConnectionWorker {
    * desde el hilo de la ventana), pero no espera a que el hilo acabe.
    */
   void stop() @safe;
+}
+
+/**
+ * Base de las integraciones que atienden un flujo de eventos en su propio hilo (Gaudi y
+ * los servicios externos): el hilo, su estado, la cancelación y cómo se informan los
+ * errores. Cada una implementa listen(); start() arranca el hilo cuando ya está armada.
+ */
+abstract class IntegrationWorker : ConnectionWorker {
+  protected ConnectionManager manager;
+  protected Connection connection;
+  /// Se pidió detener; el flujo de eventos lo consulta para cortar.
+  protected shared bool cancelled;
+  private shared bool running;
+  /// Código con que se informa una caída de la conexión («Code:14», «Code:19»…).
+  private string failureCode;
+
+  this(ConnectionManager manager, Connection connection, string failureCode) @safe {
+    this.manager = manager;
+    this.connection = connection;
+    this.failureCode = failureCode;
+  }
+
+  /// Arranca el hilo que atiende la conexión.
+  final void start() @trusted {
+    atomicStore(running, true);
+    auto thread = new Thread(&run);
+    thread.isDaemon = true;
+    thread.start();
+  }
+
+  final bool isRunning() @trusted {
+    return atomicLoad(running);
+  }
+
+  /// Pide terminar; afterStop hace lo que cada integración necesite al irse.
+  final void stop() @trusted {
+    info("Deteniendo la conexión ", connection.name);
+    atomicStore(cancelled, true);
+    afterStop();
+  }
+
+  /// Negocia con el servicio y atiende sus eventos hasta que se cierre o se detenga.
+  protected abstract void listen() @trusted;
+
+  /// Lo que se hace al detener, después de pedir que termine el flujo (nada por omisión).
+  protected void afterStop() @safe {}
+
+  protected final bool isCancelled() @trusted {
+    return atomicLoad(cancelled);
+  }
+
+  /// Informa un error de la conexión a la interfaz.
+  protected final void report(string message) @safe {
+    manager.reportErrors(connection, [message]);
+  }
+
+  private void run() @trusted {
+    scope (exit) atomicStore(running, false);
+    info("Iniciando la conexión con ", connection.name);
+    try {
+      listen();
+    } catch (Exception exception) {
+      if (isCancelled()) {
+        info("Conexión ", connection.name, " cerrada a pedido: ", exception.msg);
+        return;
+      }
+      error("Error en la conexión con ", connection.name, " ", failureCode, ": ", exception.msg);
+      report(t("gaudi_integration_internal_error") ~ " " ~ failureCode ~ " (" ~ exception.msg ~ ")");
+    }
+  }
 }
 
 /// Una conexión con su estado en marcha.
@@ -434,13 +505,18 @@ final class ConnectionManager {
     view.loadingFinished();
   }
 
+  /// La conexión de ese servicio existe, tiene sesión y está en marcha.
+  bool hasSession(string service) @safe {
+    auto connection = find(service);
+    return connection !is null && connection.isLogged() && connection.isRunning();
+  }
+
   /**
    * La conexión de ese servicio tiene sesión y está en marcha (validateConnection); si no,
    * avisa con el texto que corresponde a `suffixKey`.
    */
   bool requireSession(string service, string suffixKey) @safe {
-    auto connection = find(service);
-    if (connection !is null && connection.isLogged() && connection.isRunning()) return true;
+    if (hasSession(service)) return true;
     gui.showErrorAlert(t("guiswing_show_error_not_logged_title"),
       t("guiswing_show_error_not_logged") ~ " " ~ service ~ " " ~ t(suffixKey));
     return false;

@@ -54,11 +54,10 @@ import firmador.documents.document : Document;
 import firmador.gui.guiinterface : NotificationType;
 import firmador.i18n : t;
 import firmador.net.http;
-import firmador.remote.dto : parseRemoteSignRequests, remoteSignatureJson, requestImage, RemoteSignRequest;
+import firmador.remote.dto : parseRemoteSignRequests, requestImage, RemoteSignRequest, signRemoteRequests;
 import firmador.settings : Settings;
 import firmador.settingsjson : settingsToJson;
 import firmador.settingsmanager : currentSettings;
-import firmador.signers.common : signPreparedData;
 import firmador.util.desktop : openUrl;
 import firmador.util.json;
 
@@ -274,6 +273,35 @@ string identificationSuffix(string identification) pure nothrow @safe {
   return dash >= 0 ? identification[dash + 1 .. $] : identification;
 }
 
+/**
+ * Reporte de un documento virtual que envía el servicio, en HTML (notifyReportDocument):
+ * sin la línea del nombre temporal del documento y sin líneas en blanco repetidas; si no
+ * tiene firmas, el aviso de que no las tiene. `signatures` recibe la cantidad declarada.
+ */
+string virtualReportHtml(string report, out size_t signatures) @safe {
+  import std.conv : ConvException, to;
+  import std.regex : ctRegex, matchFirst, replaceAll;
+  import firmador.xml.dom : escapeXml;
+  signatures = 0;
+  auto count = matchFirst(report, ctRegex!`Contiene\s+(\d+)\s+firma`);
+  if (!count.empty) {
+    try {
+      signatures = count[1].to!size_t;
+    } catch (ConvException) {
+      signatures = 0;
+    }
+  }
+  if (signatures == 0) return "<html>Este documento no tiene ninguna firma digital.</html>";
+  string cleaned = replaceAll(report, ctRegex!`El documento doc_[0-9]+\.pdf[^\n]*`, "").strip;
+  cleaned = replaceAll(cleaned, ctRegex!`(\n\s*){2,}`, "\n");
+  return "<html>" ~ escapeXml(cleaned).replace("\n", "<br>") ~ "</html>";
+}
+
+/// Alias con que se guardan en el almacén los tokens de la tarjeta en el servicio.
+private string cardTokenAlias(string cardIdentification, string service) pure nothrow @safe {
+  return tokenAlias(identificationSuffix(cardIdentification), service);
+}
+
 /// La tarjeta es la del documento: su identificación sin los cuatro primeros caracteres es el serial.
 bool cardMatchesDocumentSerial(string cardIdentification, string serial) pure nothrow @safe {
   return cardIdentification.length >= 4 && cardIdentification[4 .. $] == serial;
@@ -286,60 +314,23 @@ string documentValidationUrl(string validateUrl, UUID documentId) @safe {
 
 /// Inicia la integración con un servicio externo (WorkerFactory de ConnectionManager).
 ConnectionWorker startExternal(ConnectionManager manager, Connection connection) @safe {
-  return new ExternalIntegration(manager, connection);
+  auto worker = new ExternalIntegration(manager, connection);
+  worker.start();
+  return worker;
 }
 
 /// Hilo de la conexión con un servicio externo.
-final class ExternalIntegration : ConnectionWorker {
-  private ConnectionManager manager;
-  private Connection connection;
-  private shared bool cancelled;
-  private shared bool running;
-
-  this(ConnectionManager manager, Connection connection) @trusted {
-    this.manager = manager;
-    this.connection = connection;
-    atomicStore(running, true);
-    auto thread = new Thread(&run);
-    thread.isDaemon = true;
-    thread.start();
+final class ExternalIntegration : IntegrationWorker {
+  this(ConnectionManager manager, Connection connection) @safe {
+    super(manager, connection, "Code:19");
   }
 
-  bool isRunning() @trusted {
-    return atomicLoad(running);
-  }
-
-  /// Termina el flujo y cierra la sesión en el servicio (espera la red).
-  void stop() @trusted {
-    info("Deteniendo la conexión ", connection.name);
-    atomicStore(cancelled, true);
+  /// Al detenerse cierra la sesión en el servicio (espera la red).
+  protected override void afterStop() @trusted {
     closeSession();
   }
 
-  private bool isCancelled() @trusted {
-    return atomicLoad(cancelled);
-  }
-
-  private void report(string message) @safe {
-    manager.reportErrors(connection, [message]);
-  }
-
-  private void run() @trusted {
-    scope (exit) atomicStore(running, false);
-    info("Iniciando la conexión con ", connection.name);
-    try {
-      listen();
-    } catch (Exception exception) {
-      if (isCancelled()) {
-        info("Conexión ", connection.name, " cerrada a pedido: ", exception.msg);
-        return;
-      }
-      error("Error en la conexión con ", connection.name, " code:19: ", exception.msg);
-      report(t("gaudi_integration_internal_error") ~ " Code:19 (" ~ exception.msg ~ ")");
-    }
-  }
-
-  private void listen() @trusted {
+  protected override void listen() @trusted {
     auto config = connection.config;
     string negotiationUrl = withQuery(connection.url(config.negotiationUrl, "negociación"), [["alias", config.service]]);
     auto negotiated = httpGet(negotiationUrl, ["User-Agent": integrationUserAgent]);
@@ -352,15 +343,13 @@ final class ExternalIntegration : ConnectionWorker {
     manager.connectionView().connectionChanged(connection);
 
     auto certificates = manager.cards().authenticationAndSignCertificates();
-    auto authentication = "authentication" in certificates;
-    auto signing = "sign" in certificates;
-    if (authentication is null || signing is null) {
+    if (!certificates.complete) {
       report(t("gaudi_integration_not_certificate_detected"));
       return;
     }
     JSONValue registration;
-    registration["cert_auth"] = (*authentication).base64;
-    registration["cert_sign"] = (*signing).base64;
+    registration["cert_auth"] = certificates.authentication.base64;
+    registration["cert_sign"] = certificates.signing.base64;
     registration["host_name"] = Socket.hostName;
     auto registered = httpPost(connection.url(negotiation.url, "alta"), cast(const(ubyte)[]) toJSON(registration),
       "application/json", ["X-Connection-Token": negotiation.connectionToken]);
@@ -463,7 +452,7 @@ final class ExternalIntegration : ConnectionWorker {
     try {
       auto cards = manager.cards().readListSmartCard();
       if (cards.length == 0) return;
-      string alias_ = tokenAlias(identificationSuffix(cards[0].identification), connection.service);
+      string alias_ = cardTokenAlias(cards[0].identification, connection.service);
       auto tokens = readTokenStore();
       JSONValue body;
       body["firmador_id"] = tokenOf(tokens, alias_, TokenType.firmadorId);
@@ -493,7 +482,7 @@ private struct ServiceTokens {
 
 private ServiceTokens tokensFor(string identification, string service) @safe {
   auto entries = readTokenStore();
-  string alias_ = tokenAlias(identificationSuffix(identification), service);
+  string alias_ = cardTokenAlias(identification, service);
   info("Usando los tokens de ", alias_);
   return ServiceTokens(tokenOf(entries, alias_, TokenType.access), tokenOf(entries, alias_, TokenType.refresh),
     tokenOf(entries, alias_, TokenType.firmadorId));
@@ -503,17 +492,44 @@ private string[string] sessionHeaders(const ServiceTokens tokens) @safe {
   return ["Authorization": "Bearer " ~ tokens.access, "X-Refresh-Token": tokens.refresh];
 }
 
-/// Tarjeta del titular de un documento virtual (getCardInfoByIdentification), o null.
-private CardSignInfo cardForDocumentSerial(ConnectionManager manager, string serial) @trusted {
+/**
+ * Petición con la sesión de la tarjeta en un servicio: busca la conexión, lleva los tokens
+ * en los encabezados y, si responde 403 (sesión vencida o rechazada), se lo pasa a
+ * ConnectionManager.forbidden. Quien llama interpreta el estado.
+ *
+ * Throws: Exception si no hay conexión para el servicio o la petición falla.
+ */
+private HttpResponse sessionRequest(ConnectionManager manager, string service, const ServiceTokens tokens,
+    string method, scope string delegate(Connection connection) @safe urlOf, const(ubyte)[] body) @trusted {
+  auto connection = manager.find(service);
+  enforce(connection !is null, format("No hay una conexión para el servicio %s", service));
+  auto headers = sessionHeaders(tokens);
+  headers["Content-Type"] = "application/json";
+  auto response = httpRequest(method, urlOf(connection), body, headers);
+  if (response.status == 403) manager.forbidden(service);
+  return response;
+}
+
+/**
+ * Primera tarjeta detectada que cumple `matches`, o null. Si no se pueden leer las
+ * tarjetas, lo avisa y da null.
+ */
+private CardSignInfo detectedCard(ConnectionManager manager, scope bool delegate(CardSignInfo card) @safe matches)
+    @trusted {
   try {
     auto cards = manager.cards().readListSmartCard();
     info("Tarjetas detectadas: ", cards.length);
-    foreach (card; cards) if (cardMatchesDocumentSerial(card.identification, serial)) return card;
+    foreach (card; cards) if (matches(card)) return card;
   } catch (Exception exception) {
     error("No se pudieron leer las tarjetas: ", exception.msg);
     manager.interface_().showNotification(t("gaudi_integration_not_certificate_detected"), NotificationType.error);
   }
   return null;
+}
+
+/// Tarjeta del titular de un documento virtual (getCardInfoByIdentification), o null.
+private CardSignInfo cardForDocumentSerial(ConnectionManager manager, string serial) @safe {
+  return detectedCard(manager, (card) => cardMatchesDocumentSerial(card.identification, serial));
 }
 
 /// Agrupa, en el orden de llegada, los elementos que tienen la misma clave.
@@ -564,8 +580,6 @@ bool requestHashesToSign(ConnectionManager manager, Document[] documents, Settin
     return false;
   }
   try {
-    auto connection = manager.find(service);
-    enforce(connection !is null, format("No hay una conexión para el servicio %s", service));
     auto tokens = tokensFor(card.identification, service);
     JSONValue payload;
     string[] ids;
@@ -573,10 +587,9 @@ bool requestHashesToSign(ConnectionManager manager, Document[] documents, Settin
     payload["ids"] = ids;
     payload["firmador_id"] = tokens.firmadorId;
     payload["settings"] = settingsToJson(settings is null ? currentSettings() : settings);
-    auto response = httpPost(connection.url(connection.config.signUrl, "firma"), cast(const(ubyte)[]) toJSON(payload),
-      "application/json", sessionHeaders(tokens));
+    auto response = sessionRequest(manager, service, tokens, "POST",
+      (connection) => connection.url(connection.config.signUrl, "firma"), cast(const(ubyte)[]) toJSON(payload));
     if (response.status == 201) return true;
-    if (response.status == 403) manager.forbidden(service);
     error(format("La preparación de la firma en %s respondió %d: %s", service, response.status, response.text));
     return false;
   } catch (Exception exception) {
@@ -596,13 +609,7 @@ bool completeSignRequests(ConnectionManager manager, RemoteSignRequest[] request
     error("El servicio no envió documentos para firmar");
     return false;
   }
-  CardSignInfo card;
-  foreach (candidate; manager.cards().readListSmartCard()) {
-    if (matchesIdentifier(candidate, requests[0].serialNumber)) {
-      card = candidate;
-      break;
-    }
-  }
+  auto card = detectedCard(manager, (candidate) => matchesIdentifier(candidate, requests[0].serialNumber));
   if (card is null) {
     error("No se encontró la tarjeta de firma ", requests[0].serialNumber, " que pide el servicio");
     gui.showNotification(t("gaudi_integration_not_certificate_detected"), NotificationType.error);
@@ -614,21 +621,14 @@ bool completeSignRequests(ConnectionManager manager, RemoteSignRequest[] request
     gui.showNotification(t("virtual_ping_panel_error"), NotificationType.error);
     return false;
   }
-  JSONValue[] signatures;
-  foreach (request; requests) {
-    auto signature = signPreparedData(gui, card, request.toBeSigned);
-    if (signature is null) return false;
-    signatures ~= remoteSignatureJson(request, signature.value, signature.rsa, signature.certificate);
-  }
+  auto signatures = signRemoteRequests(gui, card, requests);
+  if (signatures is null) return false;
   try {
-    auto connection = manager.find(service);
-    enforce(connection !is null, format("No hay una conexión para el servicio %s", service));
-    auto tokens = tokensFor(card.identification, service);
     auto signatureList = JSONValue(signatures);
-    auto response = httpPost(connection.url(connection.config.completeUrl, "firma completa"),
-      cast(const(ubyte)[]) toJSON(signatureList), "application/json", sessionHeaders(tokens));
+    auto response = sessionRequest(manager, service, tokensFor(card.identification, service), "POST",
+      (connection) => connection.url(connection.config.completeUrl, "firma completa"),
+      cast(const(ubyte)[]) toJSON(signatureList));
     if (response.status == 200) return true;
-    if (response.status == 403) manager.forbidden(service);
     error(format("El servicio %s no aceptó las firmas: %d %s", service, response.status, response.text));
     return false;
   } catch (Exception exception) {
@@ -647,14 +647,8 @@ private int documentRequest(ConnectionManager manager, Document document, string
     return 0;
   }
   try {
-    auto connection = manager.find(document.service);
-    enforce(connection !is null, format("No hay una conexión para el servicio %s", document.service));
-    auto tokens = tokensFor(card.identification, document.service);
-    auto headers = sessionHeaders(tokens);
-    headers["Content-Type"] = "application/json";
-    auto response = httpRequest(method, urlOf(connection), body, headers);
-    if (response.status == 403) manager.forbidden(document.service);
-    return response.status;
+    return sessionRequest(manager, document.service, tokensFor(card.identification, document.service), method, urlOf,
+      body).status;
   } catch (Exception exception) {
     error("Error en la petición sobre el documento virtual ", document.name, ": ", exception.msg);
     manager.interface_().showNotification(t("connection_panel_internal_error_image"), NotificationType.error);
@@ -713,15 +707,9 @@ immutable(ubyte)[] virtualPagePreview(ConnectionManager manager, Document docume
     return null;
   }
   try {
-    auto connection = manager.find(document.service);
-    enforce(connection !is null, format("No hay una conexión para el servicio %s", document.service));
-    auto response = httpPost(connection.url(connection.config.previewUrl, "vista previa"),
-      cast(const(ubyte)[]) toJSON(body), "application/json", sessionHeaders(tokensFor(card.identification,
-      document.service)));
-    if (response.status == 403) {
-      manager.forbidden(document.service);
-      return null;
-    }
+    auto response = sessionRequest(manager, document.service, tokensFor(card.identification, document.service), "POST",
+      (connection) => connection.url(connection.config.previewUrl, "vista previa"), cast(const(ubyte)[]) toJSON(body));
+    if (response.status == 403) return null;
     if (response.status != 200) {
       error(format("La vista previa de %s respondió %d", document.name, response.status));
       manager.interface_().showNotification(t("signpanel_problem_render_image"), NotificationType.error);
@@ -745,7 +733,7 @@ bool reloadVirtualDocuments(ConnectionManager manager, Connection connection) @t
   try {
     auto cards = manager.cards().readListSmartCard();
     if (cards.length == 0) return false;
-    string alias_ = tokenAlias(identificationSuffix(cards[0].identification), connection.service);
+    string alias_ = cardTokenAlias(cards[0].identification, connection.service);
     string firmadorId = tokenOf(readTokenStore(), alias_, TokenType.firmadorId);
     auto response = httpGet(withQuery(connection.url(connection.config.virtualDocumentsUrl, "documentos virtuales"),
       [["firmador_id", firmadorId]]));
@@ -799,4 +787,14 @@ unittest {
 unittest {
   assert(groupInOrder!(name => name[0])(["a1", "b1", "a2", "c1", "b2"]) == [["a1", "a2"], ["b1", "b2"], ["c1"]]);
   assert(groupInOrder!(name => name[0])(cast(string[]) null).length == 0);
+}
+
+@("should keep the declared signature count and drop the temporary name line when showing a virtual report")
+unittest {
+  size_t signatures;
+  string html = virtualReportHtml("El documento doc_123.pdf está firmado\n\n\nContiene 2 firmas <válidas>", signatures);
+  assert(signatures == 2);
+  assert(html == "<html>Contiene 2 firmas &lt;válidas&gt;</html>");
+  assert(virtualReportHtml("Sin firmas", signatures) == "<html>Este documento no tiene ninguna firma digital.</html>");
+  assert(signatures == 0);
 }

@@ -35,28 +35,25 @@ import firmador.crypto.digest;
 import firmador.documents.mimetype : mimeTypeString;
 import firmador.gui.guiinterface;
 import firmador.settings;
-import firmador.settingsmanager : currentSettings;
 import firmador.signers.common;
 import firmador.signers.documentsigner;
+import firmador.validation.certpath : ValidationData;
 import firmador.validators.xmlvalidator : detachedResolver;
 import firmador.xml.dom;
 import firmador.xml.xades;
 import firmador.xml.xmldsig : ExternalResolver;
 
 /// Firmador XAdES.
-final class XadesSigner : DocumentSigner {
-  private GuiInterface gui;
-  private SigningServices services;
+final class XadesSigner : ServicedSigner {
   private bool xmlContent;
 
   /**
    * `xmlContent`: la firma va dentro del XML (el caso normal); si no, va en un documento
    * aparte, como cuando se elegía XAdES en el diálogo de tipo de firma.
    */
-  this(GuiInterface gui, bool xmlContent, SigningServices services = null) @safe {
-    this.gui = gui;
+  this(GuiInterface gui, bool xmlContent) @safe {
+    super(gui);
     this.xmlContent = xmlContent;
-    this.services = services is null ? SigningServices.online() : services;
   }
 
   string formatName() const @safe {
@@ -72,8 +69,8 @@ final class XadesSigner : DocumentSigner {
     return xmlContent;
   }
 
-  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @trusted {
-    auto documentSettings = input.settings is null ? currentSettings() : cast(Settings) input.settings;
+  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @safe {
+    auto documentSettings = documentSettingsOf(input);
     return signWithCard(gui, card, (SigningKey key) @safe {
       XadesParameters parameters;
       parameters.signingTime = Clock.currTime;
@@ -108,7 +105,7 @@ final class XadesSigner : DocumentSigner {
    * Extiende a LTA todas las firmas XAdES del documento (extendDocument de DSS con
    * XAdES_BASELINE_LTA). Una firma separada necesita el documento que firma.
    */
-  immutable(ubyte)[] extend(const ExtensionInput input) @trusted {
+  immutable(ubyte)[] extend(const ExtensionInput input) @safe {
     return extendReporting(gui, () @safe => extendXadesDocument(input.signed, services,
       detachedResolver(input.detached), input.singleDetached));
   }
@@ -126,33 +123,32 @@ string xmlRootName(immutable(ubyte)[] xml) @trusted {
 }
 
 /**
- * Sube la firma `signatureId` del XML desde B hasta `level`: SignatureTimeStamp, datos de
- * validación y ArchiveTimeStamp. `resolver` y `detachedContent` resuelven las referencias
- * a archivos de la firma para el sello de archivo.
+ * Sube la firma `signatureId` del XML desde B hasta `level` (raiseLevel): SignatureTimeStamp,
+ * datos de validación y ArchiveTimeStamp. `resolver` y `detachedContent` resuelven las
+ * referencias a archivos de la firma para el sello de archivo. `alreadyTimestamped` es
+ * para extender a LTA una firma que ya tiene su sello de firma.
  */
 immutable(ubyte)[] raiseXadesLevel(immutable(ubyte)[] xml, string signatureId, SignatureLevel level,
-    SigningServices services, ExternalResolver resolver, immutable(ubyte)[] detachedContent) @safe {
-  if (level == SignatureLevel.b) return xml;
-  auto signed = addSignatureTimestamp(xml, signatureId, (digest) => services.timestampDigest(digest));
-  if (level == SignatureLevel.t) return signed;
-  signed = withXadesValidationData(signed, signatureId, services);
-  if (level == SignatureLevel.lt) return signed;
-  return addArchiveTimestamp(signed, signatureId, (digest) => services.timestampDigest(digest), resolver,
-    detachedContent);
+    SigningServices services, ExternalResolver resolver, immutable(ubyte)[] detachedContent,
+    bool alreadyTimestamped = false) @safe {
+  return raiseLevel(xml, level,
+    (signed) => addSignatureTimestamp(signed, signatureId, &services.timestampDigest),
+    (signed) => withXadesValidationData(signed, signatureId, services),
+    (signed) => addArchiveTimestamp(signed, signatureId, &services.timestampDigest, resolver, detachedContent),
+    alreadyTimestamped);
 }
 
 /// Añade los datos de validación del firmante y de los sellos de la firma (nivel LT).
 private immutable(ubyte)[] withXadesValidationData(immutable(ubyte)[] xml, string signatureId,
     SigningServices services) @trusted {
   auto document = XmlDocument.parse(xml);
-  XadesSigningMaterial material;
+  ValidationData material;
   try {
-    material = xadesSigningMaterial(signatureById(document, signatureId));
+    material = xadesSigningMaterial(signatureById(document, signatureId), services.pool);
   } finally {
     document.close();
   }
-  auto data = services.validationData(material.certificates, material.embeddedOcsp, material.embeddedCrls);
-  return addXadesValidationData(xml, signatureId, data);
+  return addXadesValidationData(xml, signatureId, services.validationData(material));
 }
 
 /**
@@ -173,10 +169,8 @@ immutable(ubyte)[] extendXadesDocument(immutable(ubyte)[] xml, SigningServices s
     } finally {
       document.close();
     }
-    if (!timestamped) extended = addSignatureTimestamp(extended, signatureId, (digest) => services.timestampDigest(digest));
-    extended = withXadesValidationData(extended, signatureId, services);
-    extended = addArchiveTimestamp(extended, signatureId, (digest) => services.timestampDigest(digest), resolver,
-      detachedContent);
+    extended = raiseXadesLevel(extended, signatureId, SignatureLevel.lta, services, resolver, detachedContent,
+      timestamped);
   }
   info("Firmas XAdES extendidas a LTA");
   return extended;

@@ -20,12 +20,14 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 /**
  * Pestaña de firma (SignPanel): la vista previa del documento con el recuadro de la
  * firma visible, y los datos y opciones con que se firma. Arriba van página, escala,
- * rotación y posición; abajo la razón, el lugar y el contacto, el formato (documentos que
+ * rotación, posición y tamaño de la firma; abajo la razón, el lugar y el contacto, el formato (documentos que
  * no son PDF), la firma visible, el nivel (opciones avanzadas), ver las firmas, guardar la
  * configuración del documento y firmar (o rechazar un documento de Firmador Remoto).
  *
  * El recuadro muestra la apariencia real de la firma (firmador.pdf.sigpreview) con los
- * datos de la credencial conectada o, si hay varias sin elegir, con los de ejemplo.
+ * datos de la credencial conectada o, si hay varias sin elegir, con los de ejemplo. Su
+ * tamaño se cambia con los botones de tamaño o arrastrando su esquina (PageView), y queda
+ * en la escala del documento (Settings.signScale).
  */
 module firmador.gui.desktop.signpanel;
 
@@ -48,6 +50,7 @@ import dlangui.widgets.layouts;
 import dlangui.widgets.widget;
 
 import firmador.cards.cardinfo : CardSignInfo, CardType;
+import firmador.configuration : signatureScaleStep;
 import firmador.documents.document : Document;
 import firmador.documents.mimetype;
 import firmador.gui.desktop.common;
@@ -85,10 +88,25 @@ dstring[] zoomLabels() @trusted {
   return labels;
 }
 
-/// Posición en el selector de rotación del valor guardado.
-int rotationIndexFor(string value) pure @safe {
-  auto index = rotationValues.countUntil(value);
-  return index < 0 ? 0 : cast(int) index;
+/**
+ * Escala del paso siguiente de los botones de tamaño: el múltiplo de signatureScaleStep
+ * siguiente (`direction` > 0) o anterior, aunque la escala actual venga de arrastrar la
+ * esquina y no sea un múltiplo. Los límites los pone PageView.scaleSignature.
+ */
+float steppedSignatureScale(float current, int direction) pure nothrow @safe @nogc {
+  import std.math : ceil, floor;
+  // El margen evita que 1,1 guardado como 1,0999… cuente como un paso menos.
+  float steps = current / signatureScaleStep;
+  float next = direction > 0 ? floor(steps + 1e-3f) + 1 : ceil(steps - 1e-3f) - 1;
+  return next * signatureScaleStep;
+}
+
+/// Nivel de firma de los ajustes que corresponde al tipo de documento (PAdES, XAdES, JAdES o CAdES).
+private ref string levelFor(Settings settings, SupportedMimeType mimeType) @safe {
+  if (isPdf(mimeType)) return settings.pAdESLevel;
+  if (isXml(mimeType)) return settings.xAdESLevel;
+  if (isJson(mimeType)) return settings.jAdESLevel;
+  return settings.cAdESLevel;
 }
 
 /// La credencial puede anunciar un titular: una tarjeta, o un PKCS#12 registrado con su certificado.
@@ -125,6 +143,10 @@ final class SignPanel : VerticalLayout {
   private ComboBox zoomBox;
   private ComboBox rotationBox;
   private Button positionButton;
+  private HorizontalLayout sizeGroup;
+  private TextWidget sizeLabel;
+  /// Escala de la firma del documento (Settings.signScale), elegida en la vista previa.
+  private float signScale = 1;
   private HorizontalLayout topBar;
   private EditLine reasonField, locationField, contactField;
   private TableLayout fieldsColumn;
@@ -173,7 +195,7 @@ final class SignPanel : VerticalLayout {
     topBar.addChild(new TextWidget(null, dt("signpanel_rotation"))).margins = Rect(12, 0, 0, 0);
     rotationBox = new ComboBox("rotacion", rotationLabels());
     rotationBox.tooltipText = tip("signpanel_rotation_tooltip");
-    rotationBox.selectedItemIndex = rotationIndexFor(settings.signRotation);
+    rotationBox.selectedItemIndex = indexIn(rotationValues, settings.signRotation);
     rotationBox.itemClick = (Widget source, int index) {
       scheduleSignaturePreview();
       return true;
@@ -185,12 +207,43 @@ final class SignPanel : VerticalLayout {
     });
     positionButton.margins = Rect(12, 0, 0, 0);
     topBar.addChild(positionButton);
+    sizeGroup = new HorizontalLayout("tamano-firma");
+    sizeGroup.margins = Rect(12, 0, 0, 0);
+    sizeGroup.tooltipText = tip("signpanel_signature_size_tooltip");
+    sizeGroup.addChild(new TextWidget(null, dt("signpanel_signature_size")));
+    auto smaller = new Button("firma-menor", "−"d);
+    smaller.tooltipText = tip("signpanel_signature_smaller");
+    smaller.click = (Widget source) {
+      pages.scaleSignature(steppedSignatureScale(signScale, -1));
+      return true;
+    };
+    sizeGroup.addChild(smaller);
+    sizeLabel = new TextWidget("firma-escala", ""d);
+    sizeLabel.minWidth = 48;
+    sizeLabel.alignment = Align.Center;
+    sizeGroup.addChild(sizeLabel);
+    auto larger = new Button("firma-mayor", "+"d);
+    larger.tooltipText = tip("signpanel_signature_larger");
+    larger.click = (Widget source) {
+      pages.scaleSignature(steppedSignatureScale(signScale, 1));
+      return true;
+    };
+    sizeGroup.addChild(larger);
+    topBar.addChild(sizeGroup);
+    updateSizeLabel();
     addChild(topBar);
 
     pages = new PageView("paginas");
     pages.layoutWidth = FILL_PARENT;
     pages.layoutHeight = FILL_PARENT;
     pages.setZoom(zoomAt(zoomBox.selectedItemIndex));
+    pages.onSignatureResized = (float scale) {
+      signScale = scale;
+      updateSizeLabel();
+      // Una apariencia que se estaba dibujando con la escala anterior ya no sirve.
+      previewGeneration++;
+      scheduleSignaturePreview();
+    };
     pages.onSignatureMoved = (SignaturePlacement placement) {
       positionButton.text = format("X: %d - Y: %d", cast(int) placement.x, cast(int) placement.y).toUTF32;
       if (pageIndexFor(pageSelector.value, pages.pageCount) != placement.page) {
@@ -301,8 +354,8 @@ final class SignPanel : VerticalLayout {
 
   private void hideControls() {
     signButton.enabled = false;
-    foreach (widget; [cast(Widget) topBar, fieldsColumn, withoutVisible, formatGroup, validateButton, advancedButton,
-        saveButton, collapseButton, cancelButton]) {
+    foreach (widget; [cast(Widget) topBar, sizeGroup, fieldsColumn, withoutVisible, formatGroup, validateButton,
+        advancedButton, saveButton, collapseButton, cancelButton]) {
       widget.visibility = Visibility.Gone;
     }
   }
@@ -318,6 +371,8 @@ final class SignPanel : VerticalLayout {
 
   private void showPdfControls() {
     showPreviewControls();
+    // Los documentos virtuales los firma su servicio, que no recibe la escala.
+    sizeGroup.visibility = current.isVirtual ? Visibility.Gone : Visibility.Visible;
     withoutVisible.visibility = Visibility.Visible;
     fieldsColumn.visibility = Visibility.Visible;
     saveButton.visibility = currentSettings().isSimplifiedMode() ? Visibility.Gone : Visibility.Visible;
@@ -379,6 +434,8 @@ final class SignPanel : VerticalLayout {
       source = new PreviewerSource(document.preview);
     }
     pages.setSource(source);
+    signScale = document.settings.signScale;
+    updateSizeLabel();
     int pageCount = pages.pageCount;
     pageSelector.setPages(pageCount);
     int configured = currentSettings().pageNumber;
@@ -419,7 +476,7 @@ final class SignPanel : VerticalLayout {
     reasonField.text = settings.reason.toUTF32;
     locationField.text = settings.place.toUTF32;
     contactField.text = settings.contact.toUTF32;
-    rotationBox.selectedItemIndex = rotationIndexFor(settings.signRotation);
+    rotationBox.selectedItemIndex = indexIn(rotationValues, settings.signRotation);
     zoomBox.selectedItemIndex = zoomIndexFor(settings.previewZoom);
     pages.setZoom(zoomAt(zoomBox.selectedItemIndex));
     if (current !is null) {
@@ -450,8 +507,9 @@ final class SignPanel : VerticalLayout {
     collected.signYf = placement.y + offset[1];
     collected.signX = cast(int) collected.signXf.get;
     collected.signY = cast(int) collected.signYf.get;
-    collected.signRotation = rotationValues[rotationBox.selectedItemIndex < 0 ? 0 : rotationBox.selectedItemIndex];
+    collected.signRotation = valueAt(rotationValues, rotationBox.selectedItemIndex);
     collected.pageNumber = pageSelector.value;
+    collected.signScale = signScale;
     collected.hideSignatureAdvice = launchFlag(hideSignatureAdviceProperty);
     collected.isVisibleSignature = !withoutVisible.checked;
     bool otherFormat = formatGroup.visibility == Visibility.Visible;
@@ -459,12 +517,7 @@ final class SignPanel : VerticalLayout {
     collected.forceCades = current !is null && otherFormat && !asicButton.checked
       && (current.mimeType == SupportedMimeType.BINARY || isOpenDocument(current.mimeType))
       && (cadesButton.checked || xadesButton.checked || jadesButton.checked);
-    if (levelOverride !is null && current !is null) {
-      if (isPdf(current.mimeType)) collected.pAdESLevel = levelOverride;
-      else if (isXml(current.mimeType)) collected.xAdESLevel = levelOverride;
-      else if (isJson(current.mimeType)) collected.jAdESLevel = levelOverride;
-      else collected.cAdESLevel = levelOverride;
-    }
+    if (levelOverride !is null && current !is null) levelFor(collected, current.mimeType) = levelOverride;
     return collected;
   }
 
@@ -478,15 +531,8 @@ final class SignPanel : VerticalLayout {
       host.signDocument(document);
       return;
     }
-    string suffix = settings.overwriteSourceFile ? "" : "-firmado";
-    string outputExtension = document.signedExtension;
-    chooseSaveFile(window, t("guiswing_dialog_document_save"), dirName(document.pathname),
-      proposedSaveName(document.pathname, suffix, outputExtension), (string path) {
-      // Cancelar el diálogo cancela la firma.
-      if (path is null) return;
-      document.setPathToSave(withOutputExtension(path, outputExtension));
-      host.signDocument(document);
-    });
+    // Cancelar el diálogo cancela la firma.
+    chooseSignedOutput(window, document, settings, () { host.signDocument(document); });
   }
 
   private void confirmCancel() {
@@ -500,12 +546,7 @@ final class SignPanel : VerticalLayout {
   private void showAdvancedOptions() {
     auto settings = currentSettings();
     string currentLevel = levelOverride;
-    if (currentLevel is null && current !is null) {
-      if (isPdf(current.mimeType)) currentLevel = settings.pAdESLevel;
-      else if (isXml(current.mimeType)) currentLevel = settings.xAdESLevel;
-      else if (isJson(current.mimeType)) currentLevel = settings.jAdESLevel;
-      else currentLevel = settings.cAdESLevel;
-    }
+    if (currentLevel is null && current !is null) currentLevel = levelFor(settings, current.mimeType);
     auto dialog = new FirmadorDialog(t("signpanel_advanced_options_btn"), window);
     auto row = new HorizontalLayout;
     row.addChild(new TextWidget(null, dt("signpanel_level_ades")));
@@ -558,14 +599,21 @@ final class SignPanel : VerticalLayout {
 
   /// Credenciales conectadas (lo avisa el monitor de tarjetas).
   void cardsChanged(const(CardSignInfo)[] detected) @trusted {
+    keepingPreviewCard({
+      cards = detected;
+      size_t identities;
+      foreach (card; detected) if (hasIdentity(card)) identities++;
+      if (identities > 1 && !askingPreferredCard) {
+        askingPreferredCard = true;
+        askPreferredCard();
+      }
+    });
+  }
+
+  /// Hace `change` y rehace la vista previa si cambió la credencial que se muestra en ella.
+  private void keepingPreviewCard(scope void delegate() change) {
     string before = identityText(previewCard(cards, preferredCardKey));
-    cards = detected;
-    size_t identities;
-    foreach (card; detected) if (hasIdentity(card)) identities++;
-    if (identities > 1 && !askingPreferredCard) {
-      askingPreferredCard = true;
-      askPreferredCard();
-    }
+    change();
     if (identityText(previewCard(cards, preferredCardKey)) != before) scheduleSignaturePreview();
   }
 
@@ -583,15 +631,13 @@ final class SignPanel : VerticalLayout {
     auto chosen = identities.countUntil!(card => identityKey(card) == preferredCardKey);
     combo.selectedItemIndex = chosen < 0 ? 0 : cast(int) chosen;
     dialog.addChild(combo);
-    auto ok = dialogAction(StandardAction.Ok, "dialog_accept");
-    auto cancel = dialogAction(StandardAction.Cancel, "dialog_cancel");
-    dialog.addButtons([ok, cancel], 0, cancel);
+    dialog.addOkCancel();
     dialog.open((const Action result) {
       askingPreferredCard = false;
-      string before = identityText(previewCard(cards, preferredCardKey));
-      preferredCardKey = result !is null && result.id == StandardAction.Ok && combo.selectedItemIndex >= 0
-        ? identityKey(identities[combo.selectedItemIndex]) : null;
-      if (identityText(previewCard(cards, preferredCardKey)) != before) scheduleSignaturePreview();
+      keepingPreviewCard({
+        preferredCardKey = result !is null && result.id == StandardAction.Ok && combo.selectedItemIndex >= 0
+          ? identityKey(identities[combo.selectedItemIndex]) : null;
+      });
     });
   }
 
@@ -606,6 +652,12 @@ final class SignPanel : VerticalLayout {
     previewTimer = 0;
     refreshSignaturePreview();
     return false;
+  }
+
+  /// Muestra la escala de la firma en porcentaje.
+  private void updateSizeLabel() {
+    import std.math : round;
+    sizeLabel.text = format("%d %%", cast(int) round(signScale * 100)).toUTF32;
   }
 
   /// Dibuja la apariencia de la firma en segundo plano y la pone en el recuadro.
@@ -632,11 +684,19 @@ final class SignPanel : VerticalLayout {
       auto buffer = drawBufFromRaster(preview.raster);
       runOnUi(() {
         if (generation != previewGeneration) return;
-        pages.setSignatureImage(buffer, preview.widthPoints, preview.heightPoints);
+        pages.setSignatureImage(buffer, preview.widthPoints, preview.heightPoints, documentSettings.signScale);
         pages.showSignature(!withoutVisible.checked);
       });
     });
   }
+}
+
+@("should step the signature scale to the next multiple even when the corner drag left it in between")
+unittest {
+  import std.math : isClose;
+  assert(isClose(steppedSignatureScale(1, 1), 1.1) && isClose(steppedSignatureScale(1, -1), 0.9));
+  assert(isClose(steppedSignatureScale(1.37, 1), 1.4) && isClose(steppedSignatureScale(1.37, -1), 1.3));
+  assert(isClose(steppedSignatureScale(1.1f, 1), 1.2));
 }
 
 @("should announce the only identity or the chosen one when several credentials are connected")
@@ -649,5 +709,4 @@ unittest {
   assert(previewCard([first, second], null) is null);
   assert(previewCard([first, second], "CPF-02") is second);
   assert(previewCard([first, second], "CPF-09") is null);
-  assert(rotationIndexFor("ROTATE_180") == 3 && rotationIndexFor("otra") == 0);
 }

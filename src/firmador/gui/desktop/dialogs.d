@@ -164,6 +164,22 @@ class FirmadorDialog : Dialog {
     cancelAction = cancel;
     addChild(createButtonsPanel(cast(const(Action)[]) actions, defaultIndex, 0));
   }
+
+  /// Añade Aceptar (el de Intro) y Cancelar (el de Escape).
+  void addOkCancel() @trusted {
+    auto cancel = dialogAction(StandardAction.Cancel, "dialog_cancel");
+    addButtons([dialogAction(StandardAction.Ok, "dialog_accept"), cancel], 0, cancel);
+  }
+}
+
+/// Añade a la fila la imagen, si se puede mostrar, con su margen a la derecha.
+private void addImage(HorizontalLayout row, string id, immutable(ubyte)[] image, int size) @trusted {
+  auto drawable = imageDrawable(image, size);
+  if (drawable.isNull) return;
+  auto picture = new ImageWidget(id);
+  picture.drawable = drawable;
+  picture.margins = Rect(0, 0, 16, 0);
+  row.addChild(picture);
 }
 
 /// Mensaje con texto con formato y botones propios.
@@ -271,8 +287,7 @@ final class PinDialog : FirmadorDialog {
     info = new TextWidget("info", ""d);
     info.margins = Rect(0, 8, 0, 8);
     addChild(info);
-    addButtons([dialogAction(StandardAction.Ok, "dialog_accept"), dialogAction(StandardAction.Cancel,
-      "dialog_cancel")], 0, dialogAction(StandardAction.Cancel, "dialog_cancel"));
+    addOkCancel();
   }
 
   /// Muestra las credenciales detectadas.
@@ -347,13 +362,7 @@ private final class RemotePinDialog : FirmadorDialog {
   this(Window parent, CardSignInfo card, string description, immutable(ubyte)[] image) @trusted {
     super(t("pin_dialog_title"), parent);
     auto row = new HorizontalLayout;
-    auto drawable = imageDrawable(image, 128);
-    if (!drawable.isNull) {
-      auto picture = new ImageWidget("imagen");
-      picture.drawable = drawable;
-      picture.margins = Rect(0, 0, 16, 0);
-      row.addChild(picture);
-    }
+    addImage(row, "imagen", image, 128);
     auto column = new VerticalLayout;
     auto table = new TableLayout;
     table.colCount = 2;
@@ -372,8 +381,7 @@ private final class RemotePinDialog : FirmadorDialog {
     column.addChild(info);
     row.addChild(column);
     addChild(row);
-    addButtons([dialogAction(StandardAction.Ok, "dialog_accept"), dialogAction(StandardAction.Cancel,
-      "dialog_cancel")], 0, dialogAction(StandardAction.Cancel, "dialog_cancel"));
+    addOkCancel();
   }
 
   protected override bool accepts(const Action action) {
@@ -433,13 +441,7 @@ private final class PinAndCodeDialog : FirmadorDialog {
     summaryText.margins = Rect(0, 0, 0, 12);
     addChild(summaryText);
     auto row = new HorizontalLayout;
-    auto drawable = imageDrawable(logo, 96);
-    if (!drawable.isNull) {
-      auto picture = new ImageWidget("logo");
-      picture.drawable = drawable;
-      picture.margins = Rect(0, 0, 16, 0);
-      row.addChild(picture);
-    }
+    addImage(row, "logo", logo, 96);
     auto table = new TableLayout;
     table.colCount = 2;
     table.addChild(new TextWidget(null, t("pin_code_pin_label").toUTF32));
@@ -481,8 +483,7 @@ private final class PinAndCodeDialog : FirmadorDialog {
     entity.fontWeight = 800;
     entity.margins = Rect(0, 0, 0, 12);
     addChild(entity);
-    addButtons([dialogAction(StandardAction.Ok, "dialog_accept"), dialogAction(StandardAction.Cancel,
-      "dialog_cancel")], 0, dialogAction(StandardAction.Cancel, "dialog_cancel"));
+    addOkCancel();
   }
 
   override void onShow() {
@@ -527,9 +528,7 @@ void showSignatureTypeDialog(Window parent, SignatureFormat[] formats, Signature
     buttons ~= button;
     dialog.addChild(button);
   }
-  auto ok = dialogAction(StandardAction.Ok, "dialog_accept");
-  auto cancel = dialogAction(StandardAction.Cancel, "dialog_cancel");
-  dialog.addButtons([ok, cancel], 0, cancel);
+  dialog.addOkCancel();
   dialog.open((const Action result) {
     if (result is null || result.id != StandardAction.Ok) return done(false, current);
     foreach (index, button; buttons) if (button.checked) return done(true, formats[index]);
@@ -555,9 +554,7 @@ void showSelectModeDialog(Window parent, void delegate(bool simplified) done) @t
   note.textColor = 0x707070;
   note.margins = Rect(0, 16, 0, 12);
   dialog.addChild(note);
-  auto ok = dialogAction(StandardAction.Ok, "dialog_accept");
-  auto cancel = dialogAction(StandardAction.Cancel, "dialog_cancel");
-  dialog.addButtons([ok, cancel], 0, cancel);
+  dialog.addOkCancel();
   dialog.open((const Action result) {
     done(result is null || result.id != StandardAction.Ok || simplified.checked);
   });

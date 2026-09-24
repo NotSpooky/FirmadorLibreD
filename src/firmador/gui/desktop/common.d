@@ -19,12 +19,13 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /**
  * Piezas comunes de los paneles de la ventana: textos traducidos para dlangui, botones
- * con su ayuda, selectores de archivos y carpetas, el nombre que se propone al guardar
- * (showSaveDialog) y el selector de página que admite negativos (desde el final).
+ * con su ayuda, títulos, filas elegibles, desplazamiento vertical, selectores de
+ * archivos y carpetas, dónde guardar el documento firmado (showSaveDialog), las
+ * posiciones de los selectores y el selector de página.
  */
 module firmador.gui.desktop.common;
 
-import std.algorithm : endsWith;
+import std.algorithm : countUntil, endsWith;
 import std.array : replace;
 import std.conv : ConvException, to;
 import std.file : exists, isDir;
@@ -45,7 +46,9 @@ import dlangui.widgets.scroll;
 import dlangui.widgets.scrollbar;
 import dlangui.widgets.widget;
 
+import firmador.documents.document : Document;
 import firmador.i18n : htmlToText, t;
+import firmador.settings : Settings;
 
 /**
  * Área con desplazamiento vertical que ajusta el contenido al ancho visible: el texto se
@@ -53,11 +56,15 @@ import firmador.i18n : htmlToText, t;
  * contenido con ancho ilimitado).
  */
 final class VerticalScroll : ScrollWidget {
-  this(string id) @trusted {
+  /// Ocupa todo el espacio de su contenedor y muestra `content`.
+  this(string id, Widget content) @trusted {
     // Auto y no Invisible: dlangui (0.10.8) usa la barra horizontal aunque no la cree con
     // Invisible y se cae. Como el contenido se ajusta al ancho visible, sólo aparece si algo
     // no cabe de ninguna manera.
     super(id, ScrollBarMode.Auto, ScrollBarMode.Auto);
+    contentWidget = content;
+    layoutWidth = FILL_PARENT;
+    layoutHeight = FILL_PARENT;
   }
 
   override Point fullContentSize() {
@@ -76,6 +83,40 @@ final class VerticalScroll : ScrollWidget {
 /// Texto traducido para dlangui.
 dstring dt(string key) @trusted {
   return t(key).toUTF32;
+}
+
+/// Título de sección en negrita con un texto traducido.
+TextWidget boldTitle(string key) @trusted {
+  auto title = new TextWidget(null, dt(key));
+  title.fontWeight = 800;
+  return title;
+}
+
+/// Fondo de una fila de lista: resaltado si es la elegida.
+enum uint selectedRowColor = 0xDCE8F7;
+enum uint rowColor = 0xF4F4F4;
+
+/// Fila de una lista en la que se elige un elemento: de ancho completo, resaltada si es la elegida.
+HorizontalLayout selectableRow(bool selected, int horizontalPadding = 6) @trusted {
+  auto row = new HorizontalLayout;
+  row.layoutWidth = FILL_PARENT;
+  row.padding = Rect(horizontalPadding, 6, horizontalPadding, 6);
+  row.margins = Rect(0, 0, 0, 4);
+  row.backgroundColor = selected ? selectedRowColor : rowColor;
+  return row;
+}
+
+/// Posición de `value` en los valores de un selector, o `fallback` si no está.
+int indexIn(const string[] values, string value, int fallback = 0) pure @safe {
+  auto index = values.countUntil(value);
+  return index < 0 ? fallback : cast(int) index;
+}
+
+/// Valor de la posición elegida en un selector, o el de `fallback` si no hay ninguna elegida.
+string valueAt(const string[] values, int index, int fallback = 0) pure @safe {
+  int chosen = index < 0 ? fallback : index;
+  assert(chosen < values.length, "El selector tiene más opciones que valores");
+  return values[chosen];
 }
 
 /// Ayuda emergente de un texto traducido que puede traer HTML sencillo.
@@ -127,10 +168,8 @@ string withOutputExtension(string chosen, string outputExtension) pure @safe {
 /// Elige archivos para abrir; entrega las rutas (vacío si se cancela).
 void chooseFiles(Window parent, string title, bool multiple, string directory, void delegate(string[] paths) done)
     @trusted {
-  auto dialog = new FileDialog(UIString.fromRaw(title.toUTF32), parent, null,
-    DialogFlag.Modal | DialogFlag.Resizable | FileDialogFlag.FileMustExist);
+  auto dialog = fileDialog(parent, title, FileDialogFlag.FileMustExist, directory);
   dialog.allowMultipleFiles = multiple;
-  if (directory.length && exists(directory) && isDir(directory)) dialog.path = directory;
   dialog.dialogResult = (Dialog source, const Action result) {
     if (result is null || result.id != StandardAction.Open) return done(null);
     string[] paths = multiple ? dialog.filenames : null;
@@ -142,9 +181,7 @@ void chooseFiles(Window parent, string title, bool multiple, string directory, v
 
 /// Elige una carpeta; entrega la ruta (null si se cancela).
 void chooseDirectory(Window parent, string title, string directory, void delegate(string path) done) @trusted {
-  auto dialog = new FileDialog(UIString.fromRaw(title.toUTF32), parent, null,
-    DialogFlag.Modal | DialogFlag.Resizable | FileDialogFlag.SelectDirectory);
-  if (directory.length && exists(directory) && isDir(directory)) dialog.path = directory;
+  auto dialog = fileDialog(parent, title, FileDialogFlag.SelectDirectory, directory);
   dialog.dialogResult = (Dialog source, const Action result) {
     if (result is null || result.id != StandardAction.OpenDirectory) return done(null);
     string chosen = dialog.filename;
@@ -157,15 +194,37 @@ void chooseDirectory(Window parent, string title, string directory, void delegat
 /// Elige dónde guardar, proponiendo carpeta y nombre; entrega la ruta (null si se cancela).
 void chooseSaveFile(Window parent, string title, string directory, string proposedName,
     void delegate(string path) done) @trusted {
-  auto dialog = new FileDialog(UIString.fromRaw(title.toUTF32), parent, null,
-    DialogFlag.Modal | DialogFlag.Resizable | FileDialogFlag.Save);
-  if (directory.length && exists(directory) && isDir(directory)) dialog.path = directory;
+  auto dialog = fileDialog(parent, title, FileDialogFlag.Save, directory);
   dialog.filename = proposedName;
   dialog.dialogResult = (Dialog source, const Action result) {
     if (result is null || result.id != StandardAction.Save) return done(null);
     done(result.stringParam.length ? result.stringParam : dialog.filename);
   };
   dialog.show();
+}
+
+/// Diálogo de archivos modal y redimensionable del tipo dado, que empieza en `directory` si existe.
+private FileDialog fileDialog(Window parent, string title, uint kind, string directory) @trusted {
+  auto dialog = new FileDialog(UIString.fromRaw(title.toUTF32), parent, null,
+    DialogFlag.Modal | DialogFlag.Resizable | kind);
+  if (directory.length && exists(directory) && isDir(directory)) dialog.path = directory;
+  return dialog;
+}
+
+/**
+ * Pregunta dónde guardar el documento firmado (showSaveDialogInternal): propone el nombre
+ * del original con «-firmado» (salvo que se sobrescriba) y la extensión de salida, y deja
+ * la ruta en el documento. `chosen` se llama sólo si se eligió una.
+ */
+void chooseSignedOutput(Window parent, Document document, const Settings settings, void delegate() chosen) @trusted {
+  string suffix = settings.overwriteSourceFile ? "" : "-firmado";
+  string outputExtension = document.signedExtension;
+  chooseSaveFile(parent, t("guiswing_dialog_document_save"), dirName(document.pathname),
+    proposedSaveName(document.pathname, suffix, outputExtension), (string path) {
+    if (path is null) return;
+    document.setPathToSave(withOutputExtension(path, outputExtension));
+    chosen();
+  });
 }
 
 /**

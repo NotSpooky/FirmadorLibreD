@@ -169,14 +169,15 @@ final class ArgsInterface : ConsoleInterface {
       } catch (Exception exception) {
         warning("No se pudieron enumerar los dispositivos de firma: ", exception.msg);
       }
-      if (cards.length == 0) {
+      auto choice = chooseCard(cards, null, true);
+      if (choice.kind == CardChoice.Kind.pinOnly) {
         warning("No se detectaron dispositivos; se firmará con el primer slot PKCS#11 disponible");
         card = createPinOnlyCard(null);
       } else {
+        card = cards[choice.matches[0]];
         if (cards.length > 1) {
-          warning(format("Se detectaron %d dispositivos, se usa el primero: %s", cards.length, cards[0].displayInfo));
+          warning(format("Se detectaron %d dispositivos, se usa el primero: %s", cards.length, card.displayInfo));
         }
-        card = cards[0];
       }
     }
     card.pin = new SecretPin(password);
@@ -221,9 +222,7 @@ int runArgsMode(const string[] arguments, SmartCardDetector detector) @trusted {
         stderr.writeln("ERROR: no hay ningún dispositivo de firma utilizable");
         return ArgsExit.failure;
       }
-      auto document = new Document(gui, options.input);
-      document.sign(card);
-      result = document.signedContent;
+      result = signWith(new Document(gui, options.input), null, card).signedContent;
     }
     if (result is null) {
       stderr.writeln("ERROR: no se pudo procesar el documento ", options.input);

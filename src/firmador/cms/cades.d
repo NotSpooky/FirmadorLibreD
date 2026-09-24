@@ -35,6 +35,8 @@ import firmador.cms.signeddata;
 import firmador.cms.tsp;
 import firmador.crypto.digest;
 import firmador.validation.certpath : ValidationData;
+import firmador.validation.cmsverify : findSignerCertificate, timestampSignerCertificate;
+import firmador.validation.pool : CertificatePool;
 import firmador.x509.certificate;
 
 /// Atributos firmados CAdES-B sobre el resumen SHA-256 del contenido.
@@ -62,17 +64,41 @@ ubyte[] cadesCms(const(ubyte)[] signedAttributes, const(ubyte)[] signatureValue,
   return buildSignedData(input);
 }
 
-/// Sella el resumen SHA-256 dado.
-alias CadesTimestamper = TimeStampToken delegate(const(ubyte)[] digest) @safe;
-
 private const(SignerInfo) onlySigner(const SignedData data) @safe {
   enforce!Asn1Exception(data.signerInfos.length == 1,
     "La firma CAdES debe tener exactamente un firmante para extenderla");
   return data.signerInfos[0];
 }
 
+/**
+ * Lo que necesita el nivel LT de la firma: en `certificates`, los de sus firmantes y los de
+ * las autoridades de sus sellos de firma y de archivo (buscados también en `pool`); en las
+ * revocaciones, las que ya incluye. Es lo que recibe SigningServices.validationData
+ * (firmador.signers.common).
+ *
+ * Throws: Exception si el certificado de un firmante no está en la firma ni en `pool`.
+ */
+ValidationData cadesSigningMaterial(const(ubyte)[] cms, CertificatePool pool) @safe {
+  auto data = parseSignedData(cms);
+  ValidationData material;
+  material.ocspResponses = data.ocspResponses;
+  material.crls = data.crls;
+  foreach (signer; data.signerInfos) {
+    auto certificate = findSignerCertificate(data, signer, pool);
+    enforce(certificate !is null, "La firma no incluye el certificado de su firmante");
+    material.addCertificate(certificate);
+    foreach (oid; [oidSignatureTimeStampToken, oidArchiveTimestampV3]) {
+      foreach (attribute; signer.unsignedAttributesOf(oid)) {
+        auto authority = timestampSignerCertificate(parseTimeStampToken(attribute.values[0].raw), pool);
+        if (authority !is null) material.addCertificate(authority);
+      }
+    }
+  }
+  return material;
+}
+
 /// Añade un signature-time-stamp sobre el valor de la firma (nivel T).
-immutable(ubyte)[] addCadesSignatureTimestamp(const(ubyte)[] cms, scope CadesTimestamper stamp) @safe {
+immutable(ubyte)[] addCadesSignatureTimestamp(const(ubyte)[] cms, scope Timestamper stamp) @safe {
   auto signer = onlySigner(parseSignedData(cms));
   auto token = stamp(digestOf(DigestAlgorithm.sha256, signer.signature));
   info("Sello de tiempo de firma CAdES obtenido");
@@ -133,7 +159,7 @@ ubyte[] archiveTimestampV3Data(const SignedData data, const SignerInfo signer, c
  *
  * Throws: Asn1Exception si la firma no tiene un único firmante; lo que lance el sellador.
  */
-immutable(ubyte)[] addCadesArchiveTimestamp(const(ubyte)[] cms, const(ubyte)[] content, scope CadesTimestamper stamp)
+immutable(ubyte)[] addCadesArchiveTimestamp(const(ubyte)[] cms, const(ubyte)[] content, scope Timestamper stamp)
     @safe {
   auto data = parseSignedData(cms);
   auto signer = onlySigner(data);

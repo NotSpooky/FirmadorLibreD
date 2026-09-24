@@ -42,6 +42,7 @@ import firmador.asn1.oids : KeyUsageBit;
 import firmador.cards.cardinfo;
 import firmador.crypto.openssl : openPkcs12;
 import firmador.i18n : t;
+import firmador.logging : withContext;
 import firmador.settingsmanager : configDirectory, writeFileAtomically;
 import firmador.util.json;
 import firmador.x509.certificate;
@@ -258,15 +259,12 @@ final class Pkcs12CredentialStore {
     scope (exit) lock.unlock();
     Pkcs12CardMetadata[] list;
     foreach (key; order) list ~= cards[key];
-    try {
+    withContext("No se pudo guardar " ~ storeFile, {
       writeFileAtomically(storeFile, storeToJsonText(list));
       loaded = true;
       loadedAt = lastModified();
       info("Almacenes PKCS#12 registrados guardados en ", storeFile);
-    } catch (Exception exception) {
-      error("No se pudo guardar ", storeFile, ": ", exception.msg);
-      throw new Exception(format("No se pudo guardar %s: %s", storeFile, exception.msg), exception);
-    }
+    });
   }
 
   /// Fuerza releer el archivo en la próxima consulta.
@@ -302,7 +300,7 @@ final class Pkcs12CredentialStore {
   private long lastModified() @trusted {
     try {
       if (!exists(storeFile)) return -1;
-      return timeLastModified(storeFile).toUnixTime * 1000 + timeLastModified(storeFile).fracSecs.total!"msecs";
+      return fileLastModifiedMillis(storeFile);
     } catch (Exception) {
       return -1;
     }

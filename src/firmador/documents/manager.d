@@ -29,6 +29,8 @@ module firmador.documents.manager;
 import core.sync.condition : Condition;
 import core.sync.mutex : Mutex;
 import core.thread : Thread;
+import std.algorithm : map;
+import std.array : join;
 import std.file : write;
 import std.format : format;
 import std.logger : error, info;
@@ -41,8 +43,9 @@ import firmador.gui.guiinterface;
 import firmador.i18n : t;
 
 /**
- * Cola de documentos atendida por `workerCount` hilos. `allDone` se llama cuando la cola
- * queda vacía y ningún hilo trabaja.
+ * Cola de documentos atendida por hilos propios: cada uno toma un documento o, en la de
+ * lotes, todo lo pendiente, y se lo pasa a `work`. `allDone` (si se da) se llama cuando la
+ * cola queda vacía y ningún hilo trabaja.
  */
 final class DocumentQueue {
   private Mutex lock;
@@ -50,13 +53,26 @@ final class DocumentQueue {
   private Document[] pending;
   private size_t active;
   private bool stopping;
-  private void delegate(Document) @safe work;
+  private bool wholeBatch;
+  private void delegate(Document[]) @safe work;
   private void delegate() @safe allDone;
   private Thread[] workers;
 
+  /// Un documento por vez, con `workerCount` hilos (vistas previas y validaciones).
   this(size_t workerCount, void delegate(Document) @safe work, void delegate() @safe allDone) @trusted {
+    this(workerCount, false, (Document[] taken) @safe { work(taken[0]); }, allDone);
+  }
+
+  /// Todo lo pendiente de una vez, con un solo hilo (la firma: una credencial por lote).
+  this(void delegate(Document[]) @safe work) @trusted {
+    this(1, true, work, null);
+  }
+
+  private this(size_t workerCount, bool wholeBatch, void delegate(Document[]) @safe work,
+      void delegate() @safe allDone) @trusted {
     lock = new Mutex;
     wakeup = new Condition(lock);
+    this.wholeBatch = wholeBatch;
     this.work = work;
     this.allDone = allDone;
     foreach (_; 0 .. workerCount) {
@@ -86,25 +102,26 @@ final class DocumentQueue {
 
   private void run() @trusted {
     while (true) {
-      Document document;
+      Document[] taken;
       synchronized (lock) {
         while (pending.length == 0 && !stopping) wakeup.wait();
         if (stopping) return;
-        document = pending[0];
-        pending = pending[1 .. $];
+        size_t count = wholeBatch ? pending.length : 1;
+        taken = pending[0 .. count];
+        pending = pending[count .. $];
         active++;
       }
       try {
-        work(document);
+        work(taken);
       } catch (Throwable failure) {
-        error("Error procesando ", document.name, ": ", failure.msg);
+        error("Error procesando ", taken.map!(document => document.name).join(", "), ": ", failure.msg);
       }
       bool finished;
       synchronized (lock) {
         active--;
         finished = active == 0 && pending.length == 0;
       }
-      if (finished) {
+      if (finished && allDone !is null) {
         try {
           allDone();
         } catch (Throwable failure) {
@@ -120,11 +137,8 @@ final class DocumentManager {
   private GuiInterface gui;
   private DocumentQueue previews;
   private DocumentQueue validations;
-  private Mutex signingLock;
-  private Condition signingWakeup;
-  private Document[] signingPending;
+  private DocumentQueue signing;
   private string[] savedPaths;
-  private bool stopping;
 
   this(GuiInterface gui) @trusted {
     this.gui = gui;
@@ -133,11 +147,11 @@ final class DocumentManager {
     validations = new DocumentQueue(maxValidationWorkers, (Document document) @safe {
       document.validate();
     }, () @safe => gui.validateAllDone());
-    signingLock = new Mutex;
-    signingWakeup = new Condition(signingLock);
-    auto signer = new Thread(&signingLoop);
-    signer.isDaemon = true;
-    signer.start();
+    signing = new DocumentQueue((Document[] batch) @safe {
+      // Si el lote falla, el progreso se cierra igual; la cola registra el error.
+      scope (failure) gui.progressEnd();
+      signBatch(batch);
+    });
   }
 
   /// Carga la vista previa del documento en segundo plano (schedulePreview).
@@ -178,40 +192,15 @@ final class DocumentManager {
     enqueueSigning(documents);
   }
 
-  private void enqueueSigning(Document[] documents) @trusted {
-    synchronized (signingLock) {
-      signingPending ~= documents;
-      signingWakeup.notifyAll();
-    }
+  private void enqueueSigning(Document[] documents) @safe {
+    signing.add(documents);
   }
 
   /// Detiene los hilos (al cerrar la aplicación).
-  void stop() @trusted {
+  void stop() @safe {
     previews.stop();
     validations.stop();
-    synchronized (signingLock) {
-      stopping = true;
-      signingPending = null;
-      signingWakeup.notifyAll();
-    }
-  }
-
-  private void signingLoop() @trusted {
-    while (true) {
-      Document[] batch;
-      synchronized (signingLock) {
-        while (signingPending.length == 0 && !stopping) signingWakeup.wait();
-        if (stopping) return;
-        batch = signingPending;
-        signingPending = null;
-      }
-      try {
-        signBatch(batch);
-      } catch (Throwable failure) {
-        error("Error en el lote de firma: ", failure.msg);
-        gui.progressEnd();
-      }
-    }
+    signing.stop();
   }
 
   private void signBatch(Document[] batch) @trusted {
@@ -251,7 +240,7 @@ final class DocumentManager {
     try {
       write(path, signed);
       info("Documento firmado guardado en ", path);
-      synchronized (signingLock) savedPaths ~= path;
+      synchronized (this) savedPaths ~= path;
     } catch (Exception exception) {
       error("Error guardando el documento firmado en ", path, ": ", exception.msg);
       gui.showError(exception);
@@ -261,7 +250,7 @@ final class DocumentManager {
   /// Avisa los archivos guardados en el lote con enlaces a cada uno (signAllDone).
   private void signAllDone() @trusted {
     string[] paths;
-    synchronized (signingLock) {
+    synchronized (this) {
       paths = savedPaths;
       savedPaths = null;
     }

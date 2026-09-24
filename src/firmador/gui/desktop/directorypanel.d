@@ -127,16 +127,10 @@ final class DirectoryPanel : HorizontalLayout {
       return true;
     }));
     left.addChild(buttons);
-    auto title = new TextWidget(null, dt("directory_list_panel"));
-    title.fontWeight = 800;
-    left.addChild(title);
+    left.addChild(boldTitle("directory_list_panel"));
     list = new VerticalLayout("lista-carpetas");
     list.layoutWidth = FILL_PARENT;
-    auto scroll = new VerticalScroll("lista-carpetas-scroll");
-    scroll.contentWidget = list;
-    scroll.layoutWidth = FILL_PARENT;
-    scroll.layoutHeight = FILL_PARENT;
-    left.addChild(scroll);
+    left.addChild(new VerticalScroll("lista-carpetas-scroll", list));
     addChild(left);
     detail = new VerticalLayout("detalle-carpeta");
     detail.layoutWidth = FILL_PARENT;
@@ -237,22 +231,9 @@ final class DirectoryPanel : HorizontalLayout {
   }
 
   /// Documentos de los archivos con extensión; avisa de los que no la tienen.
-  private Document[] documentsOf(string[] files) {
-    Document[] documents;
-    foreach (file; files) {
-      if (extension(file).length == 0) {
-        host.showMessage(t("guiswing_dialog_document_not_valid_extension") ~ file ~ " "
-          ~ t("guiswing_dialog_document_not_valid_extension2"));
-        continue;
-      }
-      documents ~= new Document(host, file);
-    }
-    return documents;
-  }
-
   /// Firma cada archivo de la carpeta con su formato (processDirectory).
   private void signDirectory(string directory, string destination, DirectoryOutput output) {
-    auto documents = documentsOf(filesOf(directory));
+    auto documents = host.openDocuments(filesOf(directory));
     if (documents.length == 0) return;
     DirectoryFile[] files;
     foreach (document; documents) {
@@ -296,11 +277,7 @@ final class DirectoryPanel : HorizontalLayout {
 
   /// Fila de una carpeta (función aparte: los cierres de un bucle comparten sus variables).
   private Widget directoryRow(string directory) {
-    auto row = new HorizontalLayout;
-    row.layoutWidth = FILL_PARENT;
-    row.padding = Rect(6, 6, 6, 6);
-    row.margins = Rect(0, 0, 0, 4);
-    row.backgroundColor = directory == selectedDirectory ? 0xDCE8F7 : 0xF4F4F4;
+    auto row = selectableRow(directory == selectedDirectory);
     auto name = new Button(null, (baseName(directory) ~ "  (" ~ directory ~ ")").toUTF32);
     name.layoutWidth = FILL_PARENT;
     name.click = (Widget source) {

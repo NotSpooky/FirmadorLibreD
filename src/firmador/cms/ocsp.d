@@ -76,8 +76,7 @@ struct OcspResponse {
   immutable(ubyte)[] responderKeyHash;
   SysTime producedAt;
   OcspSingleResponse[] responses;
-  string signatureAlgorithmOid;
-  immutable(ubyte)[] signatureAlgorithmParameters;
+  AlgorithmIdentifier signatureAlgorithm;
   immutable(ubyte)[] signature;
   Certificate[] certificates;
 
@@ -150,10 +149,8 @@ OcspResponse parseOcspResponse(const(ubyte)[] der) @safe {
   auto basicReader = parseDer(basic).reader();
   auto tbs = basicReader.next("los datos de la respuesta");
   response.tbsResponseData = tbs.raw.idup;
-  auto algorithm = parseAlgorithmIdentifier(basicReader.next("el algoritmo de firma OCSP"),
+  response.signatureAlgorithm = parseAlgorithmIdentifier(basicReader.next("el algoritmo de firma OCSP"),
     "El algoritmo de firma OCSP");
-  response.signatureAlgorithmOid = algorithm.oid;
-  response.signatureAlgorithmParameters = algorithm.parameters;
   response.signature = basicReader.next("la firma OCSP").bitStringBytes.idup;
   DerElement certificates;
   if (basicReader.nextContext(0, certificates)) {

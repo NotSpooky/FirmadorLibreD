@@ -29,7 +29,7 @@ module firmador.jose.jades;
 
 import std.algorithm : canFind;
 import std.array : appender;
-import std.base64 : Base64, Base64URLNoPadding, Base64Exception;
+import std.base64 : Base64URLNoPadding, Base64Exception;
 import std.datetime.systime : SysTime;
 import std.exception : enforce;
 import std.format : format;
@@ -38,11 +38,14 @@ import std.logger : info;
 import std.string : indexOf, split;
 import std.utf : validate, UTFException;
 
-import firmador.cms.tsp : TimeStampToken;
+import firmador.cms.tsp : parseTimeStampToken, TimeStampToken, Timestamper;
 import firmador.crypto.digest;
-import firmador.crypto.openssl : SignatureAlgorithm, ecdsaComponentLength, ecdsaDerToRaw;
+import firmador.crypto.openssl : RawSignatureEncoding, rawSignatureEncoding, SignatureAlgorithm;
 import firmador.util.json;
-import firmador.validation.certpath : ValidationData;
+import firmador.util.base64 : encodeBase64;
+import firmador.validation.certpath : missingFrom, ValidationData;
+import firmador.validation.cmsverify : timestampSignerCertificate;
+import firmador.validation.pool : CertificatePool;
 import firmador.x509.certificate;
 
 /// El JWS no tiene la forma esperada.
@@ -139,7 +142,7 @@ string jsonQuoted(string text) pure @safe {
 
 /// IssuerSerial DER en base64 (el kid de DSS: generateKid).
 string jadesKid(const Certificate certificate) pure @safe {
-  return Base64.encode(issuerSerialDer(certificate)).idup;
+  return encodeBase64(issuerSerialDer(certificate));
 }
 
 /// Tipo MIME como lo escribe DSS en cty: sin "application/" si no queda otra barra.
@@ -164,8 +167,7 @@ struct PreparedJades {
   string protectedHeader;
   string payload;
   immutable(ubyte)[] dataToSign;
-  bool ecdsa;
-  size_t ecdsaComponentLength;
+  RawSignatureEncoding signatureEncoding;
 }
 
 /**
@@ -175,8 +177,7 @@ struct PreparedJades {
 PreparedJades prepareJadesSignature(const(ubyte)[] content, const JadesParameters parameters) @safe {
   enforce!JwsException(parameters.signingCertificate !is null, "Falta el certificado de firma");
   PreparedJades prepared;
-  prepared.ecdsa = !parameters.rsa;
-  if (prepared.ecdsa) prepared.ecdsaComponentLength = ecdsaComponentLength(parameters.signingCertificate.subjectPublicKeyInfoDer);
+  prepared.signatureEncoding = rawSignatureEncoding(parameters.rsa, parameters.signingCertificate);
   auto certificate = parameters.signingCertificate;
   string header = "{" ~ `"alg":` ~ jsonQuoted(jwsAlgorithmName(parameters.rsa, DigestAlgorithm.sha256));
   if (parameters.mimeType.length) header ~= `,"cty":` ~ jsonQuoted(jwsContentType(parameters.mimeType));
@@ -194,7 +195,7 @@ PreparedJades prepareJadesSignature(const(ubyte)[] content, const JadesParameter
 
 /// JWS en serialización JSON general con la firma (en ECDSA, el DER que dio el dispositivo).
 immutable(ubyte)[] completeJadesSignature(const PreparedJades prepared, const(ubyte)[] signatureValue) @safe {
-  auto value = prepared.ecdsa ? ecdsaDerToRaw(signatureValue, prepared.ecdsaComponentLength) : signatureValue.dup;
+  auto value = prepared.signatureEncoding.encode(signatureValue);
   Jws jws;
   jws.payload = prepared.payload;
   JwsSignature signature;
@@ -402,14 +403,11 @@ private EtsiUComponent newComponent(string name, string valueJson) @trusted {
 }
 
 private string tstContainerJson(const TimeStampToken token) @safe {
-  return `{"tstTokens":[{"val":` ~ jsonQuoted(Base64.encode(token.der).idup) ~ "}]}";
+  return `{"tstTokens":[{"val":` ~ jsonQuoted(encodeBase64(token.der)) ~ "}]}";
 }
 
-/// Sella el resumen SHA-256 dado.
-alias JadesTimestamper = TimeStampToken delegate(const(ubyte)[] digest) @safe;
-
 /// Añade un sigTst a la firma `index` (nivel T).
-immutable(ubyte)[] addJadesSignatureTimestamp(const(ubyte)[] document, size_t index, scope JadesTimestamper stamp)
+immutable(ubyte)[] addJadesSignatureTimestamp(const(ubyte)[] document, size_t index, scope Timestamper stamp)
     @trusted {
   auto jws = parseJws(document);
   enforce!JwsException(index < jws.signatures.length, format("El JWS no tiene la firma %d", index));
@@ -419,20 +417,15 @@ immutable(ubyte)[] addJadesSignatureTimestamp(const(ubyte)[] document, size_t in
   return serializeJws(jws);
 }
 
-/// Certificados y revocaciones que ya lleva la firma (x5c, xVals, rVals y tstVD).
-struct JadesEmbeddedData {
-  Certificate[] certificates;
-  immutable(ubyte)[][] crls;
-  immutable(ubyte)[][] ocspResponses;
-}
-
-/// Lee los valores de validación de la firma; ignora los que no se pueden leer.
-JadesEmbeddedData jadesEmbeddedData(const JwsSignature signature) @trusted {
-  JadesEmbeddedData data;
+/**
+ * Certificados y revocaciones que ya lleva la firma (x5c, xVals, rVals y tstVD); ignora
+ * los que no se pueden leer.
+ */
+ValidationData jadesEmbeddedData(const JwsSignature signature) @trusted {
+  ValidationData data;
   void addCertificate(const(ubyte)[] der) {
     try {
-      auto certificate = parseCertificate(der);
-      if (!containsCertificate(data.certificates, certificate)) data.certificates ~= certificate;
+      data.addCertificate(parseCertificate(der));
     } catch (Exception) {
       // Un certificado ilegible no aporta a la validación.
     }
@@ -484,7 +477,7 @@ private string revocationJson(const(ubyte[])[] crls, const(ubyte[])[] ocsps) @sa
   string[] members;
   string listOf(const(ubyte[])[] items) {
     string list = "[";
-    foreach (index, item; items) list ~= (index ? "," : "") ~ `{"val":` ~ jsonQuoted(Base64.encode(item).idup) ~ "}";
+    foreach (index, item; items) list ~= (index ? "," : "") ~ `{"val":` ~ jsonQuoted(encodeBase64(item)) ~ "}";
     return list ~ "]";
   }
   if (crls.length) members ~= `"crlVals":` ~ listOf(crls);
@@ -510,25 +503,51 @@ immutable(ubyte)[] addJadesValidationData(const(ubyte)[] document, size_t index,
     foreach (component; signature.etsiU) if (component.name != "xVals" && component.name != "rVals") kept ~= component;
     signature.etsiU = kept;
   }
-  auto present = jadesEmbeddedData(*signature);
-  const(Certificate)[] certificates;
-  foreach (certificate; data.certificates) if (!containsCertificate(present.certificates, certificate)) certificates ~= certificate;
-  const(ubyte[])[] crls;
-  foreach (crl; data.crls) if (!present.crls.canFind(crl)) crls ~= crl;
-  const(ubyte[])[] ocsps;
-  foreach (ocsp; data.ocspResponses) if (!present.ocspResponses.canFind(ocsp)) ocsps ~= ocsp;
+  auto missing = missingFrom(data, jadesEmbeddedData(*signature));
+  bool revocations = missing.crls.length || missing.ocspResponses.length;
   if (archived) {
     string[] members;
-    if (certificates.length) members ~= `"xVals":` ~ valuesJson(certificates);
-    if (crls.length || ocsps.length) members ~= `"rVals":` ~ revocationJson(crls, ocsps);
+    if (missing.certificates.length) members ~= `"xVals":` ~ valuesJson(missing.certificates);
+    if (revocations) members ~= `"rVals":` ~ revocationJson(missing.crls, missing.ocspResponses);
     import std.array : join;
     if (members.length) signature.etsiU ~= newComponent("tstVD", "{" ~ members.join(",") ~ "}");
   } else {
-    if (certificates.length) signature.etsiU ~= newComponent("xVals", valuesJson(certificates));
-    if (crls.length || ocsps.length) signature.etsiU ~= newComponent("rVals", revocationJson(crls, ocsps));
+    if (missing.certificates.length) signature.etsiU ~= newComponent("xVals", valuesJson(missing.certificates));
+    if (revocations) signature.etsiU ~= newComponent("rVals", revocationJson(missing.crls, missing.ocspResponses));
   }
   info("Datos de validación JAdES añadidos");
   return serializeJws(jws);
+}
+
+/**
+ * Lo que necesita el nivel LT de la firma: en `certificates`, el de firma (el de x5c que
+ * coincide con x5t#S256, o el primero si la cabecera no lo trae) y los de las autoridades
+ * de sus sigTst y arcTst (buscados también en `pool`); en las revocaciones, las que ya
+ * incluye. Es lo que recibe SigningServices.validationData (firmador.signers.common).
+ *
+ * Throws: JwsException si la firma no incluye su certificado de firma.
+ */
+ValidationData jadesSigningMaterial(const JwsSignature signature, CertificatePool pool) @trusted {
+  auto embedded = jadesEmbeddedData(signature);
+  ValidationData material;
+  material.ocspResponses = embedded.ocspResponses;
+  material.crls = embedded.crls;
+  string thumbprint = optionalString(signature.header, "x5t#S256", "La cabecera protegida");
+  foreach (certificate; embedded.certificates) {
+    if (thumbprint is null || base64Url(certificate.digest(DigestAlgorithm.sha256)) == thumbprint) {
+      material.addCertificate(certificate);
+      break;
+    }
+  }
+  enforce!JwsException(material.certificates.length, "La firma JAdES no incluye su certificado de firma");
+  foreach (component; signature.etsiU) {
+    if (component.name != "sigTst" && component.name != "arcTst") continue;
+    foreach (der; tstContainerTokens(component.value)) {
+      auto authority = timestampSignerCertificate(parseTimeStampToken(der), pool);
+      if (authority !is null) material.addCertificate(authority);
+    }
+  }
+  return material;
 }
 
 /**
@@ -536,7 +555,7 @@ immutable(ubyte)[] addJadesValidationData(const(ubyte)[] document, size_t index,
  *
  * Throws: JwsException si el contenido es separado y no se da; lo que lance el sellador.
  */
-immutable(ubyte)[] addJadesArchiveTimestamp(const(ubyte)[] document, size_t index, scope JadesTimestamper stamp,
+immutable(ubyte)[] addJadesArchiveTimestamp(const(ubyte)[] document, size_t index, scope Timestamper stamp,
     const(ubyte)[] detachedContent = null) @trusted {
   auto jws = parseJws(document);
   enforce!JwsException(index < jws.signatures.length, format("El JWS no tiene la firma %d", index));

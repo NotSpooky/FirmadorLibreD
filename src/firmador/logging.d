@@ -22,16 +22,36 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  * los receptores registrados (la pestaña de bitácoras de la interfaz,
  * firmador.gui.desktop.logpanel). El nivel sale del ajuste «advancedLogs», que guarda
  * nombres de nivel de java.util.logging para seguir leyendo la configuración de la
- * versión Java.
+ * versión Java. También da withContext, para registrar y relanzar un fallo con su contexto.
  */
 module firmador.logging;
 
 import core.sync.mutex : Mutex;
 import std.datetime.systime : Clock;
 import std.format : format;
-import std.logger : Logger, LogLevel, sharedLog, globalLogLevel;
+import std.logger : error, Logger, LogLevel, sharedLog, globalLogLevel;
 import std.stdio : stderr;
 import std.string : toUpper;
+
+/**
+ * Hace `action` y, si falla, registra el error con `context` y lo relanza con ese contexto
+ * y la causa encadenada: el cierre de las operaciones que no se pueden recuperar (guardar
+ * la configuración o las conexiones, registrar una firma…).
+ *
+ * Params:
+ *   context = qué se hacía, con lo que hace falta para ubicarlo (la ruta del archivo…).
+ *   action = la operación.
+ * Returns: lo que devuelve `action`.
+ * Throws: Exception con «context: motivo» y la causa original.
+ */
+T withContext(T)(string context, scope T delegate() action) {
+  try {
+    return action();
+  } catch (Exception exception) {
+    error(context, ": ", exception.msg);
+    throw new Exception(context ~ ": " ~ exception.msg, exception);
+  }
+}
 
 /// Receptor de mensajes de bitácora ya formateados.
 alias LogSink = void delegate(LogLevel level, string line) nothrow;

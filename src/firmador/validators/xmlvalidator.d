@@ -89,14 +89,8 @@ SignatureResult[] validateXmlSignatures(XmlDocument document, ExternalResolver r
     ValidationDataSource source, bool allowOnline, SysTime validationTime) @trusted {
   SignatureResult[] signatures;
   foreach (element; topLevelSignatures(document)) {
-    auto pool = CertificatePool.withNationalHierarchy();
-    PathContext context;
-    context.pool = pool;
-    context.source = source;
-    context.allowOnline = allowOnline;
-    context.validationTime = validationTime;
-    context.bestSignatureTime = validationTime;
-    signatures ~= validateXmlSignature(document, element, context, resolver, emptyUriDocument);
+    signatures ~= validateXmlSignature(document, element, pathContext(source, allowOnline, validationTime), resolver,
+      emptyUriDocument);
   }
   return signatures;
 }
@@ -116,12 +110,10 @@ private SignatureResult validateXmlSignature(XmlDocument document, XmlNode eleme
   } catch (Exception exception) {
     verdict.degrade(Indication.totalFailed, SubIndication.formatFailure,
       message(ValidationMessage.Level.error, "BBB_FC_IEFF_ANS", exception.msg));
-    return finish(signature, verdict, xades ? family ~ "-B" : family);
+    return finishSignature(signature, verdict, xades ? family ~ "-B" : family);
   }
   auto embedded = embeddedValidationData(element);
-  baseContext.pool.addAll(embedded.certificates);
-  baseContext.embeddedOcsp = embedded.ocspResponses;
-  baseContext.embeddedCrls = embedded.crls;
+  includeEmbedded(baseContext, embedded);
 
   XmlNode signedProperties;
   if (xades) {
@@ -221,20 +213,12 @@ private SignatureResult validateXmlSignature(XmlDocument document, XmlNode eleme
             || property.isElement(xades141Namespace, "TimeStampValidationData")) hasValidationValues = true;
         continue;
       }
-      try {
-        auto methodElement = property.child(xmldsigNamespace, "CanonicalizationMethod");
-        auto method = methodElement.isNull ? CanonicalizationMethod.inclusive10
-          : canonicalizationFromUri(methodElement.attribute("Algorithm"));
-        auto token = parseTimeStampToken(decodeXmlBase64(property.requiredChild(xadesNamespace, "EncapsulatedTimeStamp").text));
-        baseContext.pool.addAll(token.signedData.certificates);
-        auto stampedData = kind == TimestampResult.Kind.signature ? signatureTimestampData(document, element, method)
-          : archiveTimestampData(document, element, property, method, resolver, emptyUriDocument);
-        PathContext timestampContext = baseContext;
-        signature.timestamps ~= validateTimestamp(token, stampedData, kind, timestampContext);
-      } catch (Exception exception) {
-        warning("Sello de tiempo ilegible en la firma ", signature.id, ": ", exception.msg);
-        signature.timestamps ~= unreadableTimestamp(kind, exception.msg);
-      }
+      XadesTimestamp stamp;
+      signature.timestamps ~= readTimestamp(kind, "la firma " ~ signature.id, () {
+        stamp = xadesTimestamp(property);
+        return stamp.token;
+      }, (token) => kind == TimestampResult.Kind.signature ? signatureTimestampData(document, element, stamp.method)
+        : archiveTimestampData(document, element, property, stamp.method, resolver, emptyUriDocument), baseContext);
     }
   }
   return concludeSignature(signature, verdict, signer, baseContext,
@@ -265,14 +249,6 @@ private Verdict checkSignaturePolicy(XmlNode policyIdentifier) @safe {
     verdict.warn(message(ValidationMessage.Level.warning, "BBB_VCI_ISPM_ANS"));
   }
   return verdict;
-}
-
-private SignatureResult finish(SignatureResult signature, Verdict verdict, string format_) @safe {
-  signature.format = format_;
-  signature.indication = verdict.isPassed ? Indication.totalPassed : verdict.indication;
-  signature.subIndication = verdict.subIndication;
-  signature.messages = verdict.messages;
-  return signature;
 }
 
 version (unittest) import firmador.crypto.openssl : makeTestIdentity;

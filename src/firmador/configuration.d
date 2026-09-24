@@ -109,6 +109,13 @@ enum int maxSigningWorkers = 2;
 enum int maxValidationWorkers = 3;
 enum int maxPreviewWorkers = 5;
 
+/// Límites de la escala de la firma visible que se elige en la vista previa (Settings.signScale).
+enum float minSignatureScale = 0.25;
+enum float maxSignatureScale = 4;
+
+/// Cuánto cambian la escala los botones de tamaño de la firma.
+enum float signatureScaleStep = 0.1;
+
 /// Longitud máxima del PIN que se lee por la entrada estándar (modo -dargs).
 enum size_t maxPinLength = 128;
 

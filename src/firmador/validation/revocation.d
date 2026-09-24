@@ -73,8 +73,7 @@ RevocationInfo verifyOcsp(const OcspResponse response, const Certificate certifi
   const(Certificate)[] possible = cast(const(Certificate)[]) response.certificates ~ candidates ~ [issuer];
   foreach (candidate; possible) {
     if (!response.isResponder(candidate)) continue;
-    auto algorithm = signatureAlgorithmFrom(response.signatureAlgorithmOid, response.signatureAlgorithmParameters,
-      DigestAlgorithm.sha256);
+    auto algorithm = signatureAlgorithmFrom(response.signatureAlgorithm, DigestAlgorithm.sha256);
     if (!verifySignature(candidate.subjectPublicKeyInfoDer, algorithm, response.tbsResponseData, response.signature))
       continue;
     if (sameCertificate(candidate, issuer)) {
@@ -111,8 +110,7 @@ RevocationInfo verifyOcsp(const OcspResponse response, const Certificate certifi
 RevocationInfo verifyCrl(const CertificateRevocationList crl, const Certificate certificate, const Certificate issuer)
     @trusted {
   enforce(crl.issuer.matches(certificate.issuer), "La CRL no es del emisor del certificado");
-  auto algorithm = signatureAlgorithmFrom(crl.signatureAlgorithmOid, crl.signatureAlgorithmParameters,
-    DigestAlgorithm.sha256);
+  auto algorithm = signatureAlgorithmFrom(crl.signatureAlgorithm, DigestAlgorithm.sha256);
   enforce(verifySignature(issuer.subjectPublicKeyInfoDer, algorithm, crl.tbsDer, crl.signature),
     "La firma de la CRL no es válida");
   RevocationInfo info;

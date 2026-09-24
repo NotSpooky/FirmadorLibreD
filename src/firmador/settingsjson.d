@@ -38,8 +38,8 @@ import firmador.settings : Settings;
 import firmador.util.json;
 
 /// Campos que no viajan en JSON (@JsonIgnore en Java, o secretos locales).
-private enum string[] localOnlyFields = ["extraPKCS11Lib", "signXf", "signYf", "portNumber", "pKCS12File",
-  "activePlugins", "availablePlugins", "keyPassword", "listeners"];
+private enum string[] localOnlyFields = ["extraPKCS11Lib", "signXf", "signYf", "signScale", "portNumber",
+  "pKCS12File", "activePlugins", "availablePlugins", "keyPassword", "listeners"];
 
 /**
  * Ajustes de la aplicación que un documento no puede cambiar ni necesita enviar: rutas de
@@ -51,11 +51,14 @@ private immutable string[] applicationFields = ["sofficePath", "registeredAllowe
   "showTrayNotifications", "themeMode", "startwindowstate", "max_number_process_doc", "simplified_mode",
   "previewZoom", "pDFImgScaleFactor"];
 
-/// Propiedades que Jackson escribía a partir de getters; al leerlas se ignoran.
+/**
+ * Propiedades que Jackson escribía a partir de getters, y campos que ya no existen (el ancho
+ * y el alto de la firma); al leerlas se ignoran.
+ */
 private immutable string[] derivedProperties = ["allowedHosts", "formattedAllowedPorts", "translatedDefaultSignMessage",
   "remote", "remoteOrigin", "origin", "remotePort", "startFirmadorRemote", "minimizeGui", "version", "releaseUrl",
   "releaseCheckUrl", "checksumUrl", "extendedState", "simplifiedMode", "padESLevel", "xadESLevel", "cadESLevel",
-  "jadESLevel", "sofficePath", "defaultDevelopmentVersion", "keyPassword"];
+  "jadESLevel", "sofficePath", "defaultDevelopmentVersion", "keyPassword", "signWidth", "signHeight"];
 
 /// Nombres de los campos que viajan en JSON.
 enum string[] settingsJsonFields = jsonFieldNames();
@@ -172,7 +175,7 @@ unittest {
   auto derived = parseJsonText(`{"version":"1.0","allowedHosts":["https://a.cr"],"keyPassword":"x","reason":"R",`
     ~ `"noAuthorizedHosts":["https://b.cr"],"sofficePath":"/tmp/programa","signWidth":"150"}`, "prueba");
   auto settings = settingsFromJson(derived, base);
-  assert(settings.reason == "R" && settings.signWidth == 150);
+  assert(settings.reason == "R");
   assert(settings.keyPassword == base.keyPassword);
   // Un documento no cambia lo que es de la aplicación.
   assert(settings.sofficePath == base.sofficePath && settings.noAuthorizedHosts == base.noAuthorizedHosts);

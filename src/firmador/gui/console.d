@@ -20,19 +20,70 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 /**
  * Lo común de los modos sin ventana (firmador.gui.args y firmador.gui.shell): no hay
  * vista previa, lista ni progreso que actualizar, las preguntas al usuario se responden
- * que no (no hay a quién preguntar) y Firmador Remoto no se atiende. También la lectura
- * de un PIN por la entrada estándar sin eco en la terminal.
+ * que no (no hay a quién preguntar) y Firmador Remoto no se atiende. También la elección
+ * de la credencial (chooseCard), la firma de un documento (signWith) y la lectura de un
+ * PIN por la entrada estándar sin eco en la terminal.
  */
 module firmador.gui.console;
 
+import std.exception : enforce;
 import std.logger : error, info, trace, warning;
 
-import firmador.cards.cardinfo : CardSignInfo;
+import firmador.cards.cardinfo : CardSignInfo, matchesIdentifier;
 import firmador.documents.document : Document;
 import firmador.gui.guiinterface;
 import firmador.remote.slot : RemoteDocumentSlot;
 import firmador.settings : Settings;
 import firmador.settingsmanager : currentSettings;
+
+/// Credencial elegida entre las detectadas (chooseCard).
+struct CardChoice {
+  enum Kind {
+    /// Una sola coincide, o se tomó la primera de varias.
+    found,
+    /// No se detectó ninguna y no se pidió una en particular: se firma con la primera ranura PKCS#11.
+    pinOnly,
+    /// Se pidió una que no está.
+    notFound,
+    /// Varias coinciden y no se puede elegir.
+    ambiguous,
+  }
+
+  Kind kind;
+  /// Posiciones de las credenciales que coinciden; con `found`, la elegida es la primera.
+  size_t[] matches;
+}
+
+/**
+ * Elige la credencial con que se firma entre las detectadas. `identifier` vacío acepta
+ * cualquiera; si no se detecta ninguna y no se pidió una, se firma con la primera ranura
+ * PKCS#11 (hay tarjetas que no muestran certificados sin iniciar sesión). Con varias
+ * coincidencias, `firstOfMany` toma la primera (-dargs) y si no, la elección es ambigua
+ * (-dshell, que no puede preguntar y no debe gastar un intento de PIN en otra tarjeta).
+ */
+CardChoice chooseCard(const CardSignInfo[] cards, string identifier, bool firstOfMany) @safe {
+  import std.string : strip;
+  bool anyCard = identifier.strip.length == 0;
+  CardChoice choice;
+  foreach (index, card; cards) if (anyCard || matchesIdentifier(card, identifier)) choice.matches ~= index;
+  if (choice.matches.length == 0) choice.kind = anyCard ? CardChoice.Kind.pinOnly : CardChoice.Kind.notFound;
+  else if (choice.matches.length == 1 || firstOfMany) choice.kind = CardChoice.Kind.found;
+  else choice.kind = CardChoice.Kind.ambiguous;
+  return choice;
+}
+
+/**
+ * Firma el documento con la credencial y, si se dan, con esos ajustes (si no, los que ya
+ * tiene), y lo devuelve firmado.
+ *
+ * Throws: Exception si no se pudo firmar; el motivo ya se mostró por la interfaz del documento.
+ */
+Document signWith(Document document, Settings settings, CardSignInfo card) @safe {
+  if (settings !is null) document.setSettings(settings);
+  document.sign(card);
+  enforce(document.signedContent !is null, "No se pudo generar el documento firmado " ~ document.name);
+  return document;
+}
 
 /// Base de los modos de consola; cada modo decide cómo informar errores y mensajes.
 abstract class ConsoleInterface : GuiInterface {
@@ -200,5 +251,20 @@ private bool readStandardInputByte(out char character) @trusted {
     import core.sys.windows.windows : GetStdHandle, ReadFile, STD_INPUT_HANDLE;
     uint count;
     return ReadFile(GetStdHandle(STD_INPUT_HANDLE), &character, 1, &count, null) != 0 && count == 1;
+  }
+}
+
+@("should pick the only match, fall back to the first slot or refuse ambiguous choices when choosing a card")
+unittest {
+  import firmador.cards.cardinfo : CardType, CertificateSubject;
+  auto ana = new CardSignInfo(CardType.pkcs11, CertificateSubject("CPF-01-0101-0101"), "A", 0, null);
+  auto luis = new CardSignInfo(CardType.pkcs11, CertificateSubject("CPF-02-0202-0202"), "B", 1, null);
+  with (CardChoice.Kind) {
+    assert(chooseCard([ana, luis], "CPF-02-0202-0202", false) == CardChoice(found, [1]));
+    assert(chooseCard([], "", false).kind == pinOnly);
+    assert(chooseCard([ana], "CPF-09-0909-0909", false).kind == notFound);
+    // Sin identificador y con dos tarjetas: -dshell no adivina, -dargs toma la primera.
+    assert(chooseCard([ana, luis], "", false) == CardChoice(ambiguous, [0, 1]));
+    assert(chooseCard([ana, luis], "", true) == CardChoice(found, [0, 1]));
   }
 }

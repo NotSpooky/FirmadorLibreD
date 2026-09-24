@@ -27,6 +27,7 @@ module firmador.signers.ooxml;
 
 import std.datetime.systime : Clock;
 import std.logger : info;
+import std.path : extension;
 
 import firmador.cards.cardinfo : CardSignInfo;
 import firmador.cms.tsp : TimeStampToken;
@@ -35,17 +36,14 @@ import firmador.ooxml.signature;
 import firmador.signers.common;
 import firmador.signers.documentsigner;
 import firmador.util.zip;
-import firmador.validation.cmsverify : findSignerCertificate;
+import firmador.validation.certpath : ValidationData;
+import firmador.validation.cmsverify : timestampSignerCertificate;
 import firmador.x509.certificate;
 
 /// Firmador OOXML.
-final class OoxmlSigner : DocumentSigner {
-  private GuiInterface gui;
-  private SigningServices services;
-
-  this(GuiInterface gui, SigningServices services = null) @safe {
-    this.gui = gui;
-    this.services = services is null ? SigningServices.online() : services;
+final class OoxmlSigner : ServicedSigner {
+  this(GuiInterface gui) @safe {
+    super(gui);
   }
 
   string formatName() const @safe {
@@ -53,10 +51,10 @@ final class OoxmlSigner : DocumentSigner {
   }
 
   string signedExtension(string originalName) const @safe {
-    return extensionOfName(originalName);
+    return extension(originalName);
   }
 
-  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @trusted {
+  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @safe {
     return signWithCard(gui, card, (SigningKey key) @safe {
       auto entries = readZip(input.content);
       OoxmlParameters parameters;
@@ -74,9 +72,9 @@ final class OoxmlSigner : DocumentSigner {
       assembly.baseline = (const(ubyte)[] value) @safe => package_(completeOoxmlSignature(prepared, value));
       assembly.upgraded = (const(ubyte)[] value) @safe {
         auto signatureXml = addOoxmlXlProperties(completeOoxmlSignature(prepared, value), revocationDataFor(certificate),
-          (digest) => services.timestampDigest(digest), (const TimeStampToken token) @safe {
-            auto tsa = findSignerCertificate(token.signedData, token.signedData.signerInfos[0], services.pool);
-            return tsa is null ? OoxmlRevocationData.init : revocationDataFor(tsa);
+          &services.timestampDigest, (const TimeStampToken token) @safe {
+            auto authority = timestampSignerCertificate(token, services.pool);
+            return authority is null ? ValidationData.init : revocationDataFor(authority);
           });
         info("Firma OOXML en nivel XAdES-X-L");
         return package_(signatureXml);
@@ -85,15 +83,18 @@ final class OoxmlSigner : DocumentSigner {
     });
   }
 
-  /// Cadena y revocación de un certificado con los servicios en línea (TimeStampServiceCR).
-  private OoxmlRevocationData revocationDataFor(Certificate certificate) @safe {
+  /**
+   * Cadena y revocación de un certificado con los servicios en línea (TimeStampServiceCR),
+   * con la cadena sin él mismo, como la pide addOoxmlXlProperties.
+   */
+  private ValidationData revocationDataFor(Certificate certificate) @safe {
     auto data = services.validationData([certificate]);
-    OoxmlRevocationData revocation;
+    ValidationData revocation;
     foreach (chained; data.certificates) {
-      if (!sameCertificate(chained, certificate)) revocation.chainAfterFirst ~= chained;
+      if (!sameCertificate(chained, certificate)) revocation.certificates ~= chained;
     }
-    revocation.crls = data.crls.dup;
-    revocation.ocspResponses = data.ocspResponses.dup;
+    revocation.crls = data.crls;
+    revocation.ocspResponses = data.ocspResponses;
     return revocation;
   }
 

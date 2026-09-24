@@ -26,9 +26,12 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 module firmador.validation.conclusion;
 
 import std.datetime.systime : SysTime;
+import std.logger : warning;
 import std.typecons : Nullable;
 
+import firmador.cms.tsp : TimeStampToken;
 import firmador.validation.certpath;
+import firmador.validation.cmsverify : validateTimestamp;
 import firmador.validation.model;
 import firmador.x509.certificate;
 
@@ -66,11 +69,51 @@ SignatureResult concludeSignature(SignatureResult signature, Verdict verdict, Ce
       break;
     }
   }
+  return finishSignature(signature, verdict, format_);
+}
+
+/**
+ * Cierra el resultado de una firma con su formato y el veredicto: TOTAL_PASSED si pasó
+ * todo o, si no, la indicación, la subindicación y los mensajes del veredicto.
+ */
+SignatureResult finishSignature(SignatureResult signature, Verdict verdict, string format_) pure @safe {
   signature.format = format_;
   signature.indication = verdict.isPassed ? Indication.totalPassed : verdict.indication;
   signature.subIndication = verdict.subIndication;
   signature.messages = verdict.messages;
   return signature;
+}
+
+/// Archivo de firmas que no se pudo leer: falla por formato con el detalle.
+SignatureResult unreadableSignature(string filename, string format_, string detail) @safe {
+  SignatureResult unreadable;
+  unreadable.filename = filename;
+  Verdict verdict;
+  verdict.degrade(Indication.totalFailed, SubIndication.formatFailure,
+    message(ValidationMessage.Level.error, "BBB_FC_IEFF_ANS", detail));
+  return finishSignature(unreadable, verdict, format_);
+}
+
+/**
+ * Lee y valida un sello de la firma. Si no se puede leer, o no se puede armar lo que
+ * cubre, queda como sello ilegible con el motivo y la validación de la firma sigue.
+ *
+ * Params:
+ *   kind = sello de firma, de archivo o de documento.
+ *   owner = de qué firma es, para la bitácora.
+ *   read = el sello tal como viene en la firma.
+ *   stampedData = lo que el sello debe cubrir.
+ *   context = contexto de la firma, para la cadena de la autoridad de sellado.
+ */
+TimestampResult readTimestamp(TimestampResult.Kind kind, string owner, scope TimeStampToken delegate() @safe read,
+    scope const(ubyte)[] delegate(const TimeStampToken token) @safe stampedData, PathContext context) @safe {
+  try {
+    auto token = read();
+    return validateTimestamp(token, stampedData(token), kind, context);
+  } catch (Exception exception) {
+    warning("Sello de tiempo ilegible en ", owner, ": ", exception.msg);
+    return unreadableTimestamp(kind, exception.msg);
+  }
 }
 
 /// Sello que no se pudo leer: falla por formato con el detalle.

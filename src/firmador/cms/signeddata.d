@@ -57,8 +57,7 @@ struct SignerInfo {
   /// Atributos firmados con su etiqueta [0] original; se firman con la etiqueta SET.
   immutable(ubyte)[] signedAttributesRaw;
   CmsAttribute[] signedAttributes;
-  string signatureAlgorithmOid;
-  immutable(ubyte)[] signatureAlgorithmParameters;
+  AlgorithmIdentifier signatureAlgorithm;
   immutable(ubyte)[] signature;
   CmsAttribute[] unsignedAttributes;
   immutable(ubyte)[] raw;
@@ -196,10 +195,8 @@ private SignerInfo parseSignerInfo(const DerElement element) @safe {
     signer.signedAttributesRaw = signedAttributes.raw.idup;
     signer.signedAttributes = parseAttributes(signedAttributes);
   }
-  auto signatureAlgorithm = parseAlgorithmIdentifier(reader.next("el algoritmo de firma"),
+  signer.signatureAlgorithm = parseAlgorithmIdentifier(reader.next("el algoritmo de firma"),
     "El algoritmo de firma del firmante");
-  signer.signatureAlgorithmOid = signatureAlgorithm.oid;
-  signer.signatureAlgorithmParameters = signatureAlgorithm.parameters;
   signer.signature = reader.next("la firma").octetStringValue.idup;
   DerElement unsignedAttributes;
   if (reader.nextContext(1, unsignedAttributes)) signer.unsignedAttributes = parseAttributes(unsignedAttributes);
@@ -488,7 +485,7 @@ unittest {
   assert(references.length == 1 && references[0].certificateHash == certificate.digest(DigestAlgorithm.sha256));
   SysTime signingTime;
   assert(signingTimeOf(signer, signingTime));
-  auto algorithm = signatureAlgorithmFrom(signer.signatureAlgorithmOid, null, signer.digestAlgorithm);
+  auto algorithm = signatureAlgorithmFrom(signer.signatureAlgorithm, signer.digestAlgorithm);
   assert(verifySignature(certificate.subjectPublicKeyInfoDer, algorithm, signer.signedAttributesForSignature,
     signer.signature));
 }

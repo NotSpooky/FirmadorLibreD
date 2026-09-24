@@ -129,15 +129,7 @@ final class Pkcs11SignatureToken : SignatureToken {
   this(string libraryPath, SecretPin pin, long slot) @trusted {
     this.pin = pin;
     module_ = Pkcs11Module.load(libraryPath);
-    c_ulong chosen;
-    if (slot >= 0) {
-      chosen = cast(c_ulong) slot;
-    } else {
-      auto slots = module_.slotsWithToken();
-      if (slots.length == 0) throw new Pkcs11Exception(0xE0, "C_GetSlotList");
-      chosen = slots[0];
-    }
-    session = module_.openSession(chosen);
+    session = module_.openSession(module_.resolveSlot(slot));
     try {
       session.login(pin.get());
       foreach (tokenCertificate; session.certificates()) {

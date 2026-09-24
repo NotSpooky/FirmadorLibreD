@@ -39,8 +39,7 @@ struct CertificateRevocationList {
   DistinguishedName issuer;
   SysTime thisUpdate;
   Nullable!SysTime nextUpdate;
-  string signatureAlgorithmOid;
-  immutable(ubyte)[] signatureAlgorithmParameters;
+  AlgorithmIdentifier signatureAlgorithm;
   immutable(ubyte)[] signature;
   /// Contenido del SEQUENCE de certificados revocados (vacío si no hay).
   immutable(ubyte)[] revokedContent;
@@ -65,10 +64,8 @@ CertificateRevocationList parseCrl(const(ubyte)[] der) @safe {
   auto reader = parseDer(der).reader();
   auto tbs = reader.next("TBSCertList");
   crl.tbsDer = tbs.raw.idup;
-  auto algorithm = parseAlgorithmIdentifier(reader.next("el algoritmo de firma de la CRL"),
+  crl.signatureAlgorithm = parseAlgorithmIdentifier(reader.next("el algoritmo de firma de la CRL"),
     "El algoritmo de firma de la CRL");
-  crl.signatureAlgorithmOid = algorithm.oid;
-  crl.signatureAlgorithmParameters = algorithm.parameters;
   crl.signature = reader.next("la firma de la CRL").bitStringBytes.idup;
   reader.finish("la CRL");
 

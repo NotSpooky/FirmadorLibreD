@@ -56,14 +56,8 @@ DocumentValidationResult validateJades(immutable(ubyte)[] document, string docum
   auto jws = parseJws(document);
   const(ubyte)[] detachedContent = detached.length == 1 ? detached[0].content : null;
   foreach (index, signature; jws.signatures) {
-    auto pool = CertificatePool.withNationalHierarchy();
-    PathContext context;
-    context.pool = pool;
-    context.source = source;
-    context.allowOnline = allowOnline;
-    context.validationTime = result.validationTime;
-    context.bestSignatureTime = result.validationTime;
-    auto validated = validateJwsSignature(jws, signature, detachedContent, context);
+    auto validated = validateJwsSignature(jws, signature, detachedContent,
+      pathContext(source, allowOnline, result.validationTime));
     validated.id = format("S-%d", index + 1);
     validated.filename = jws.payload.length == 0 && detached.length == 1 ? detached[0].name : documentName;
     result.signatures ~= validated;
@@ -81,9 +75,7 @@ private SignatureResult validateJwsSignature(const Jws jws, const JwsSignature s
   string family = etsi ? "JAdES-BASELINE" : "JWS";
 
   auto embedded = jadesEmbeddedData(signature);
-  baseContext.pool.addAll(embedded.certificates);
-  baseContext.embeddedCrls = embedded.crls;
-  baseContext.embeddedOcsp = embedded.ocspResponses;
+  includeEmbedded(baseContext, embedded);
 
   try {
     string sigT = optionalString(header, "sigT", "La cabecera protegida");
@@ -160,18 +152,20 @@ private SignatureResult validateJwsSignature(const Jws jws, const JwsSignature s
       if (component.name == "xVals" || component.name == "rVals" || component.name == "tstVD") hasValues = true;
       continue;
     }
+    const(ubyte)[] stampedData;
+    immutable(ubyte)[][] tokens;
     try {
-      auto stampedData = kind == TimestampResult.Kind.signature ? signatureTimestampData(signature)
+      stampedData = kind == TimestampResult.Kind.signature ? signatureTimestampData(signature)
         : archiveTimestampData(signature, payload, index);
-      foreach (der; tstContainerTokens(component.value)) {
-        auto token = parseTimeStampToken(der);
-        baseContext.pool.addAll(token.signedData.certificates);
-        PathContext timestampContext = baseContext;
-        result.timestamps ~= validateTimestamp(token, stampedData, kind, timestampContext);
-      }
+      tokens = tstContainerTokens(component.value);
     } catch (Exception exception) {
       warning("Sello de tiempo ilegible en la firma JAdES: ", exception.msg);
       result.timestamps ~= unreadableTimestamp(kind, exception.msg);
+      continue;
+    }
+    foreach (der; tokens) {
+      result.timestamps ~= readTimestamp(kind, "la firma JAdES", () => parseTimeStampToken(der),
+        (token) => stampedData, baseContext);
     }
   }
   return concludeSignature(result, verdict, signer, baseContext,

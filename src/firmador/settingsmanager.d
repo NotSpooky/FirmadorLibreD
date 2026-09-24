@@ -41,7 +41,7 @@ import std.string : startsWith;
 import firmador.configuration : configDirectoryName;
 import firmador.crypto.random : secureRandomString;
 import firmador.i18n : setMessagesLocale;
-import firmador.logging : setLogLevel;
+import firmador.logging : setLogLevel, withContext;
 import firmador.settings;
 import firmador.util.datetime : formatJavaDate, DateLanguage, costaRicaTimeZone;
 import firmador.util.desktop : insideFlatpak;
@@ -295,13 +295,10 @@ void writeSettings(const Settings conf, bool save) @trusted {
   managerLock.unlock();
   if (!save) return;
   string path = configFilePath();
-  try {
+  withContext("No se pudo guardar la configuración en " ~ path, {
     writeFileAtomically(path, formatProperties(snapshot, "Firmador Libre settings", storeTimestamp()));
     info("Configuración guardada en ", path);
-  } catch (Exception exception) {
-    error("No se pudo guardar el archivo de configuración ", path, ": ", exception.msg);
-    throw new Exception(format("No se pudo guardar la configuración en %s: %s", path, exception.msg), exception);
-  }
+  });
 }
 
 /**

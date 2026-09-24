@@ -96,15 +96,15 @@ struct SignatureAlgorithm {
 }
 
 /**
- * Interpreta el algoritmo de firma a partir de su OID y, para RSA-PSS, sus parámetros DER.
+ * Interpreta el algoritmo de firma a partir de su OID y, para RSA-PSS, sus parámetros.
  * `digestHint` es el resumen del firmante en CMS, donde el OID puede ser rsaEncryption.
  *
  * Throws: CryptoException si el algoritmo no se admite.
  */
-SignatureAlgorithm signatureAlgorithmFrom(string oid, const(ubyte)[] parametersDer, DigestAlgorithm digestHint)
-    @safe {
+SignatureAlgorithm signatureAlgorithmFrom(const AlgorithmIdentifier identifier, DigestAlgorithm digestHint) pure @safe {
   SignatureAlgorithm algorithm;
-  switch (oid) {
+  auto parametersDer = identifier.parameters;
+  switch (identifier.oid) {
     case oidRsaEncryption:
       algorithm.kind = SignatureAlgorithm.Kind.rsaPkcs1;
       algorithm.digest = digestHint;
@@ -144,7 +144,7 @@ SignatureAlgorithm signatureAlgorithmFrom(string oid, const(ubyte)[] parametersD
       }
       break;
     default:
-      throw new CryptoException(format("Algoritmo de firma no admitido: %s", oid));
+      throw new CryptoException(format("Algoritmo de firma no admitido: %s", identifier.oid));
   }
   return algorithm;
 }
@@ -191,9 +191,7 @@ bool verifySignature(const(ubyte)[] spkiDer, SignatureAlgorithm algorithm, const
  * Throws: CryptoException si el algoritmo no se admite.
  */
 bool isSignedBy(const Certificate certificate, const Certificate issuer) @safe {
-  auto parameters = parseAlgorithmIdentifier(parseDer(certificate.signatureAlgorithmDer),
-    "El algoritmo de firma del certificado").parameters;
-  auto algorithm = signatureAlgorithmFrom(certificate.signatureAlgorithmOid, parameters, DigestAlgorithm.sha256);
+  auto algorithm = signatureAlgorithmFrom(certificate.signatureAlgorithm, DigestAlgorithm.sha256);
   return verifySignature(issuer.subjectPublicKeyInfoDer, algorithm, certificate.tbsDer, certificate.signatureValue);
 }
 
@@ -229,6 +227,31 @@ ubyte[] ecdsaDerToRaw(const(ubyte)[] der, size_t componentLength) pure @safe {
     return new ubyte[componentLength - value.length] ~ value;
   }
   return pad(r) ~ pad(s);
+}
+
+/**
+ * Cómo va el valor de firma en XMLDSig y JWS: tal cual con RSA; con ECDSA, como r‖s de
+ * largo fijo en vez del DER que devuelve el dispositivo.
+ */
+struct RawSignatureEncoding {
+  bool ecdsa;
+  /// Largo de cada mitad r y s (ecdsaComponentLength); sólo con ECDSA.
+  size_t componentLength;
+
+  /// El valor que devolvió el dispositivo, como va en la firma.
+  ubyte[] encode(const(ubyte)[] signatureValue) const pure @safe {
+    return ecdsa ? ecdsaDerToRaw(signatureValue, componentLength) : signatureValue.dup;
+  }
+}
+
+/**
+ * Codificación del valor de firma de una clave RSA o de la clave ECDSA del certificado.
+ *
+ * Throws: CryptoException si la clave ECDSA del certificado no se puede leer.
+ */
+RawSignatureEncoding rawSignatureEncoding(bool rsa, const Certificate certificate) @safe {
+  if (rsa) return RawSignatureEncoding(false, 0);
+  return RawSignatureEncoding(true, ecdsaComponentLength(certificate.subjectPublicKeyInfoDer));
 }
 
 /// Clave privada en memoria (de un almacén PKCS#12); se libera con dispose().
@@ -370,32 +393,11 @@ enum size_t gcmTagLength = 16;
  * Throws: CryptoException si la clave no tiene 32 bytes o OpenSSL falla.
  */
 ubyte[] aesGcmEncrypt(const(ubyte)[] key, const(ubyte)[] nonce, const(ubyte)[] plaintext, const(ubyte)[] associated)
-    @trusted {
+    @safe {
   enforce!CryptoException(key.length == 32 && nonce.length == gcmNonceLength, "Clave o nonce de AES-GCM no válidos");
-  EVP_CIPHER_CTX* context = EVP_CIPHER_CTX_new();
-  enforce!CryptoException(context !is null, "OpenSSL no pudo crear el contexto de cifrado");
-  scope (exit) EVP_CIPHER_CTX_free(context);
-  enforce!CryptoException(EVP_EncryptInit_ex(context, EVP_aes_256_gcm(), null, key.ptr, nonce.ptr) == 1,
-    "No se pudo iniciar AES-GCM: " ~ openSslErrors());
-  int length;
-  if (associated.length) {
-    enforce!CryptoException(EVP_EncryptUpdate(context, null, &length, associated.ptr, cast(int) associated.length) == 1,
-      "AES-GCM falló con los datos asociados: " ~ openSslErrors());
-  }
-  auto output = new ubyte[plaintext.length + 16];
-  int written = 0;
-  if (plaintext.length) {
-    enforce!CryptoException(EVP_EncryptUpdate(context, output.ptr, &length, plaintext.ptr, cast(int) plaintext.length) == 1,
-      "AES-GCM falló al cifrar: " ~ openSslErrors());
-    written = length;
-  }
-  enforce!CryptoException(EVP_EncryptFinal_ex(context, output.ptr + written, &length) == 1,
-    "AES-GCM falló al terminar: " ~ openSslErrors());
-  written += length;
   auto tag = new ubyte[gcmTagLength];
-  enforce!CryptoException(EVP_CIPHER_CTX_ctrl(context, EVP_CTRL_AEAD_GET_TAG, cast(int) gcmTagLength, tag.ptr) == 1,
-    "AES-GCM no entregó la etiqueta: " ~ openSslErrors());
-  return nonce.dup ~ output[0 .. written] ~ tag;
+  auto ciphertext = aesGcm(true, key, nonce, plaintext, associated, tag);
+  return nonce.dup ~ ciphertext ~ tag;
 }
 
 /**
@@ -403,36 +405,52 @@ ubyte[] aesGcmEncrypt(const(ubyte)[] key, const(ubyte)[] nonce, const(ubyte)[] p
  *
  * Throws: CryptoException si los datos fueron alterados o la clave no es la correcta.
  */
-ubyte[] aesGcmDecrypt(const(ubyte)[] key, const(ubyte)[] sealed, const(ubyte)[] associated) @trusted {
+ubyte[] aesGcmDecrypt(const(ubyte)[] key, const(ubyte)[] sealed, const(ubyte)[] associated) @safe {
   enforce!CryptoException(key.length == 32 && sealed.length >= gcmNonceLength + gcmTagLength,
     "Datos cifrados con AES-GCM incompletos");
-  const(ubyte)[] nonce = sealed[0 .. gcmNonceLength];
-  const(ubyte)[] ciphertext = sealed[gcmNonceLength .. $ - gcmTagLength];
-  auto tag = sealed[$ - gcmTagLength .. $].dup;
+  return aesGcm(false, key, sealed[0 .. gcmNonceLength], sealed[gcmNonceLength .. $ - gcmTagLength], associated,
+    sealed[$ - gcmTagLength .. $].dup);
+}
+
+/**
+ * AES-256-GCM en un sentido: cifra y deja la etiqueta en `tag`, o descifra comprobando la
+ * etiqueta que trae `tag`. Devuelve el texto cifrado o descifrado.
+ */
+private ubyte[] aesGcm(bool encrypt, const(ubyte)[] key, const(ubyte)[] nonce, const(ubyte)[] input,
+    const(ubyte)[] associated, ubyte[] tag) @trusted {
+  assert(key.length == 32 && nonce.length == gcmNonceLength && tag.length == gcmTagLength,
+    "aesGcm recibió una clave, un nonce o una etiqueta de largo incorrecto");
   EVP_CIPHER_CTX* context = EVP_CIPHER_CTX_new();
-  enforce!CryptoException(context !is null, "OpenSSL no pudo crear el contexto de descifrado");
+  enforce!CryptoException(context !is null, "OpenSSL no pudo crear el contexto de AES-GCM");
   scope (exit) EVP_CIPHER_CTX_free(context);
-  enforce!CryptoException(EVP_DecryptInit_ex(context, EVP_aes_256_gcm(), null, key.ptr, nonce.ptr) == 1,
+  enforce!CryptoException(EVP_CipherInit_ex(context, EVP_aes_256_gcm(), null, key.ptr, nonce.ptr, encrypt ? 1 : 0) == 1,
     "No se pudo iniciar AES-GCM: " ~ openSslErrors());
   int length;
   if (associated.length) {
-    enforce!CryptoException(EVP_DecryptUpdate(context, null, &length, associated.ptr, cast(int) associated.length) == 1,
+    enforce!CryptoException(EVP_CipherUpdate(context, null, &length, associated.ptr, cast(int) associated.length) == 1,
       "AES-GCM falló con los datos asociados: " ~ openSslErrors());
   }
-  auto output = new ubyte[ciphertext.length + 16];
+  auto output = new ubyte[input.length + gcmTagLength];
   int written = 0;
-  if (ciphertext.length) {
-    enforce!CryptoException(EVP_DecryptUpdate(context, output.ptr, &length, ciphertext.ptr, cast(int) ciphertext.length) == 1,
-      "AES-GCM falló al descifrar: " ~ openSslErrors());
+  if (input.length) {
+    enforce!CryptoException(EVP_CipherUpdate(context, output.ptr, &length, input.ptr, cast(int) input.length) == 1,
+      (encrypt ? "AES-GCM falló al cifrar: " : "AES-GCM falló al descifrar: ") ~ openSslErrors());
     written = length;
   }
-  enforce!CryptoException(EVP_CIPHER_CTX_ctrl(context, EVP_CTRL_AEAD_SET_TAG, cast(int) gcmTagLength, tag.ptr) == 1,
-    "AES-GCM no aceptó la etiqueta: " ~ openSslErrors());
-  if (EVP_DecryptFinal_ex(context, output.ptr + written, &length) != 1) {
+  if (!encrypt) {
+    enforce!CryptoException(EVP_CIPHER_CTX_ctrl(context, EVP_CTRL_AEAD_SET_TAG, cast(int) gcmTagLength, tag.ptr) == 1,
+      "AES-GCM no aceptó la etiqueta: " ~ openSslErrors());
+  }
+  if (EVP_CipherFinal_ex(context, output.ptr + written, &length) != 1) {
+    if (encrypt) throw new CryptoException("AES-GCM falló al terminar: " ~ openSslErrors());
     ERR_clear_error();
     throw new CryptoException("Los datos cifrados fueron alterados o la clave no es la correcta");
   }
   written += length;
+  if (encrypt) {
+    enforce!CryptoException(EVP_CIPHER_CTX_ctrl(context, EVP_CTRL_AEAD_GET_TAG, cast(int) gcmTagLength, tag.ptr) == 1,
+      "AES-GCM no entregó la etiqueta: " ~ openSslErrors());
+  }
   return output[0 .. written];
 }
 
@@ -488,7 +506,7 @@ unittest {
   auto certificate = parseCertificate(identity.certificateDer);
   ubyte[] data = cast(ubyte[]) "datos a firmar".dup;
   auto signature = identity.key.sign(DigestAlgorithm.sha256, data);
-  auto algorithm = signatureAlgorithmFrom(oidSha256WithRsa, null, DigestAlgorithm.sha256);
+  auto algorithm = signatureAlgorithmFrom(AlgorithmIdentifier(oidSha256WithRsa), DigestAlgorithm.sha256);
   assert(verifySignature(certificate.subjectPublicKeyInfoDer, algorithm, data, signature));
   data[0] ^= 1;
   assert(!verifySignature(certificate.subjectPublicKeyInfoDer, algorithm, data, signature));

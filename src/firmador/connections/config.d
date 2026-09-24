@@ -29,7 +29,8 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.connections.config;
 
-import std.algorithm : any, canFind, startsWith;
+import std.algorithm : any, canFind, map, startsWith;
+import std.array : array;
 import std.conv : ConvException, to;
 import std.exception : enforce;
 import std.file : exists, readText;
@@ -40,6 +41,7 @@ import std.path : buildPath;
 import std.string : indexOf, strip, toLower;
 
 import firmador.configuration : defaultRemotePort;
+import firmador.logging : withContext;
 import firmador.settingsmanager : configDirectory, writeFileAtomically;
 import firmador.util.json;
 import firmador.validation.model : DocumentValidationResult, Indication, indicationName;
@@ -185,19 +187,25 @@ void validateExternalConfig(const ConnectionConfig config) pure @safe {
   enforce!ConnectionConfigException(config.service.strip.length > 0, format("La conexión %s no tiene servicio",
     config.name));
   requireHttpsUrl(config.baseUrl, format("La URL base de la conexión %s", config.name));
-  static foreach (field; ["negotiationUrl", "negotiationStartUrl", "completeUrl", "endSessionUrl", "previewUrl",
-      "signUrl", "deleteUrl", "loginUrl", "validateUrl", "virtualDocumentsUrl"]) {
-    if (__traits(getMember, config, field).length) serviceUrl(config, __traits(getMember, config, field), field);
+  static foreach (entry; serviceUrlFields) {
+    if (__traits(getMember, config, entry[0]).length) serviceUrl(config, __traits(getMember, config, entry[0]), entry[0]);
   }
 }
 
-/// Nombres de los elementos de servicesUrls.xml, en el orden en que se escriben.
-private immutable string[2][] servicesUrlsElements = [
-  ["service", "service"], ["baseUrl", "baseUrl"], ["negotiationUrl", "negotiationUrl"],
-  ["negotiationStartUrl", "negotiationStartUrl"], ["completeUrl", "completeUrl"], ["endSessionUrl", "endSessionUrl"],
-  ["previewUrl", "previewUrl"], ["signUrl", "signUrl"], ["deleteUrl", "deleteUrl"], ["loginUrl", "loginUrl"],
-  ["validateUrl", "validateUrl"], ["virtualDocumentsUrl", "virtualDocumentsUrl"],
+/**
+ * Rutas de servicio de una conexión externa: el campo de ConnectionConfig (que es también
+ * su elemento en servicesUrls.xml) y su nombre en el JSON de alta (.firmadorconn). En el
+ * JSON, los nombres de las dos rutas de negociación van cruzados respecto a los del XML.
+ */
+private enum string[2][] serviceUrlFields = [
+  ["negotiationUrl", "negotiation_start_url"], ["negotiationStartUrl", "negotiation_connection"],
+  ["completeUrl", "document_complete_url"], ["endSessionUrl", "end_session_url"],
+  ["previewUrl", "document_preview_url"], ["signUrl", "document_sign_url"], ["deleteUrl", "document_delete_url"],
+  ["loginUrl", "login_url"], ["validateUrl", "validate_url"], ["virtualDocumentsUrl", "virtual_documents_url"],
 ];
+
+/// Elementos de texto de servicesUrls.xml (campos de ConnectionConfig), en el orden en que se escriben.
+private enum string[] servicesUrlsElements = ["service", "baseUrl"] ~ serviceUrlFields.map!(entry => entry[0]).array;
 
 /**
  * servicesUrls.xml con las conexiones (ServicesUrlsIO.save): un elemento «connection»
@@ -208,9 +216,8 @@ string formatServicesUrls(const ConnectionConfig[] connections) pure @safe {
   foreach (config; connections) {
     xml ~= `  <connection name="` ~ escapeXml(config.name) ~ "\">\n";
     static foreach (element; servicesUrlsElements) {
-      if (__traits(getMember, config, element[1]).length) {
-        xml ~= "    <" ~ element[0] ~ ">" ~ escapeXml(__traits(getMember, config, element[1])) ~ "</" ~ element[0]
-          ~ ">\n";
+      if (__traits(getMember, config, element).length) {
+        xml ~= "    <" ~ element ~ ">" ~ escapeXml(__traits(getMember, config, element)) ~ "</" ~ element ~ ">\n";
       }
     }
     xml ~= "    <port>" ~ config.port.to!string ~ "</port>\n";
@@ -238,7 +245,7 @@ ConnectionConfig[] parseServicesUrls(const(ubyte)[] xml) @safe {
     ConnectionConfig config;
     config.name = element.attribute("name");
     static foreach (field; servicesUrlsElements) {
-      __traits(getMember, config, field[1]) = childText(element, field[0]);
+      __traits(getMember, config, field) = childText(element, field);
     }
     string port = childText(element, "port");
     try {
@@ -275,17 +282,9 @@ ConnectionConfig connectionFromJson(const JSONValue json) @safe {
   config.name = requiredString(json, "name", what);
   config.service = requiredString(json, "service", what);
   config.baseUrl = requiredString(json, "base_url", what);
-  // En el JSON los nombres de las dos rutas de negociación van cruzados respecto a los del XML.
-  config.negotiationUrl = requiredString(json, "negotiation_start_url", what);
-  config.negotiationStartUrl = requiredString(json, "negotiation_connection", what);
-  config.completeUrl = requiredString(json, "document_complete_url", what);
-  config.endSessionUrl = requiredString(json, "end_session_url", what);
-  config.previewUrl = requiredString(json, "document_preview_url", what);
-  config.signUrl = requiredString(json, "document_sign_url", what);
-  config.deleteUrl = requiredString(json, "document_delete_url", what);
-  config.loginUrl = requiredString(json, "login_url", what);
-  config.validateUrl = requiredString(json, "validate_url", what);
-  config.virtualDocumentsUrl = requiredString(json, "virtual_documents_url", what);
+  static foreach (entry; serviceUrlFields) {
+    __traits(getMember, config, entry[0]) = requiredString(json, entry[1], what);
+  }
   enforce!ConnectionConfigException(connectionKind(config.service) == ConnectionKind.external,
     format("Una conexión importada no puede usar el servicio reservado «%s»", config.service));
   validateExternalConfig(config);
@@ -374,12 +373,8 @@ ConnectionConfig[] loadConnections() @trusted {
   string path = servicesUrlsPath();
   if (!exists(path)) return null;
   info("Leyendo las conexiones de ", path);
-  try {
-    return parseServicesUrls(cast(const(ubyte)[]) readText(path));
-  } catch (Exception exception) {
-    error("No se pudieron leer las conexiones de ", path, ": ", exception.msg);
-    throw new Exception(format("No se pudieron leer las conexiones de %s: %s", path, exception.msg), exception);
-  }
+  return withContext("No se pudieron leer las conexiones de " ~ path,
+    () => parseServicesUrls(cast(const(ubyte)[]) readText(path)));
 }
 
 /**
@@ -389,13 +384,10 @@ ConnectionConfig[] loadConnections() @trusted {
  */
 void saveConnections(const ConnectionConfig[] connections) @trusted {
   string path = servicesUrlsPath();
-  try {
+  withContext("No se pudieron guardar las conexiones en " ~ path, {
     writeFileAtomically(path, formatServicesUrls(connections));
     info("Conexiones guardadas en ", path);
-  } catch (Exception exception) {
-    error("No se pudieron guardar las conexiones en ", path, ": ", exception.msg);
-    throw new Exception(format("No se pudieron guardar las conexiones en %s: %s", path, exception.msg), exception);
-  }
+  });
 }
 
 /**

@@ -46,7 +46,7 @@ import firmador.validation.pool;
 import firmador.validation.sources;
 import firmador.x509.certificate;
 import firmador.xml.dom;
-import firmador.xml.xades : embeddedValidationData, unsignedSignatureProperties;
+import firmador.xml.xades : embeddedValidationData, unsignedSignatureProperties, xadesTimestamp;
 import firmador.xml.xmldsig;
 
 /// Resultado de una parte de firma OOXML.
@@ -116,25 +116,12 @@ private bool validOverTime(XmlDocument document, const DsSignature signature, Ce
   if (unsigned.isNull) return false;
   auto timestampElement = unsigned.child(xadesNamespace, "SignatureTimeStamp");
   if (timestampElement.isNull) return false;
-  auto embedded = embeddedValidationData(cast(XmlNode) signature.element);
-  PathContext context;
-  context.pool = CertificatePool.withNationalHierarchy();
-  context.pool.addAll(embedded.certificates);
-  context.source = source;
-  context.allowOnline = allowOnline;
-  context.validationTime = Clock.currTime;
-  context.embeddedCrls = embedded.crls;
-  context.embeddedOcsp = embedded.ocspResponses;
-  auto methodElement = timestampElement.child(xmldsigNamespace, "CanonicalizationMethod");
-  auto method = methodElement.isNull ? CanonicalizationMethod.inclusive10
-    : canonicalizationFromUri(methodElement.attribute("Algorithm"));
-  auto token = parseTimeStampToken(decodeXmlBase64(timestampElement.requiredChild(xadesNamespace,
-    "EncapsulatedTimeStamp").text));
-  context.pool.addAll(token.signedData.certificates);
-  context.bestSignatureTime = token.info.genTime;
-  PathContext timestampContext = context;
-  auto stamped = validateTimestamp(token, document.canonicalize(cast(XmlNode) signature.signatureValueElement, method),
-    TimestampResult.Kind.signature, timestampContext);
+  auto context = pathContext(source, allowOnline, Clock.currTime);
+  includeEmbedded(context, embeddedValidationData(cast(XmlNode) signature.element));
+  auto stamp = xadesTimestamp(timestampElement);
+  context.bestSignatureTime = stamp.token.info.genTime;
+  auto stamped = validateTimestamp(stamp.token, document.canonicalize(cast(XmlNode) signature.signatureValueElement,
+    stamp.method), TimestampResult.Kind.signature, context);
   if (stamped.indication != Indication.passed) return false;
   auto path = validatePath(signer, context);
   return path.trusted && path.verdict.isPassed;
@@ -152,8 +139,7 @@ string ooxmlReport(const OoxmlSignatureCheck[] checks, const Settings settings) 
     position++;
     if (check.signer is null) continue;
     auto signer = check.signer;
-    if (signer.isCa || !signer.hasKeyUsage(KeyUsageBit.digitalSignature) || !signer.hasKeyUsage(KeyUsageBit.nonRepudiation))
-      continue;
+    if (!isSigningCertificate(signer)) continue;
     string firstName = signer.subject.first(oidGivenName);
     string lastName = signer.subject.first(oidSurname);
     string name = firstName.length == 0 && lastName.length == 0 ? signer.subject.first(oidCommonName)

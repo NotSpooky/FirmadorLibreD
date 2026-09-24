@@ -38,6 +38,8 @@ import std.path : buildPath;
 import std.stdio : File, LockType;
 import std.string : lineSplitter, strip;
 
+import firmador.logging : withContext;
+
 /// Pedido para mostrar la ventana.
 enum string showWindowCommand = "SHOW_WINDOW";
 /// Prefijo del pedido de abrir un archivo.
@@ -102,14 +104,11 @@ final class SingleInstance {
    * (desde otro hilo). Si otra instancia lo tiene, le deja `command` y devuelve false.
    */
   bool acquire(string command, void delegate(InstanceCommand) onCommand) @trusted {
-    try {
+    withContext("No se pudo tomar el candado de instancia " ~ lockPath, {
       mkdirRecurse(directory);
       lockFile = File(lockPath, "a+");
       locked = lockFile.tryLock(LockType.readWrite);
-    } catch (Exception exception) {
-      error("No se pudo tomar el candado de instancia ", lockPath, ": ", exception.msg);
-      throw new Exception("No se pudo tomar el candado de instancia " ~ lockPath ~ ": " ~ exception.msg, exception);
-    }
+    });
     if (!locked) {
       info("Ya hay una instancia en ejecución; se le envía el pedido ", command);
       write(commandPath, command);

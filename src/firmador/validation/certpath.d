@@ -26,7 +26,6 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.validation.certpath;
 
-import core.time : dur;
 import std.algorithm : canFind;
 import std.datetime.systime : SysTime;
 import std.format : format;
@@ -58,6 +57,30 @@ struct PathContext {
   const(ubyte[])[] embeddedOcsp;
   const(ubyte[])[] embeddedCrls;
   CertificateRole role = CertificateRole.signature;
+}
+
+/**
+ * Contexto para validar las cadenas de un documento: `pool` (la jerarquía nacional si no
+ * se da, más lo que se le añada), el servicio en línea, si se puede consultar, y la hora
+ * de validación, que es también la mejor hora probada hasta revisar los sellos
+ * (firmador.validation.conclusion.concludeSignature).
+ */
+PathContext pathContext(ValidationDataSource source, bool allowOnline, SysTime validationTime,
+    CertificatePool pool = CertificatePool.withNationalHierarchy()) @safe {
+  PathContext context;
+  context.pool = pool;
+  context.source = source;
+  context.allowOnline = allowOnline;
+  context.validationTime = validationTime;
+  context.bestSignatureTime = validationTime;
+  return context;
+}
+
+/// Usa lo que trae la firma: suma sus certificados al conjunto y toma sus revocaciones.
+void includeEmbedded(ref PathContext context, const ValidationData embedded) @safe {
+  context.pool.addAll(embedded.certificates);
+  context.embeddedOcsp = embedded.ocspResponses;
+  context.embeddedCrls = embedded.crls;
 }
 
 /// Resultado de validar una cadena.
@@ -120,7 +143,7 @@ private Certificate findVerifiedIssuer(Certificate certificate, Certificate[] ca
  * Nunca da por buena una cadena sin firmas verificadas hasta una raíz de confianza y sin
  * prueba de no revocación de cada certificado intermedio y final.
  */
-PathValidation validatePath(Certificate leaf, ref PathContext context) @safe {
+PathValidation validatePath(Certificate leaf, PathContext context) @safe {
   PathValidation result;
   result.path = buildPath(leaf, context.pool, context.source, context.allowOnline, result.trusted);
   string suffix = roleSuffix(context.role);
@@ -311,12 +334,31 @@ struct ValidationData {
     if (!containsCertificate(certificates, certificate)) certificates ~= cast(Certificate) certificate;
   }
 
+  /// No trae nada.
+  bool empty() const pure nothrow @safe @nogc {
+    return certificates.length == 0 && ocspResponses.length == 0 && crls.length == 0;
+  }
+
   /// Une otros datos de validación a estos.
   void merge(const ValidationData other) @trusted {
     foreach (certificate; other.certificates) addCertificate(certificate);
     foreach (der; other.ocspResponses) if (!ocspResponses.canFind(der)) ocspResponses ~= der;
     foreach (der; other.crls) if (!crls.canFind(der)) crls ~= der;
   }
+}
+
+/**
+ * Lo de `wanted` que no está en `present`: lo que falta añadir a una firma que ya lleva
+ * datos de validación (nivel LT de XAdES y JAdES).
+ */
+ValidationData missingFrom(const ValidationData wanted, const ValidationData present) @safe {
+  ValidationData missing;
+  foreach (certificate; wanted.certificates) {
+    if (!containsCertificate(present.certificates, certificate)) missing.addCertificate(certificate);
+  }
+  foreach (ocsp; wanted.ocspResponses) if (!present.ocspResponses.canFind(ocsp)) missing.ocspResponses ~= ocsp;
+  foreach (crl; wanted.crls) if (!present.crls.canFind(crl)) missing.crls ~= crl;
+  return missing;
 }
 
 /**

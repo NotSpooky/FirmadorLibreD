@@ -26,9 +26,8 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 module firmador.pdf.pades;
 
 import core.sync.mutex : Mutex;
-import std.algorithm : canFind, startsWith;
+import std.algorithm : canFind;
 import std.datetime.systime : Clock, SysTime;
-import std.exception : enforce;
 import std.format : format;
 import std.logger : info, warning;
 
@@ -40,9 +39,11 @@ import firmador.crypto.digest;
 import firmador.pdf.appearance;
 import firmador.pdf.engine;
 import firmador.pdf.writer;
-import firmador.settings : SignatureLevel, Rgba, SignerTextPosition, SignatureRotation, FontFamily, FontStyle;
+import firmador.settings : Rgba, SignerTextPosition, SignatureRotation;
 import firmador.util.datetime : toPdfDate;
 import firmador.validation.certpath : ValidationData;
+import firmador.validation.cmsverify : findSignerCertificate, timestampSignerCertificate;
+import firmador.validation.pool : CertificatePool;
 import firmador.x509.certificate;
 
 /// Fuente de la firma visible: una estándar o una TrueType incrustada.
@@ -181,33 +182,41 @@ PreparedSignature preparePadesSignature(immutable(ubyte)[] pdf, const PadesSigna
   plan.location = parameters.location;
   plan.contactInfo = parameters.contactInfo;
   plan.appName = appName;
-  FieldPlan field;
-  field.fieldName = nextFieldName(document.fieldNames());
-  field.pageIndex = parameters.pageIndex;
-  field.rect = PdfRect(0, 0, 0, 0);
-  if (parameters.visible) {
-    auto geometry = document.pageGeometry(parameters.pageIndex);
-    auto input = layoutInput(parameters.appearance, geometry);
-    auto encode = encoderFor(parameters.appearance.font);
-    auto layout = computeLayout(input, encode);
-    if (overlapsAnnotation(document.annotations(), parameters.pageIndex, layout.annotationRect)) {
-      throw new SignatureOverlapException("The new signature field position overlaps with an existing annotation!");
-    }
-    auto content = appearanceContent(layout, input, encode, "F1", "Img1");
-    field.visible = true;
-    field.rect = layout.annotationRect;
-    field.appearance.width = layout.annotationRect.width;
-    field.appearance.height = layout.annotationRect.height;
-    field.appearance.content = content.content;
-    if (parameters.appearance.text.length) {
-      field.appearance.standardFont = parameters.appearance.font.standardName;
-      field.appearance.customFont = parameters.appearance.font.trueType;
-    }
-    field.appearance.image = parameters.appearance.image;
-    field.appearance.alphaNames = content.alphaNames;
-    field.appearance.alphaValues = content.alphaValues;
+  auto field = fieldPlan(document, parameters.pageIndex, parameters.visible, parameters.appearance);
+  if (field.visible && overlapsAnnotation(document.annotations(), parameters.pageIndex, field.rect)) {
+    throw new SignatureOverlapException("The new signature field position overlaps with an existing annotation!");
   }
   return appendSignatureField(document, plan, field);
+}
+
+/**
+ * Campo nuevo de firma o de sello en la página: invisible, o con la apariencia dada
+ * (diseño, contenido, fuente e imagen).
+ */
+private FieldPlan fieldPlan(PdfDocument document, int pageIndex, bool visible, const VisibleSignature appearance)
+    @trusted {
+  FieldPlan field;
+  field.fieldName = nextFieldName(document.fieldNames());
+  field.pageIndex = pageIndex;
+  field.rect = PdfRect(0, 0, 0, 0);
+  if (!visible) return field;
+  auto input = layoutInput(appearance, document.pageGeometry(pageIndex));
+  auto encode = encoderFor(appearance.font);
+  auto layout = computeLayout(input, encode);
+  auto content = appearanceContent(layout, input, encode, "F1", "Img1");
+  field.visible = true;
+  field.rect = layout.annotationRect;
+  field.appearance.width = layout.annotationRect.width;
+  field.appearance.height = layout.annotationRect.height;
+  field.appearance.content = content.content;
+  if (appearance.text.length) {
+    field.appearance.standardFont = appearance.font.standardName;
+    field.appearance.customFont = appearance.font.trueType;
+  }
+  field.appearance.image = appearance.image;
+  field.appearance.alphaNames = content.alphaNames;
+  field.appearance.alphaValues = content.alphaValues;
+  return field;
 }
 
 /// Resumen SHA-256 de los tramos del documento preparado que cubre la firma.
@@ -249,53 +258,40 @@ immutable(ubyte)[] completePadesSignature(const PreparedSignature prepared, cons
   return withContents(withByteRange(prepared), prepared, cms);
 }
 
-/// Certificados de firmante y de sellos de un PDF (lo que necesita datos de validación para LT).
-struct PdfSigningMaterial {
-  Certificate[] certificates;
-  immutable(ubyte)[][] embeddedOcsp;
-  immutable(ubyte)[][] embeddedCrls;
-}
-
 /**
- * Firmantes y autoridades de sellado de todas las firmas y sellos del PDF, con los datos
- * de validación que ya trae.
+ * Lo que necesita el nivel LT del PDF: en `certificates`, los firmantes y las autoridades
+ * de sellado de todas sus firmas y sellos (buscados también en `pool`); en las
+ * revocaciones, las del DSS y las de las firmas. Es lo que recibe
+ * SigningServices.validationData (firmador.signers.common).
  */
-PdfSigningMaterial signingMaterial(immutable(ubyte)[] pdf) @trusted {
+ValidationData padesSigningMaterial(immutable(ubyte)[] pdf, CertificatePool pool) @trusted {
   auto document = PdfDocument.open(pdf);
   scope (exit) document.close();
-  PdfSigningMaterial material;
+  ValidationData material;
   auto dss = document.dss();
-  material.embeddedOcsp = dss.ocsps;
-  material.embeddedCrls = dss.crls;
+  material.ocspResponses = dss.ocsps;
+  material.crls = dss.crls;
+  void add(Certificate certificate) {
+    if (certificate !is null) material.addCertificate(certificate);
+  }
   foreach (field; document.signatureFields()) {
     try {
       auto contents = trimContents(field.contents);
       auto signedData = parseSignedData(contents);
       foreach (signer; signedData.signerInfos) {
-        foreach (certificate; signedData.certificates) {
-          if (signer.identifies(certificate) && !containsCertificate(material.certificates, certificate))
-            material.certificates ~= certificate;
-        }
+        add(findSignerCertificate(signedData, signer, pool));
         foreach (attribute; signer.unsignedAttributesOf(oidSignatureTimeStampToken)) {
-          auto token = parseTimeStampToken(attribute.values[0].raw);
-          addTimestampSigner(material, token);
+          add(timestampSignerCertificate(parseTimeStampToken(attribute.values[0].raw), pool));
         }
       }
-      if (signedData.eContentType == oidTstInfo) addTimestampSigner(material, parseTimeStampToken(contents));
-      material.embeddedCrls ~= signedData.crls;
-      material.embeddedOcsp ~= signedData.ocspResponses;
+      if (signedData.eContentType == oidTstInfo) add(timestampSignerCertificate(parseTimeStampToken(contents), pool));
+      material.crls ~= signedData.crls;
+      material.ocspResponses ~= signedData.ocspResponses;
     } catch (Exception exception) {
       warning("Se omite una firma ilegible del PDF (", field.fieldName, "): ", exception.msg);
     }
   }
   return material;
-}
-
-private void addTimestampSigner(ref PdfSigningMaterial material, const TimeStampToken token) @trusted {
-  foreach (certificate; token.signedData.certificates) {
-    if (token.signedData.signerInfos[0].identifies(certificate) && !containsCertificate(material.certificates, certificate))
-      material.certificates ~= cast(Certificate) certificate;
-  }
 }
 
 /// Contenido de /Contents sin el relleno de ceros del final.
@@ -321,7 +317,7 @@ immutable(ubyte)[] addPadesValidationData(immutable(ubyte)[] pdf, const Validati
  *
  * Throws: PdfException si el PDF no lo admite; lo que lance `stamp` si el servicio falla.
  */
-immutable(ubyte)[] addDocumentTimestamp(immutable(ubyte)[] pdf, scope TimeStampToken delegate(const(ubyte)[] digest) stamp,
+immutable(ubyte)[] addDocumentTimestamp(immutable(ubyte)[] pdf, scope Timestamper stamp,
     bool visible = false, VisibleSignature appearance = VisibleSignature.init, int pageIndex = 0,
     size_t contentsSize = padesTimestampContentSize) @trusted {
   auto document = PdfDocument.open(pdf);
@@ -331,27 +327,7 @@ immutable(ubyte)[] addDocumentTimestamp(immutable(ubyte)[] pdf, scope TimeStampT
   plan.subFilter = "ETSI.RFC3161";
   plan.contentsSize = contentsSize;
   if (visible) plan.appName = appName;
-  FieldPlan field;
-  field.fieldName = nextFieldName(document.fieldNames());
-  field.pageIndex = pageIndex;
-  field.rect = PdfRect(0, 0, 0, 0);
-  if (visible) {
-    auto geometry = document.pageGeometry(pageIndex);
-    auto input = layoutInput(appearance, geometry);
-    auto encode = encoderFor(appearance.font);
-    auto layout = computeLayout(input, encode);
-    auto content = appearanceContent(layout, input, encode, "F1", "Img1");
-    field.visible = true;
-    field.rect = layout.annotationRect;
-    field.appearance.width = layout.annotationRect.width;
-    field.appearance.height = layout.annotationRect.height;
-    field.appearance.content = content.content;
-    field.appearance.standardFont = appearance.font.standardName;
-    field.appearance.customFont = appearance.font.trueType;
-    field.appearance.alphaNames = content.alphaNames;
-    field.appearance.alphaValues = content.alphaValues;
-  }
-  auto prepared = appendSignatureField(document, plan, field);
+  auto prepared = appendSignatureField(document, plan, fieldPlan(document, pageIndex, visible, appearance));
   auto token = stamp(preparedDigest(prepared));
   info("Sello de tiempo de documento añadido con fecha ", token.info.genTime.toISOExtString);
   return withContents(withByteRange(prepared), prepared, token.der);
@@ -429,7 +405,7 @@ unittest {
   auto parsed = parseSignedData(trimContents(fields[0].contents));
   auto ranges = signedRanges(signed, fields[0].byteRange);
   assert(messageDigestOf(parsed.signerInfos[0]) == digestOfParts(DigestAlgorithm.sha256, ranges));
-  auto algorithm = signatureAlgorithmFrom(parsed.signerInfos[0].signatureAlgorithmOid, null, DigestAlgorithm.sha256);
+  auto algorithm = signatureAlgorithmFrom(parsed.signerInfos[0].signatureAlgorithm, DigestAlgorithm.sha256);
   assert(verifySignature(certificate.subjectPublicKeyInfoDer, algorithm,
     parsed.signerInfos[0].signedAttributesForSignature, parsed.signerInfos[0].signature));
   import firmador.pdf.engine : PageRaster;

@@ -34,11 +34,8 @@ import core.time : dur, MonoTime;
 import std.algorithm : canFind, remove;
 import std.exception : enforce;
 import std.file : exists, isFile;
-import std.format : format;
 import std.logger : error, info, trace, warning;
-import std.path : baseName;
 
-import firmador.asn1.oids : KeyUsageBit;
 import firmador.cards.cardinfo;
 import firmador.cards.pkcs11library;
 import firmador.cards.pkcs12store;
@@ -67,13 +64,15 @@ struct DetectedCertificate {
   TokenCertificate token;
 }
 
-/**
- * Credenciales que se ofrecen para firmar: certificados de entidad final con firma
- * digital y no repudio (el filtro de readListSmartCard).
- */
-bool isSigningCertificate(const Certificate certificate) @safe {
-  return !certificate.isCa && certificate.hasKeyUsage(KeyUsageBit.digitalSignature)
-    && certificate.hasKeyUsage(KeyUsageBit.nonRepudiation);
+/// Certificados de autenticación y de firma de la tarjeta; null los que no tenga.
+struct AuthenticationAndSignCertificates {
+  Certificate authentication;
+  Certificate signing;
+
+  /// Trae los dos (lo que pide el hub del BCCR y los servicios externos para conectarse).
+  bool complete() const pure nothrow @safe @nogc {
+    return authentication !is null && signing !is null;
+  }
 }
 
 /// Detector de credenciales compartido por la aplicación.
@@ -350,15 +349,7 @@ final class SmartCardDetector {
     if (card is null || card.cardType == CardType.pkcs12 || card.cardType == CardType.remote) return;
     enforce(card.hasPin, "No se indicó el PIN");
     auto module_ = Pkcs11Module.load(libraryPath());
-    c_ulong slot;
-    if (card.slotID >= 0) {
-      slot = cast(c_ulong) card.slotID;
-    } else {
-      auto slots = module_.slotsWithToken();
-      if (slots.length == 0) throw new Pkcs11Exception(0xE0, "C_GetSlotList");
-      slot = slots[0];
-    }
-    auto session = module_.openSession(slot);
+    auto session = module_.openSession(module_.resolveSlot(card.slotID));
     scope (exit) session.close();
     session.login(card.pin.get());
     session.logout();
@@ -369,13 +360,13 @@ final class SmartCardDetector {
    * añadida a la lista de credenciales (getAuthenticationAndSignCertificates, lo que pide
    * el hub del BCCR al conectarse).
    */
-  Certificate[string] authenticationAndSignCertificates() @trusted {
-    Certificate[string] result;
+  AuthenticationAndSignCertificates authenticationAndSignCertificates() @trusted {
+    AuthenticationAndSignCertificates result;
     foreach (detected; certificates()) {
       if (detected.certificate.extendedKeyUsages.canFind(clientAuthenticationEkuOid)) {
-        result["authentication"] = detected.certificate;
+        result.authentication = detected.certificate;
       } else {
-        result["sign"] = detected.certificate;
+        result.signing = detected.certificate;
       }
       if (isSigningCertificate(detected.certificate)) {
         lock.lock();

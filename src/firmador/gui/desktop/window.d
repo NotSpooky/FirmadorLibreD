@@ -33,12 +33,10 @@ module firmador.gui.desktop.window;
 
 import std.algorithm : canFind, countUntil, filter, remove;
 import std.array : array, replace;
-import std.conv : ConvException, to;
 import std.file : exists, isDir, isFile, dirEntries, SpanMode;
 import std.format : format;
 import std.logger : error, info, warning;
 import std.path : absolutePath, baseName, dirName, extension;
-import std.regex : ctRegex, matchFirst, replaceAll;
 import std.string : strip;
 import std.utf : toUTF32;
 import std.uuid : UUID;
@@ -71,6 +69,7 @@ import firmador.gui.desktop.dialogs;
 import firmador.gui.desktop.directorypanel : DirectoryPanel;
 import firmador.gui.desktop.documentlist : DocumentListPanel;
 import firmador.gui.desktop.logpanel : LogBuffer, LogPanel;
+import firmador.gui.desktop.notificationbar : NotificationBar;
 import firmador.gui.desktop.richtext : RichText;
 import firmador.gui.desktop.signpanel : SignPanel;
 import firmador.gui.desktop.uithread;
@@ -86,68 +85,6 @@ import firmador.settings : processOrigin, resolveOriginPort, Settings;
 import firmador.settingsmanager : configFilePath, currentSettings, settingsLoadProblem, writeSettings;
 import firmador.util.desktop : desktopNotification;
 import firmador.util.singleinstance;
-
-/**
- * Reporte de un documento virtual que envía el servicio, en HTML (notifyReportDocument):
- * sin la línea del nombre temporal del documento y sin líneas en blanco repetidas; si no
- * tiene firmas, el aviso de que no las tiene. `signatures` recibe la cantidad declarada.
- */
-string virtualReportHtml(string report, out size_t signatures) @safe {
-  import firmador.xml.dom : escapeXml;
-  signatures = 0;
-  auto count = matchFirst(report, ctRegex!`Contiene\s+(\d+)\s+firma`);
-  if (!count.empty) {
-    try {
-      signatures = count[1].to!size_t;
-    } catch (ConvException) {
-      signatures = 0;
-    }
-  }
-  if (signatures == 0) return "<html>Este documento no tiene ninguna firma digital.</html>";
-  string cleaned = replaceAll(report, ctRegex!`El documento doc_[0-9]+\.pdf[^\n]*`, "").strip;
-  cleaned = replaceAll(cleaned, ctRegex!`(\n\s*){2,}`, "\n");
-  return "<html>" ~ escapeXml(cleaned).replace("\n", "<br>") ~ "</html>";
-}
-
-/// Barra de avisos breves al pie de la ventana (showNotification).
-private final class NotificationBar : VerticalLayout {
-  private RichText message;
-  private ulong hideTimer;
-
-  this() @trusted {
-    super("avisos");
-    layoutWidth = FILL_PARENT;
-    padding = Rect(10, 8, 10, 8);
-    message = new RichText("aviso");
-    message.fontWeight = 800;
-    message.alignment = Align.Center;
-    addChild(message);
-    visibility = Visibility.Gone;
-  }
-
-  void show(string html, NotificationType type) @trusted {
-    uint background, foreground;
-    final switch (type) {
-      case NotificationType.success: background = 0xD4EDDA; foreground = 0x155724; break;
-      case NotificationType.error: background = 0xF8D7DA; foreground = 0x721C24; break;
-      case NotificationType.warning: background = 0xFFF3CD; foreground = 0x856404; break;
-      case NotificationType.info: background = 0xD9EDF7; foreground = 0x0C5460; break;
-    }
-    backgroundColor = background;
-    message.textColor = foreground;
-    message.setHtml(html);
-    visibility = Visibility.Visible;
-    if (hideTimer != 0) cancelTimer(hideTimer);
-    hideTimer = setTimer(5000);
-  }
-
-  override bool onTimer(ulong id) {
-    if (id != hideTimer) return super.onTimer(id);
-    hideTimer = 0;
-    visibility = Visibility.Gone;
-    return false;
-  }
-}
 
 /// Ventana de Firmador.
 final class DesktopInterface : GuiInterface, ConnectionView {
@@ -283,10 +220,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
       validateView = new RichText("reporte", t("guiswing_dialog_document_not_signed"));
       validateView.padding = Rect(12, 12, 12, 12);
       validateView.onLink = (string link) { openMessageLink(link); };
-      validateScroll = new VerticalScroll("validar");
-      validateScroll.contentWidget = validateView;
-      validateScroll.layoutWidth = FILL_PARENT;
-      validateScroll.layoutHeight = FILL_PARENT;
+      validateScroll = new VerticalScroll("validar", validateView);
       tabs.addTab(validateScroll, dt("guiswing_tab_validate"), null, false, tip("guiswing_tab_validate_tooltip"));
     } else {
       documentList = new DocumentListPanel(this);
@@ -569,8 +503,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
             simplifiedBatch = false;
           } else if (!document.signedWithErrors && exists(document.pathToSave)) {
             simplifiedDocument = null;
-            addFiles([document.pathToSave], false);
-            showLoading(t("loadprogressdialogworker_analyzing_docs"));
+            reopenSigned(document);
           }
         }
       }
@@ -578,11 +511,16 @@ final class DesktopInterface : GuiInterface, ConnectionView {
       if (documentList !is null && !document.isRemote && !document.signedWithErrors
           && documentList.documents.canFind(document) && exists(document.pathToSave)) {
         documentList.removeDocument(document);
-        addFiles([document.pathToSave], false);
-        showLoading(t("loadprogressdialogworker_analyzing_docs"));
+        reopenSigned(document);
       }
       if (documentList !is null) documentList.reloadView();
     });
+  }
+
+  /// Abre el documento firmado, que se analiza de nuevo, en lugar del original.
+  private void reopenSigned(Document document) {
+    addFiles([document.pathToSave], false);
+    showLoading(t("loadprogressdialogworker_analyzing_docs"));
   }
 
   void extendsDone(Document document) @trusted {
@@ -803,6 +741,16 @@ final class DesktopInterface : GuiInterface, ConnectionView {
    * rechazan con aviso.
    */
   Document[] addFiles(string[] paths, bool preview) @trusted {
+    auto documents = openDocuments(paths);
+    if (documents.length) loadDocuments(documents, preview);
+    return documents;
+  }
+
+  /**
+   * Abre los archivos como documentos, sin cargarlos en la ventana. Los que no tienen
+   * extensión o no se pueden abrir se avisan y se omiten.
+   */
+  Document[] openDocuments(string[] paths) @trusted {
     Document[] documents;
     foreach (path; paths) {
       string absolute = absolutePath(path);
@@ -818,7 +766,6 @@ final class DesktopInterface : GuiInterface, ConnectionView {
         showMessage(t("guiswing_error_loading_documents") ~ ": " ~ exception.msg);
       }
     }
-    if (documents.length) loadDocuments(documents, preview);
     return documents;
   }
 
@@ -946,8 +893,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
 
   /// Imagen de una página de un documento virtual (getPageImageFromApi), desde un hilo de fondo.
   immutable(ubyte)[] virtualPage(Document document, int page) @trusted {
-    auto connection = connections.find(document.service);
-    if (connection is null || !connection.isLogged() || !connection.isRunning()) return null;
+    if (!connections.hasSession(document.service)) return null;
     return virtualPagePreview(connections, document, page);
   }
 
@@ -992,12 +938,8 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     string[] invalid;
     Document[] valid;
     foreach (document; documents) {
-      auto connection = connections.find(document.service);
-      if (connection is null || !connection.isLogged() || !connection.isRunning()) {
-        if (!invalid.canFind(document.service)) invalid ~= document.service;
-      } else {
-        valid ~= document;
-      }
+      if (connections.hasSession(document.service)) valid ~= document;
+      else if (!invalid.canFind(document.service)) invalid ~= document.service;
     }
     if (invalid.length) {
       import std.string : join;
@@ -1130,14 +1072,4 @@ final class DesktopInterface : GuiInterface, ConnectionView {
   private void showRemoteConnection(ushort port) {
     if (connections.startRemote(port)) displayFunctionality("connection");
   }
-}
-
-@("should keep the declared signature count and drop the temporary name line when showing a virtual report")
-unittest {
-  size_t signatures;
-  string html = virtualReportHtml("El documento doc_123.pdf está firmado\n\n\nContiene 2 firmas <válidas>", signatures);
-  assert(signatures == 2);
-  assert(html == "<html>Contiene 2 firmas &lt;válidas&gt;</html>");
-  assert(virtualReportHtml("Sin firmas", signatures) == "<html>Este documento no tiene ninguna firma digital.</html>");
-  assert(signatures == 0);
 }

@@ -30,8 +30,6 @@ module firmador.ooxml.signature;
 
 import std.algorithm : canFind, endsWith, filter, sort;
 import std.array : appender, array, replace;
-import std.base64 : Base64;
-import std.bigint : BigInt;
 import std.datetime.systime : SysTime;
 import std.exception : enforce;
 import std.format : format;
@@ -40,12 +38,14 @@ import std.string : lastIndexOf;
 
 import firmador.asn1.der : toDecimalString;
 import firmador.cms.ocsp : parseOcspResponse;
-import firmador.cms.tsp : TimeStampToken;
+import firmador.cms.tsp : TimeStampToken, Timestamper;
 import firmador.configuration : ooxmlSignatureDescription;
 import firmador.crypto.digest;
-import firmador.crypto.openssl : ecdsaComponentLength, ecdsaDerToRaw;
+import firmador.crypto.openssl : RawSignatureEncoding, rawSignatureEncoding;
 import firmador.ooxml.opc;
+import firmador.util.base64 : encodeBase64;
 import firmador.util.datetime : toRfc3339Utc;
+import firmador.validation.certpath : ValidationData;
 import firmador.util.zip;
 import firmador.x509.certificate;
 import firmador.x509.crl : parseCrl;
@@ -170,12 +170,7 @@ struct OoxmlParameters {
 struct PreparedOoxml {
   immutable(ubyte)[] signatureXml;
   immutable(ubyte)[] dataToSign;
-  bool ecdsa;
-  size_t ecdsaComponentLength;
-}
-
-private string base64(const(ubyte)[] bytes) @safe {
-  return Base64.encode(bytes).idup;
+  RawSignatureEncoding signatureEncoding;
 }
 
 /// Nombre del emisor como el X500Principal.getName() con «, » de POI (setCertID).
@@ -216,7 +211,7 @@ private string signatureFragment(const OoxmlParameters parameters, const Package
       }
       output ~= format(`</Transform><Transform Algorithm="%s"/></Transforms>`, c14n);
     }
-    output ~= format(`%s<DigestValue>%s</DigestValue></Reference>`, digestMethod, base64(reference.digest));
+    output ~= format(`%s<DigestValue>%s</DigestValue></Reference>`, digestMethod, encodeBase64(reference.digest));
   }
   output ~= `</Manifest><SignatureProperties>`;
   output ~= format(`<SignatureProperty Id="idSignatureTime" Target="#%s"><mdssi:SignatureTime xmlns:mdssi="%s">`
@@ -237,7 +232,7 @@ private string signatureFragment(const OoxmlParameters parameters, const Package
   output ~= format(`<xd:SigningTime>%s</xd:SigningTime>`, toRfc3339Utc(cast(SysTime) parameters.signingTime));
   output ~= format(`<xd:SigningCertificate><xd:Cert><xd:CertDigest>%s<DigestValue>%s</DigestValue></xd:CertDigest>`
     ~ `<xd:IssuerSerial><X509IssuerName>%s</X509IssuerName><X509SerialNumber>%s</X509SerialNumber></xd:IssuerSerial>`
-    ~ `</xd:Cert></xd:SigningCertificate>`, digestMethod, base64(certificate.digest(DigestAlgorithm.sha256)),
+    ~ `</xd:Cert></xd:SigningCertificate>`, digestMethod, encodeBase64(certificate.digest(DigestAlgorithm.sha256)),
     escapeXml(poiIssuerName(certificate)), certificate.serialDecimal);
   output ~= `<xd:SignaturePolicyIdentifier><xd:SignaturePolicyImplied/></xd:SignaturePolicyIdentifier>`;
   output ~= `</xd:SignedSignatureProperties><xd:SignedDataObjectProperties><xd:CommitmentTypeIndication>`;
@@ -262,14 +257,13 @@ private string signatureFragment(const OoxmlParameters parameters, const Package
 PreparedOoxml prepareOoxmlSignature(const ZipEntry[] entries, const OoxmlParameters parameters) @trusted {
   enforce!OpcException(parameters.signingCertificate !is null, "Falta el certificado de firma");
   PreparedOoxml prepared;
-  prepared.ecdsa = !parameters.rsa;
-  if (prepared.ecdsa) prepared.ecdsaComponentLength = ecdsaComponentLength(parameters.signingCertificate.subjectPublicKeyInfoDer);
+  prepared.signatureEncoding = rawSignatureEncoding(parameters.rsa, parameters.signingCertificate);
   auto document = XmlDocument.parse(cast(const(ubyte)[]) signatureFragment(parameters, packageManifest(entries)));
   scope (exit) document.close();
   auto signature = parseDsSignature(document.root);
   foreach (reference; signature.references) {
     auto octets = processReference(document, signature, reference, null);
-    reference.node.requiredChild(xmldsigNamespace, "DigestValue").appendText(base64(digestOf(DigestAlgorithm.sha256, octets)));
+    reference.node.requiredChild(xmldsigNamespace, "DigestValue").appendText(encodeBase64(digestOf(DigestAlgorithm.sha256, octets)));
   }
   prepared.dataToSign = canonicalSignedInfo(document, signature);
   prepared.signatureXml = document.serialize();
@@ -280,21 +274,10 @@ PreparedOoxml prepareOoxmlSignature(const ZipEntry[] entries, const OoxmlParamet
 immutable(ubyte)[] completeOoxmlSignature(const PreparedOoxml prepared, const(ubyte)[] signatureValue) @trusted {
   auto document = XmlDocument.parse(prepared.signatureXml);
   scope (exit) document.close();
-  auto value = prepared.ecdsa ? ecdsaDerToRaw(signatureValue, prepared.ecdsaComponentLength) : signatureValue.dup;
-  document.root.requiredChild(xmldsigNamespace, "SignatureValue").appendText(base64(value));
+  document.root.requiredChild(xmldsigNamespace, "SignatureValue")
+    .appendText(encodeBase64(prepared.signatureEncoding.encode(signatureValue)));
   return document.serialize();
 }
-
-/// Cadena y revocación de un certificado para XAdES-X-L (RevocationData de POI).
-struct OoxmlRevocationData {
-  /// Certificados de la cadena sin el primero (el firmante o la autoridad de sellado).
-  Certificate[] chainAfterFirst;
-  immutable(ubyte)[][] crls;
-  immutable(ubyte)[][] ocspResponses;
-}
-
-/// Sello de un resumen SHA-256.
-alias OoxmlTimestamper = TimeStampToken delegate(const(ubyte)[] digest) @safe;
 
 private string certificateValues(const(Certificate)[] certificates) @safe {
   string values = `<xd:CertificateValues>`;
@@ -304,16 +287,16 @@ private string certificateValues(const(Certificate)[] certificates) @safe {
   return values ~ `</xd:CertificateValues>`;
 }
 
-private string revocationValues(const OoxmlRevocationData data) @safe {
+private string revocationValues(const ValidationData data) @safe {
   string values = `<xd:RevocationValues>`;
   if (data.crls.length) {
     values ~= `<xd:CRLValues>`;
-    foreach (crl; data.crls) values ~= format(`<xd:EncapsulatedCRLValue>%s</xd:EncapsulatedCRLValue>`, base64(crl));
+    foreach (crl; data.crls) values ~= format(`<xd:EncapsulatedCRLValue>%s</xd:EncapsulatedCRLValue>`, encodeBase64(crl));
     values ~= `</xd:CRLValues>`;
   }
   if (data.ocspResponses.length) {
     values ~= `<xd:OCSPValues>`;
-    foreach (ocsp; data.ocspResponses) values ~= format(`<xd:EncapsulatedOCSPValue>%s</xd:EncapsulatedOCSPValue>`, base64(ocsp));
+    foreach (ocsp; data.ocspResponses) values ~= format(`<xd:EncapsulatedOCSPValue>%s</xd:EncapsulatedOCSPValue>`, encodeBase64(ocsp));
     values ~= `</xd:OCSPValues>`;
   }
   return values ~ `</xd:RevocationValues>`;
@@ -322,17 +305,17 @@ private string revocationValues(const OoxmlRevocationData data) @safe {
 private string timestampElement(string name, const TimeStampToken token) @safe {
   return format(`<xd:%s><CanonicalizationMethod xmlns="%s" Algorithm="%s"/><xd:EncapsulatedTimeStamp>%s`
     ~ `</xd:EncapsulatedTimeStamp></xd:%s>`, name, xmldsigNamespace, canonicalizationUri(ooxmlTimestampCanonicalization),
-    base64(token.der), name);
+    encodeBase64(token.der), name);
 }
 
 private string digestAlgAndValue(const(ubyte)[] data) @safe {
   return format(`<xd:DigestAlgAndValue><DigestMethod xmlns="%s" Algorithm="%s"/><DigestValue xmlns="%s">%s</DigestValue>`
     ~ `</xd:DigestAlgAndValue>`, xmldsigNamespace, digestXmlUri(DigestAlgorithm.sha256), xmldsigNamespace,
-    base64(digestOf(DigestAlgorithm.sha256, data)));
+    encodeBase64(digestOf(DigestAlgorithm.sha256, data)));
 }
 
 /// CompleteRevocationRefs (addRevocationCRL y addRevocationOCSP de POI).
-private string completeRevocationRefs(const OoxmlRevocationData data) @safe {
+private string completeRevocationRefs(const ValidationData data) @safe {
   string refs = `<xd:CompleteRevocationRefs>`;
   if (data.crls.length) {
     refs ~= `<xd:CRLRefs>`;
@@ -349,7 +332,7 @@ private string completeRevocationRefs(const OoxmlRevocationData data) @safe {
     refs ~= `<xd:OCSPRefs>`;
     foreach (der; data.ocspResponses) {
       auto ocsp = parseOcspResponse(der);
-      string responder = ocsp.responderByKey ? format(`<xd:ByKey>%s</xd:ByKey>`, base64(ocsp.responderKeyHash))
+      string responder = ocsp.responderByKey ? format(`<xd:ByKey>%s</xd:ByKey>`, encodeBase64(ocsp.responderKeyHash))
         : format(`<xd:ByName>%s</xd:ByName>`, escapeXml(ocsp.responderName.toRfc2253()));
       refs ~= format(`<xd:OCSPRef><xd:OCSPIdentifier><xd:ResponderID>%s</xd:ResponderID><xd:ProducedAt>%s</xd:ProducedAt>`
         ~ `</xd:OCSPIdentifier>%s</xd:OCSPRef>`, responder, toRfc3339Utc(ocsp.producedAt), digestAlgAndValue(der));
@@ -366,7 +349,7 @@ private string completeCertificateRefs(const(Certificate)[] chain) @safe {
     refs ~= format(`<xd:Cert><xd:CertDigest><DigestMethod xmlns="%s" Algorithm="%s"/><DigestValue xmlns="%s">%s`
       ~ `</DigestValue></xd:CertDigest><xd:IssuerSerial><X509IssuerName xmlns="%s">%s</X509IssuerName>`
       ~ `<X509SerialNumber xmlns="%s">%s</X509SerialNumber></xd:IssuerSerial></xd:Cert>`, xmldsigNamespace,
-      digestXmlUri(DigestAlgorithm.sha256), xmldsigNamespace, base64(certificate.digest(DigestAlgorithm.sha256)),
+      digestXmlUri(DigestAlgorithm.sha256), xmldsigNamespace, encodeBase64(certificate.digest(DigestAlgorithm.sha256)),
       xmldsigNamespace, escapeXml(certificate.issuer.toDisplayString()), xmldsigNamespace, certificate.serialDecimal);
   }
   return refs ~ `</xd:CertRefs></xd:CompleteCertificateRefs>`;
@@ -375,12 +358,14 @@ private string completeCertificateRefs(const(Certificate)[] chain) @safe {
 /**
  * Añade las propiedades XAdES-X-L de POI: CertificateValues, SignatureTimeStamp (con los
  * datos de validación de su autoridad en TimeStampValidationData), las referencias
- * completas, RevocationValues y SigAndRefsTimeStamp.
+ * completas, RevocationValues y SigAndRefsTimeStamp. `signerData` y lo que devuelve
+ * `timestampData` (RevocationData de POI) traen en `certificates` la cadena sin su primer
+ * certificado (el firmante o la autoridad de sellado).
  *
  * Throws: XmlException si la parte no tiene la estructura esperada; lo que lancen los servicios.
  */
-immutable(ubyte)[] addOoxmlXlProperties(immutable(ubyte)[] signatureXml, const OoxmlRevocationData signerData,
-    scope OoxmlTimestamper stamp, scope OoxmlRevocationData delegate(const TimeStampToken token) @safe timestampData)
+immutable(ubyte)[] addOoxmlXlProperties(immutable(ubyte)[] signatureXml, const ValidationData signerData,
+    scope Timestamper stamp, scope ValidationData delegate(const TimeStampToken token) @safe timestampData)
     @trusted {
   auto document = XmlDocument.parse(signatureXml);
   scope (exit) document.close();
@@ -394,7 +379,7 @@ immutable(ubyte)[] addOoxmlXlProperties(immutable(ubyte)[] signatureXml, const O
     auto close = fragment.indexOfFirstTagEnd();
     return fragment[0 .. close] ~ declaration ~ fragment[close .. $];
   }
-  if (signerData.chainAfterFirst.length) document.appendFragment(properties, withNamespace(certificateValues(signerData.chainAfterFirst)));
+  if (signerData.certificates.length) document.appendFragment(properties, withNamespace(certificateValues(signerData.certificates)));
 
   auto signatureTimestamp = stamp(digestOf(DigestAlgorithm.sha256,
     document.canonicalize(signatureValue, ooxmlTimestampCanonicalization)));
@@ -403,12 +388,12 @@ immutable(ubyte)[] addOoxmlXlProperties(immutable(ubyte)[] signatureXml, const O
   auto tsaData = timestampData(signatureTimestamp);
   if (tsaData.crls.length || tsaData.ocspResponses.length) {
     string validation = format(`<TimeStampValidationData xmlns="%s">`, xades141Namespace);
-    if (tsaData.chainAfterFirst.length) validation ~= withNamespace(certificateValues(tsaData.chainAfterFirst));
+    if (tsaData.certificates.length) validation ~= withNamespace(certificateValues(tsaData.certificates));
     validation ~= withNamespace(revocationValues(tsaData)) ~ `</TimeStampValidationData>`;
     document.appendFragment(properties, validation);
   }
   auto certificateRefs = document.appendFragment(properties,
-    withNamespace(completeCertificateRefs(signerData.chainAfterFirst)));
+    withNamespace(completeCertificateRefs(signerData.certificates)));
   auto revocationRefs = document.appendFragment(properties, withNamespace(completeRevocationRefs(signerData)));
   document.appendFragment(properties, withNamespace(revocationValues(signerData)));
   immutable(ubyte)[] stamped;

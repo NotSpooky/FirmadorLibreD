@@ -25,8 +25,6 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 module firmador.validation.cmsverify;
 
 import std.algorithm : canFind;
-import std.datetime.systime : SysTime;
-import std.format : format;
 import std.logger : trace;
 
 import firmador.asn1.oids;
@@ -55,6 +53,11 @@ Certificate findSignerCertificate(const SignedData signedData, const SignerInfo 
   foreach (certificate; signedData.certificates) if (signer.identifies(certificate)) return cast(Certificate) certificate;
   foreach (certificate; pool.all) if (signer.identifies(certificate)) return cast(Certificate) certificate;
   return null;
+}
+
+/// Certificado de la autoridad que firmó el sello (su único firmante), o null si no está.
+Certificate timestampSignerCertificate(const TimeStampToken token, CertificatePool pool) @safe {
+  return findSignerCertificate(token.signedData, token.signedData.signerInfos[0], pool);
 }
 
 /**
@@ -104,8 +107,7 @@ CmsSignerVerification verifyCmsSigner(const SignedData signedData, const SignerI
       message(ValidationMessage.Level.error, "BBB_SAV_ISQPCTP_ANS"));
   }
   try {
-    auto algorithm = signatureAlgorithmFrom(signer.signatureAlgorithmOid, signer.signatureAlgorithmParameters,
-      signer.digestAlgorithm);
+    auto algorithm = signatureAlgorithmFrom(signer.signatureAlgorithm, signer.digestAlgorithm);
     result.signatureValid = verifySignature(result.signingCertificate.subjectPublicKeyInfoDer, algorithm,
       signer.signedAttributesForSignature, signer.signature);
   } catch (Exception exception) {
@@ -125,7 +127,7 @@ CmsSignerVerification verifyCmsSigner(const SignedData signedData, const SignerI
  * revocación a la fecha del sello.
  */
 TimestampResult validateTimestamp(const TimeStampToken token, const(ubyte)[] stampedData, TimestampResult.Kind kind,
-    ref PathContext context) @trusted {
+    PathContext context) @trusted {
   TimestampResult result;
   result.kind = kind;
   result.productionTime = token.info.genTime;

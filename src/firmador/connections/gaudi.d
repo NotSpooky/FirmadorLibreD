@@ -46,6 +46,7 @@ import firmador.i18n : t;
 import firmador.net.http;
 import firmador.tokens.pkcs11 : Pkcs11Exception;
 import firmador.tokens.token : SecretPin;
+import firmador.util.base64 : encodeBase64;
 import firmador.util.json;
 import firmador.x509.certificate : bundledCertificate, certificatePem;
 
@@ -171,57 +172,21 @@ private HttpOptions bccrOptions() @safe {
 
 /// Inicia la integración con el BCCR (WorkerFactory de ConnectionManager).
 ConnectionWorker startGaudi(ConnectionManager manager, Connection connection) @safe {
-  return new GaudiIntegration(manager, connection);
+  auto worker = new GaudiIntegration(manager, connection);
+  worker.start();
+  return worker;
 }
 
 /// Hilo de la conexión con el hub del BCCR.
-final class GaudiIntegration : ConnectionWorker {
-  private ConnectionManager manager;
-  private Connection connection;
-  private shared bool cancelled;
-  private shared bool running;
+final class GaudiIntegration : IntegrationWorker {
   private string sendUrl;
 
-  this(ConnectionManager manager, Connection connection) @trusted {
-    this.manager = manager;
-    this.connection = connection;
-    atomicStore(running, true);
-    auto thread = new Thread(&run);
-    thread.isDaemon = true;
-    thread.start();
-  }
-
-  bool isRunning() @trusted {
-    return atomicLoad(running);
-  }
-
-  void stop() @trusted {
-    info("Deteniendo la conexión con el BCCR");
-    atomicStore(cancelled, true);
-  }
-
-  private bool isCancelled() @trusted {
-    return atomicLoad(cancelled);
-  }
-
-  private void report(string message) @safe {
-    manager.reportErrors(connection, [message]);
-  }
-
-  private void run() @trusted {
-    scope (exit) atomicStore(running, false);
-    info("Iniciando servicio de Gaudi");
-    try {
-      listen();
-    } catch (Exception exception) {
-      if (isCancelled()) return;
-      error("Error al conectar con el servidor del BCCR: ", exception.msg);
-      report(t("gaudi_integration_internal_error") ~ " Code:14 (" ~ exception.msg ~ ")");
-    }
+  this(ConnectionManager manager, Connection connection) @safe {
+    super(manager, connection, "Code:14");
   }
 
   /// Negocia, abre el flujo de eventos y lo atiende hasta que se cierre o se detenga.
-  private void listen() @trusted {
+  protected override void listen() @trusted {
     auto options = bccrOptions();
     auto negotiated = httpGet(bccrUrl ~ bccrStartNegotiation, ["User-Agent": integrationUserAgent], options);
     enforce(negotiated.status == 200, format("La negociación con el BCCR respondió %d %s", negotiated.status,
@@ -229,9 +194,7 @@ final class GaudiIntegration : ConnectionWorker {
     auto negotiation = parseGaudiNegotiation(parseJsonText(negotiated.text, "La negociación con el BCCR"));
 
     auto certificates = manager.cards().authenticationAndSignCertificates();
-    auto authentication = "authentication" in certificates;
-    auto signing = "sign" in certificates;
-    if (authentication is null || signing is null) {
+    if (!certificates.complete) {
       report(t("gaudi_integration_not_certificate_detected"));
       return;
     }
@@ -239,8 +202,8 @@ final class GaudiIntegration : ConnectionWorker {
     sendUrl = withQuery(hubUrl ~ "/send", gaudiQueryParameters(negotiation));
     string[string] headers = [
       "Accept": "text/event-stream",
-      "CertificadoAutenticacion": (*authentication).base64,
-      "CertificadoFirmante": (*signing).base64,
+      "CertificadoAutenticacion": certificates.authentication.base64,
+      "CertificadoFirmante": certificates.signing.base64,
       "NombreDelSistemaOperativo": operatingSystemName(),
       "VersionDelSistemaOperativo": operatingSystemVersion(),
       "IpPrivada": "127.0.0.1",
@@ -323,7 +286,7 @@ final class GaudiIntegration : ConnectionWorker {
     foreach (attempt; 0 .. 5) {
       if (isCancelled()) return null;
       try {
-        return Base64.encode(manager.cards().signWithSignKey(pin, hash)).idup;
+        return encodeBase64(manager.cards().signWithSignKey(pin, hash));
       } catch (Pkcs11Exception exception) {
         error("La tarjeta rechazó la firma de la solicitud del BCCR: ", exception.msg);
         if (exception.msg == "CKR_PIN_LOCKED") {

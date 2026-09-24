@@ -39,12 +39,15 @@ import std.format : format;
 import std.logger : info;
 import std.typecons : Nullable;
 
-import firmador.cms.tsp : TimeStampToken;
+import firmador.cms.tsp : parseTimeStampToken, TimeStampToken, Timestamper;
 import firmador.configuration : electronicReceiptTypes, haciendaPolicyDigestBase64, haciendaPolicyId;
 import firmador.crypto.digest;
-import firmador.crypto.openssl : ecdsaComponentLength, ecdsaDerToRaw;
+import firmador.crypto.openssl : RawSignatureEncoding, rawSignatureEncoding;
 import firmador.util.datetime : toRfc3339Utc;
-import firmador.validation.certpath : ValidationData;
+import firmador.util.base64 : encodeBase64;
+import firmador.validation.certpath : missingFrom, ValidationData;
+import firmador.validation.cmsverify : timestampSignerCertificate;
+import firmador.validation.pool : CertificatePool;
 import firmador.x509.certificate;
 import firmador.xml.dom;
 import firmador.xml.xmldsig;
@@ -119,8 +122,7 @@ struct PreparedXades {
   string signatureId;
   /// ds:SignedInfo canonicalizado.
   immutable(ubyte)[] dataToSign;
-  bool ecdsa;
-  size_t ecdsaComponentLength;
+  RawSignatureEncoding signatureEncoding;
 }
 
 /**
@@ -150,10 +152,6 @@ string encodeReferenceUri(string name) pure @safe {
     else output ~= format("%%%02X", cast(ubyte) character);
   }
   return output[];
-}
-
-private string base64(const(ubyte)[] bytes) @safe {
-  return Base64.encode(bytes).idup;
 }
 
 /// Referencia de SignedInfo: su URI, si lleva la transformación XPath y el tipo MIME.
@@ -224,10 +222,10 @@ private string signatureFragment(const XadesParameters parameters, string id) @s
   line(7, `<xades:CertDigest>`);
   line(8, format(`<ds:DigestMethod Algorithm="%s"/>`, sha256Uri));
   line(8, format(`<ds:DigestValue>%s</ds:DigestValue>`,
-    base64(parameters.signingCertificate.digest(DigestAlgorithm.sha256))));
+    encodeBase64(parameters.signingCertificate.digest(DigestAlgorithm.sha256))));
   line(7, `</xades:CertDigest>`);
   if (parameters.en319132) {
-    line(7, format(`<xades:IssuerSerialV2>%s</xades:IssuerSerialV2>`, base64(issuerSerialDer(parameters.signingCertificate))));
+    line(7, format(`<xades:IssuerSerialV2>%s</xades:IssuerSerialV2>`, encodeBase64(issuerSerialDer(parameters.signingCertificate))));
   } else {
     line(7, `<xades:IssuerSerial>`);
     line(8, format(`<ds:X509IssuerName>%s</ds:X509IssuerName>`,
@@ -246,7 +244,7 @@ private string signatureFragment(const XadesParameters parameters, string id) @s
     line(7, `</xades:SigPolicyId>`);
     line(7, `<xades:SigPolicyHash>`);
     line(8, format(`<ds:DigestMethod Algorithm="%s"/>`, digestXmlUri(policy.digest)));
-    line(8, format(`<ds:DigestValue>%s</ds:DigestValue>`, base64(policy.digestValue)));
+    line(8, format(`<ds:DigestValue>%s</ds:DigestValue>`, encodeBase64(policy.digestValue)));
     line(7, `</xades:SigPolicyHash>`);
     line(6, `</xades:SignaturePolicyId>`);
     line(5, `</xades:SignaturePolicyIdentifier>`);
@@ -281,8 +279,7 @@ PreparedXades prepareXadesSignature(immutable(ubyte)[] content, XadesParameters 
     "Una firma de contenedor necesita archivos que firmar");
   PreparedXades prepared;
   prepared.signatureId = xadesDeterministicId(parameters.signingTime, parameters.signingCertificate);
-  prepared.ecdsa = !parameters.rsa;
-  if (prepared.ecdsa) prepared.ecdsaComponentLength = ecdsaComponentLength(parameters.signingCertificate.subjectPublicKeyInfoDer);
+  prepared.signatureEncoding = rawSignatureEncoding(parameters.rsa, parameters.signingCertificate);
   string fragment = signatureFragment(parameters, prepared.signatureId);
 
   XmlDocument signedXml;
@@ -324,7 +321,7 @@ PreparedXades prepareXadesSignature(immutable(ubyte)[] content, XadesParameters 
 
 private void setDigestValue(XmlNode reference, const(ubyte)[] digest) @safe {
   auto value = reference.requiredChild(xmldsigNamespace, "DigestValue");
-  value.appendText(base64(digest));
+  value.appendText(encodeBase64(digest));
 }
 
 /**
@@ -338,13 +335,9 @@ immutable(ubyte)[] completeXadesSignature(const PreparedXades prepared, const(ub
   scope (exit) document.close();
   auto valueElement = document.elementById("value-" ~ prepared.signatureId);
   enforce!XmlException(!valueElement.isNull, "El documento preparado no contiene la firma " ~ prepared.signatureId);
-  auto value = prepared.ecdsa ? ecdsaDerToRaw(signatureValue, prepared.ecdsaComponentLength) : signatureValue.dup;
-  valueElement.appendText(base64(value));
+  valueElement.appendText(encodeBase64(prepared.signatureEncoding.encode(signatureValue)));
   return document.serialize();
 }
-
-/// Sella el resumen SHA-256 dado.
-alias XadesTimestamper = TimeStampToken delegate(const(ubyte)[] digest) @safe;
 
 /// Firma XAdES del documento con ese Id.
 XmlNode signatureById(XmlDocument document, string signatureId) @safe {
@@ -462,7 +455,7 @@ private string timestampFragment(string elementName, string elementNamespace, co
   return format(`<%s:%s xmlns:%s="%s" xmlns:ds="%s"%s Id="%s">`, prefix, elementName, prefix, elementNamespace,
       xmldsigNamespace, xadesDeclaration, id)
     ~ format("\n    <ds:CanonicalizationMethod Algorithm=\"%s\"/>", canonicalizationUri(xadesCanonicalization))
-    ~ format("\n    <xades:EncapsulatedTimeStamp Id=\"e%s\">%s</xades:EncapsulatedTimeStamp>", id, base64(token.der))
+    ~ format("\n    <xades:EncapsulatedTimeStamp Id=\"e%s\">%s</xades:EncapsulatedTimeStamp>", id, encodeBase64(token.der))
     ~ format("\n</%s:%s>", prefix, elementName);
 }
 
@@ -471,7 +464,7 @@ private string timestampFragment(string elementName, string elementNamespace, co
  *
  * Throws: XmlException si la firma no está o no es XAdES; lo que lance el sellador.
  */
-immutable(ubyte)[] addSignatureTimestamp(immutable(ubyte)[] xml, string signatureId, scope XadesTimestamper stamp)
+immutable(ubyte)[] addSignatureTimestamp(immutable(ubyte)[] xml, string signatureId, scope Timestamper stamp)
     @trusted {
   auto document = XmlDocument.parse(xml);
   scope (exit) document.close();
@@ -483,20 +476,15 @@ immutable(ubyte)[] addSignatureTimestamp(immutable(ubyte)[] xml, string signatur
   return document.serialize();
 }
 
-/// Certificados y revocaciones que ya lleva la firma (KeyInfo, valores y TimeStampValidationData).
-struct EmbeddedValidationData {
-  Certificate[] certificates;
-  immutable(ubyte)[][] ocspResponses;
-  immutable(ubyte)[][] crls;
-}
-
-/// Lee los valores de validación incluidos en la firma; ignora los que no se pueden leer.
-EmbeddedValidationData embeddedValidationData(XmlNode signatureElement) @trusted {
-  EmbeddedValidationData data;
+/**
+ * Certificados y revocaciones que ya lleva la firma (KeyInfo, valores y
+ * TimeStampValidationData); ignora los que no se pueden leer.
+ */
+ValidationData embeddedValidationData(XmlNode signatureElement) @trusted {
+  ValidationData data;
   void addCertificate(string text) {
     try {
-      auto certificate = parseCertificate(decodeXmlBase64(text));
-      if (!containsCertificate(data.certificates, certificate)) data.certificates ~= certificate;
+      data.addCertificate(parseCertificate(decodeXmlBase64(text)));
     } catch (Exception) {
       // Un valor ilegible no aporta a la validación.
     }
@@ -530,6 +518,26 @@ EmbeddedValidationData embeddedValidationData(XmlNode signatureElement) @trusted
     foreach (validationData; unsigned.childrenNamed(xades141Namespace, "TimeStampValidationData")) addValues(validationData);
   }
   return data;
+}
+
+/// Sello de una propiedad XAdES y la canonicalización con que se sella lo que cubre.
+struct XadesTimestamp {
+  TimeStampToken token;
+  CanonicalizationMethod method;
+}
+
+/**
+ * Lee el sello de una propiedad XAdES (SignatureTimeStamp, ArchiveTimeStamp…): su
+ * EncapsulatedTimeStamp y su CanonicalizationMethod (C14N 1.0 inclusiva si no lo trae).
+ *
+ * Throws: XmlException si falta el sello; Asn1Exception si no se puede leer.
+ */
+XadesTimestamp xadesTimestamp(XmlNode property) @safe {
+  auto methodElement = property.child(xmldsigNamespace, "CanonicalizationMethod");
+  auto method = methodElement.isNull ? CanonicalizationMethod.inclusive10
+    : canonicalizationFromUri(methodElement.attribute("Algorithm"));
+  auto token = parseTimeStampToken(decodeXmlBase64(property.requiredChild(xadesNamespace, "EncapsulatedTimeStamp").text));
+  return XadesTimestamp(token, method);
 }
 
 /// Tokens de sello de la firma (de firma y de archivo), en orden de documento.
@@ -603,41 +611,28 @@ Certificate matchSigningCertificate(const SigningCertificateReference[] referenc
   return null;
 }
 
-/// Lo que hace falta para los datos de validación de una firma: sus certificados y revocaciones.
-struct XadesSigningMaterial {
-  Certificate[] certificates;
-  immutable(ubyte)[][] embeddedOcsp;
-  immutable(ubyte)[][] embeddedCrls;
-}
-
 /**
- * Certificado de firma y de las autoridades de sellado de la firma, con la revocación
- * que ya incluye (como signingMaterial de PAdES).
+ * Lo que necesita el nivel LT de la firma: en `certificates`, el de firma y los de las
+ * autoridades de sellado (buscados también en `pool`); en las revocaciones, las que ya
+ * incluye. Es lo que recibe SigningServices.validationData (firmador.signers.common).
  *
  * Throws: XmlException si la firma no identifica su certificado.
  */
-XadesSigningMaterial xadesSigningMaterial(XmlNode signatureElement) @trusted {
-  import firmador.cms.tsp : parseTimeStampToken;
-  XadesSigningMaterial material;
+ValidationData xadesSigningMaterial(XmlNode signatureElement, CertificatePool pool) @trusted {
   auto embedded = embeddedValidationData(signatureElement);
-  material.embeddedOcsp = embedded.ocspResponses;
-  material.embeddedCrls = embedded.crls;
+  ValidationData material;
+  material.ocspResponses = embedded.ocspResponses;
+  material.crls = embedded.crls;
   auto signer = matchSigningCertificate(signingCertificateReferences(signatureElement), embedded.certificates);
   if (signer is null) {
     auto keyInfo = parseDsSignature(signatureElement).keyInfoCertificates;
     enforce!XmlException(keyInfo.length > 0, "La firma no incluye su certificado de firma");
     signer = keyInfo[0];
   }
-  material.certificates ~= signer;
+  material.addCertificate(signer);
   foreach (der; xadesTimestampTokens(signatureElement)) {
-    auto token = parseTimeStampToken(der);
-    foreach (info; token.signedData.signerInfos) {
-      foreach (certificate; token.signedData.certificates) {
-        if (info.identifies(certificate) && !containsCertificate(material.certificates, certificate)) {
-          material.certificates ~= cast(Certificate) certificate;
-        }
-      }
-    }
+    auto authority = timestampSignerCertificate(parseTimeStampToken(der), pool);
+    if (authority !is null) material.addCertificate(authority);
   }
   return material;
 }
@@ -664,13 +659,13 @@ private string[] valuesBlocks(const(Certificate)[] certificates, const(ubyte[])[
     string block = format(`<xades:RevocationValues xmlns:xades="%s">`, xadesNamespace);
     if (crls.length) {
       block ~= "\n    <xades:CRLValues>";
-      foreach (crl; crls) block ~= format("\n        <xades:EncapsulatedCRLValue>%s</xades:EncapsulatedCRLValue>", base64(crl));
+      foreach (crl; crls) block ~= format("\n        <xades:EncapsulatedCRLValue>%s</xades:EncapsulatedCRLValue>", encodeBase64(crl));
       block ~= "\n    </xades:CRLValues>";
     }
     if (ocsps.length) {
       block ~= "\n    <xades:OCSPValues>";
       foreach (ocsp; ocsps) {
-        block ~= format("\n        <xades:EncapsulatedOCSPValue>%s</xades:EncapsulatedOCSPValue>", base64(ocsp));
+        block ~= format("\n        <xades:EncapsulatedOCSPValue>%s</xades:EncapsulatedOCSPValue>", encodeBase64(ocsp));
       }
       block ~= "\n    </xades:OCSPValues>";
     }
@@ -704,17 +699,9 @@ immutable(ubyte)[] addXadesValidationData(immutable(ubyte)[] xml, string signatu
       foreach (old; unsigned.childrenNamed(xadesNamespace, name)) document.removeIndented(old);
     }
   }
-  auto present = embeddedValidationData(signature);
-  const(Certificate)[] certificates;
-  foreach (certificate; data.certificates) {
-    if (!containsCertificate(present.certificates, certificate)) certificates ~= certificate;
-  }
-  const(ubyte[])[] crls;
-  foreach (crl; data.crls) if (!present.crls.canFind(crl)) crls ~= crl;
-  const(ubyte[])[] ocsps;
-  foreach (ocsp; data.ocspResponses) if (!present.ocspResponses.canFind(ocsp)) ocsps ~= ocsp;
-  if (certificates.length == 0 && crls.length == 0 && ocsps.length == 0) return document.serialize();
-  auto blocks = valuesBlocks(certificates, crls, ocsps);
+  auto missing = missingFrom(data, embeddedValidationData(signature));
+  if (missing.empty) return document.serialize();
+  auto blocks = valuesBlocks(missing.certificates, missing.crls, missing.ocspResponses);
   if (archived) {
     import std.array : replace;
     string id = "tsvd-" ~ toHexString!(LetterCase.lower)(md5Of(cast(const(ubyte)[]) xml)).idup;
@@ -733,7 +720,7 @@ immutable(ubyte)[] addXadesValidationData(immutable(ubyte)[] xml, string signatu
  *
  * Throws: XmlException si la firma no está, no es XAdES o sus referencias no se resuelven.
  */
-immutable(ubyte)[] addArchiveTimestamp(immutable(ubyte)[] xml, string signatureId, scope XadesTimestamper stamp,
+immutable(ubyte)[] addArchiveTimestamp(immutable(ubyte)[] xml, string signatureId, scope Timestamper stamp,
     ExternalResolver resolver = null, immutable(ubyte)[] detachedContent = null) @trusted {
   auto document = XmlDocument.parse(xml);
   scope (exit) document.close();

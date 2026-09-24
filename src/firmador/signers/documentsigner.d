@@ -18,9 +18,11 @@ You should have received a copy of the GNU General Public License
 along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /**
- * Interfaz común de los firmadores de cada formato (DocumentSigner) y lo que reciben:
- * el contenido, su nombre y tipo y los ajustes con que se firma. Los firmadores no
- * conocen firmador.documents.document; el documento los llama con un SigningInput.
+ * Interfaz común de los firmadores de cada formato (DocumentSigner, con su base
+ * ServicedSigner) y lo que reciben: el contenido, su nombre y tipo y los ajustes con que
+ * se firma. También los pasos que comparten: firmar con la credencial (signWithCard),
+ * subir de nivel (raiseLevel) y extender a LTA avisando (extendReporting). Los firmadores
+ * no conocen firmador.documents.document; el documento los llama con un SigningInput.
  */
 module firmador.signers.documentsigner;
 
@@ -30,7 +32,8 @@ import firmador.cards.cardinfo : CardSignInfo;
 import firmador.documents.mimetype;
 import firmador.gui.guiinterface;
 import firmador.i18n : t;
-import firmador.settings : Settings;
+import firmador.settings : Settings, SignatureLevel;
+import firmador.settingsmanager : currentSettings;
 import firmador.signers.common;
 import firmador.validation.model : DetachedContent;
 
@@ -76,10 +79,41 @@ interface DocumentSigner {
   string signedExtension(string originalName) const @safe;
 }
 
-/// Extensión (con punto) del nombre, o vacía.
-string extensionOfName(string name) pure @safe {
-  import std.path : extension;
-  return extension(name);
+/// Ajustes con que se firma: los del documento, o los vigentes si no trae.
+const(Settings) documentSettingsOf(const SigningInput input) @safe {
+  return input.settings is null ? currentSettings() : input.settings;
+}
+
+/**
+ * Base de los firmadores: la interfaz con que avisan cada paso y los servicios de sello y
+ * validación en línea del BCCR.
+ */
+abstract class ServicedSigner : DocumentSigner {
+  protected GuiInterface gui;
+  protected SigningServices services;
+
+  this(GuiInterface gui) @safe {
+    this.gui = gui;
+    services = SigningServices.online();
+  }
+}
+
+/// Paso de subida de nivel de un formato: recibe la firma y la devuelve con lo añadido.
+alias LevelStep = immutable(ubyte)[] delegate(immutable(ubyte)[] signed) @safe;
+
+/**
+ * Sube una firma de nivel B hasta `level` con los pasos de su formato: sello de firma
+ * (T), datos de validación (LT) y sello de archivo (LTA). Al extender a LTA una firma que
+ * ya tiene su sello de firma, `alreadyTimestamped` salta el primero.
+ */
+immutable(ubyte)[] raiseLevel(immutable(ubyte)[] signed, SignatureLevel level, scope LevelStep addSignatureTimestamp,
+    scope LevelStep addValidationData, scope LevelStep addArchiveTimestamp, bool alreadyTimestamped = false) @safe {
+  if (level == SignatureLevel.b) return signed;
+  if (!alreadyTimestamped) signed = addSignatureTimestamp(signed);
+  if (level == SignatureLevel.t) return signed;
+  signed = addValidationData(signed);
+  if (level == SignatureLevel.lt) return signed;
+  return addArchiveTimestamp(signed);
 }
 
 /// Cómo arma una firma cada formato a partir del valor que devuelve el dispositivo.
@@ -99,16 +133,9 @@ struct SignatureAssembly {
  * `assemble` puede lanzar ReportedSigningFailure después de avisar por su cuenta.
  */
 immutable(ubyte)[] signWithCard(GuiInterface gui, CardSignInfo card,
-    scope SignatureAssembly delegate(SigningKey key) @safe assemble) @trusted {
+    scope SignatureAssembly delegate(SigningKey key) @safe assemble) @safe {
   gui.nextStep(t("signers_getting_verification_services"));
-  SigningKey signingKey;
-  try {
-    signingKey = openSigningKey(gui, card);
-  } catch (ReportedSigningFailure) {
-    return null;
-  }
-  scope (exit) signingKey.close();
-  try {
+  return withSigningKey!(immutable(ubyte)[])(gui, card, "Error al solicitar firma al dispositivo", (signingKey) {
     gui.nextStep(t("signers_getting_card_certificates"));
     requireValidCertificate(gui, signingKey.certificate);
     gui.nextStep(t("signers_getting_tsp_services"));
@@ -125,13 +152,7 @@ immutable(ubyte)[] signWithCard(GuiInterface gui, CardSignInfo card,
     auto result = upgradeOrFallBack(gui, &upgraded, &baseline);
     if (result !is null) gui.nextStep(t("signers_document_sign_complete"));
     return result;
-  } catch (ReportedSigningFailure) {
-    return null;
-  } catch (Exception exception) {
-    error("Error al solicitar firma al dispositivo: ", exception.msg);
-    gui.showError(exception);
-    return null;
-  }
+  });
 }
 
 /**

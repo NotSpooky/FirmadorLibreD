@@ -61,14 +61,8 @@ DocumentValidationResult validateCades(immutable(ubyte)[] cms, string documentNa
     hasContent = true;
   }
   foreach (index, signer; data.signerInfos) {
-    auto pool = CertificatePool.withNationalHierarchy();
-    pool.addAll(data.certificates);
-    PathContext context;
-    context.pool = pool;
-    context.source = source;
-    context.allowOnline = allowOnline;
-    context.validationTime = result.validationTime;
-    context.bestSignatureTime = result.validationTime;
+    auto context = pathContext(source, allowOnline, result.validationTime);
+    context.pool.addAll(data.certificates);
     context.embeddedOcsp = data.ocspResponses;
     context.embeddedCrls = data.crls;
     auto signature = validateCadesSigner(data, signer, hasContent, content, context);
@@ -80,8 +74,8 @@ DocumentValidationResult validateCades(immutable(ubyte)[] cms, string documentNa
   return result;
 }
 
-/// Valida un firmante del SignedData (también lo usa la validación ASiC-CAdES).
-SignatureResult validateCadesSigner(const SignedData data, const SignerInfo signer, bool hasContent,
+/// Valida un firmante del SignedData.
+private SignatureResult validateCadesSigner(const SignedData data, const SignerInfo signer, bool hasContent,
     const(ubyte)[] content, PathContext baseContext) @trusted {
   SignatureResult signature;
   Verdict verdict;
@@ -101,32 +95,21 @@ SignatureResult validateCadesSigner(const SignedData data, const SignerInfo sign
   bool hasSignatureTimestamp, hasArchiveTimestamp;
   foreach (attribute; signer.unsignedAttributesOf(oidSignatureTimeStampToken)) {
     hasSignatureTimestamp = true;
-    try {
-      auto token = parseTimeStampToken(attribute.values[0].raw);
-      baseContext.pool.addAll(token.signedData.certificates);
-      PathContext timestampContext = baseContext;
-      signature.timestamps ~= validateTimestamp(token, signer.signature, TimestampResult.Kind.signature, timestampContext);
-    } catch (Exception exception) {
-      warning("Sello de firma ilegible: ", exception.msg);
-      signature.timestamps ~= unreadableTimestamp(TimestampResult.Kind.signature, exception.msg);
-    }
+    signature.timestamps ~= readTimestamp(TimestampResult.Kind.signature, "la firma CAdES",
+      () => parseTimeStampToken(attribute.values[0].raw), (token) => signer.signature, baseContext);
   }
   foreach (attribute; signer.unsignedAttributesOf(oidArchiveTimestampV3)) {
     hasArchiveTimestamp = true;
-    try {
-      auto token = parseTimeStampToken(attribute.values[0].raw);
-      baseContext.pool.addAll(token.signedData.certificates);
-      auto check = checkAtsHashIndex(data, signer, token);
-      auto contentDigest = hasContent ? digestOf(token.info.imprintAlgorithm, content) : null;
-      auto stampedData = archiveTimestampV3Data(data, signer, contentDigest, check.hashIndex);
-      PathContext timestampContext = baseContext;
-      auto stamped = validateTimestamp(token, stampedData, TimestampResult.Kind.archive, timestampContext);
-      if (!check.complete) stamped.messages ~= message(ValidationMessage.Level.warning, "validation_ats_hash_index_incomplete");
-      signature.timestamps ~= stamped;
-    } catch (Exception exception) {
-      warning("Sello de archivo ilegible: ", exception.msg);
-      signature.timestamps ~= unreadableTimestamp(TimestampResult.Kind.archive, exception.msg);
-    }
+    bool completeIndex = true;
+    auto stamped = readTimestamp(TimestampResult.Kind.archive, "la firma CAdES",
+      () => parseTimeStampToken(attribute.values[0].raw), (token) {
+        auto check = checkAtsHashIndex(data, signer, token);
+        completeIndex = check.complete;
+        auto contentDigest = hasContent ? digestOf(token.info.imprintAlgorithm, content) : null;
+        return archiveTimestampV3Data(data, signer, contentDigest, check.hashIndex);
+      }, baseContext);
+    if (!completeIndex) stamped.messages ~= message(ValidationMessage.Level.warning, "validation_ats_hash_index_incomplete");
+    signature.timestamps ~= stamped;
   }
   bool hasValues = data.crls.length || data.ocspResponses.length;
   return concludeSignature(signature, verdict, cryptographic.signingCertificate, baseContext,

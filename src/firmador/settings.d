@@ -68,6 +68,15 @@ struct FontStyle {
   bool italic;
 }
 
+/**
+ * Campos que el constructor de copia de Settings no copia, como el de la versión Java:
+ * los oyentes, los orígenes autorizados, la posición exacta de la vista previa, la
+ * contraseña del almacén y lo que es de la ejecución.
+ */
+private enum string[] notCopiedFields = ["signXf", "signYf", "registeredAllowedOrigins", "tempAllowedHosts",
+  "noAuthorizedHosts", "extendDocument", "startFimadorRemote", "allowOriginPort", "keyPassword", "simplified_mode",
+  "listeners"];
+
 /// Receptor de cambios de configuración (ConfigListener).
 alias ConfigListener = void delegate();
 
@@ -92,8 +101,6 @@ final class Settings {
   string dateFormat = "dd/MM/yyyy hh:mm:ss a";
   string dateFormatEn = "MM/dd/yyyy hh:mm:ss a";
   string defaultSignMessage;
-  int signWidth = 133;
-  int signHeight = 33;
   int fontSize = 7;
   /// Tamaño de la imagen dentro de la firma; 0 deja el tamaño natural.
   int signImageWidth = 0;
@@ -112,6 +119,12 @@ final class Settings {
   /// Posición exacta en puntos PDF que deja la previsualización (no viaja en JSON).
   Nullable!float signXf;
   Nullable!float signYf;
+  /**
+   * Escala de la firma visible de este documento, elegida en la vista previa: multiplica
+   * fontSize y el tamaño de la imagen (1 = tal cual; límites en configuration.d). No
+   * viaja en JSON.
+   */
+  float signScale = 1;
   /// Imagen de la firma: ruta, URI file: o, desde Firmador Remoto, data:image/png;base64,….
   string image = null;
   string fontAlignment = "RIGHT";
@@ -180,56 +193,18 @@ final class Settings {
     defaultSignMessage = translate("configpanel_default_sign_message", language, country);
   }
 
-  /// Copia los ajustes de firma de otro, como el constructor de copia de Java (sin oyentes ni orígenes).
+  /**
+   * Copia los ajustes de firma de otro, como el constructor de copia de Java: todos los
+   * campos salvo los de notCopiedFields (oyentes, orígenes, posición exacta…); las listas
+   * se copian para no compartirlas.
+   */
   this(const Settings other) @safe {
-    withoutVisibleSign = other.withoutVisibleSign;
-    hideSignatureAdvice = other.hideSignatureAdvice;
-    overwriteSourceFile = other.overwriteSourceFile;
-    reason = other.reason;
-    place = other.place;
-    contact = other.contact;
-    dateFormat = other.dateFormat;
-    dateFormatEn = other.dateFormatEn;
-    defaultSignMessage = other.defaultSignMessage;
-    signWidth = other.signWidth;
-    signHeight = other.signHeight;
-    fontSize = other.fontSize;
-    font = other.font;
-    fontColor = other.fontColor;
-    backgroundColor = other.backgroundColor;
-    extraPKCS11Lib = other.extraPKCS11Lib;
-    signX = other.signX;
-    signY = other.signY;
-    image = other.image;
-    fontAlignment = other.fontAlignment;
-    signRotation = other.signRotation;
-    previewZoom = other.previewZoom;
-    showLogs = other.showLogs;
-    advancedLogs = other.advancedLogs;
-    showTrayNotifications = other.showTrayNotifications;
-    pageNumber = other.pageNumber;
-    portNumber = other.portNumber;
-    pAdESLevel = other.pAdESLevel;
-    xAdESLevel = other.xAdESLevel;
-    cAdESLevel = other.cAdESLevel;
-    jAdESLevel = other.jAdESLevel;
-    sofficePath = other.sofficePath;
-    pDFImgScaleFactor = other.pDFImgScaleFactor;
-    isVisibleSignature = other.isVisibleSignature;
-    signASiC = other.signASiC;
-    forceCades = other.forceCades;
-    language = other.language;
-    country = other.country;
-    themeMode = other.themeMode;
-    onlyimage = other.onlyimage;
-    startwindowstate = other.startwindowstate;
-    max_number_process_doc = other.max_number_process_doc;
-    signImageWidth = other.signImageWidth;
-    signImageHeight = other.signImageHeight;
-    preferredBrowser = other.preferredBrowser;
-    activePlugins = other.activePlugins.dup;
-    availablePlugins = other.availablePlugins.dup;
-    pKCS12File = other.pKCS12File.dup;
+    static foreach (index, field; Settings.tupleof) {{
+      static if (!notCopiedFields.canFind(__traits(identifier, field))) {
+        static if (is(typeof(field) == string[])) this.tupleof[index] = other.tupleof[index].dup;
+        else this.tupleof[index] = other.tupleof[index];
+      }
+    }}
   }
 
   /// Orígenes autorizados, permanentes y de esta sesión, sin repetidos.
@@ -554,6 +529,27 @@ float floatFromProperty(string value, out bool valid) pure @safe {
   }
 }
 
+/**
+ * Campos de config.properties que se leen y escriben tal cual (texto, entero o «true» /
+ * «false»): el nombre del campo y su clave, las de la versión Java («singx» incluida). Los
+ * demás tienen su propia conversión en applyProperties y settingsToProperties.
+ */
+private enum string[2][] propertyKeys = [
+  ["withoutVisibleSign", "withoutvisiblesign"], ["showLogs", "showlogs"], ["overwriteSourceFile", "overwritesourcefile"],
+  ["reason", "reason"], ["place", "place"], ["contact", "contact"], ["dateFormat", "dateformat"],
+  ["defaultSignMessage", "defaultsignmessage"], ["pageNumber", "pagenumber"], ["fontSize", "fontsize"],
+  ["font", "font"], ["fontColor", "fontcolor"], ["backgroundColor", "backgroundcolor"], ["signX", "singx"],
+  ["signY", "singy"], ["fontAlignment", "fontalignment"], ["signRotation", "signrotation"],
+  ["previewZoom", "previewzoom"], ["pAdESLevel", "padesLevel"], ["xAdESLevel", "xadesLevel"],
+  ["cAdESLevel", "cadesLevel"], ["jAdESLevel", "jadesLevel"], ["sofficePath", "sofficePath"],
+  ["language", "language"], ["country", "country"], ["startwindowstate", "startwindowstate"],
+  ["themeMode", "themeMode"], ["showTrayNotifications", "showTrayNotifications"],
+  ["max_number_process_doc", "max_number_process_doc"], ["signImageWidth", "signImageWidth"],
+  ["signImageHeight", "signImageHeight"], ["startFimadorRemote", "startFimadorRemote"],
+  ["allowOriginPort", "allowOriginPort"], ["preferredBrowser", "preferredBrowser"],
+  ["registeredAllowedOrigins", "registeredAllowedOrigins"],
+];
+
 /// Fuente de la contraseña del almacén de tokens al leer config.properties.
 enum KeyPasswordSource { secureStore, settingsFile, generated }
 
@@ -576,35 +572,20 @@ void applyProperties(Settings conf, const string[string] props) @safe {
     return get(key, fallback.to!string).strip.to!int;
   }
 
-  conf.withoutVisibleSign = getBool("withoutvisiblesign", conf.withoutVisibleSign);
-  conf.showLogs = getBool("showlogs", conf.showLogs);
+  static foreach (entry; propertyKeys) {{
+    alias Type = typeof(__traits(getMember, conf, entry[0]));
+    static if (is(Type == bool)) {
+      __traits(getMember, conf, entry[0]) = getBool(entry[1], __traits(getMember, conf, entry[0]));
+    } else static if (is(Type == int)) {
+      __traits(getMember, conf, entry[0]) = getInt(entry[1], __traits(getMember, conf, entry[0]));
+    } else {
+      __traits(getMember, conf, entry[0]) = get(entry[1], __traits(getMember, conf, entry[0]));
+    }
+  }}
   string advancedLogsRaw = get("advancedlogs", conf.advancedLogs);
   conf.advancedLogs = icmp(advancedLogsRaw, "true") == 0 ? "ALL"
     : icmp(advancedLogsRaw, "false") == 0 ? "INFO" : advancedLogsRaw;
-  conf.overwriteSourceFile = getBool("overwritesourcefile", conf.overwriteSourceFile);
-  conf.reason = get("reason", conf.reason);
-  conf.place = get("place", conf.place);
-  conf.contact = get("contact", conf.contact);
-  conf.dateFormat = get("dateformat", conf.dateFormat);
-  conf.defaultSignMessage = get("defaultsignmessage", conf.defaultSignMessage);
-  conf.pageNumber = getInt("pagenumber", conf.pageNumber);
-  conf.signWidth = getInt("signwidth", conf.signWidth);
-  conf.signHeight = getInt("signheight", conf.signHeight);
-  conf.fontSize = getInt("fontsize", conf.fontSize);
-  conf.font = get("font", conf.font);
-  conf.fontColor = get("fontcolor", conf.fontColor);
-  conf.backgroundColor = get("backgroundcolor", conf.backgroundColor);
-  conf.signX = getInt("singx", conf.signX);
-  conf.signY = getInt("singy", conf.signY);
   conf.image = "image" in props ? props["image"] : null;
-  conf.fontAlignment = get("fontalignment", conf.fontAlignment);
-  conf.signRotation = get("signrotation", conf.signRotation);
-  conf.previewZoom = get("previewzoom", conf.previewZoom);
-  conf.pAdESLevel = get("padesLevel", conf.pAdESLevel);
-  conf.xAdESLevel = get("xadesLevel", conf.xAdESLevel);
-  conf.cAdESLevel = get("cadesLevel", conf.cAdESLevel);
-  conf.jAdESLevel = get("jadesLevel", conf.jAdESLevel);
-  conf.sofficePath = get("sofficePath", conf.sofficePath);
   conf.extraPKCS11Lib = "extrapkcs11Lib" in props ? props["extrapkcs11Lib"] : null;
   conf.pKCS12File = listFromProperty(get(pkcs12Key, ""), (pkcs12Key in props) !is null, conf.pKCS12File);
   conf.activePlugins = listFromProperty(get(pluginsKey, ""), (pluginsKey in props) !is null, conf.activePlugins);
@@ -612,18 +593,6 @@ void applyProperties(Settings conf, const string[string] props) @safe {
   string scaleText = get("pdfimgscalefactor", "1.00");
   conf.pDFImgScaleFactor = floatFromProperty(scaleText, validScale);
   if (!validScale) error(format("Valor decimal inválido en la configuración: «%s», se usa 1", scaleText));
-  conf.language = get("language", conf.language);
-  conf.country = get("country", conf.country);
-  conf.startwindowstate = get("startwindowstate", conf.startwindowstate);
-  conf.themeMode = get("themeMode", conf.themeMode);
-  conf.showTrayNotifications = getBool("showTrayNotifications", conf.showTrayNotifications);
-  conf.max_number_process_doc = getInt("max_number_process_doc", conf.max_number_process_doc);
-  conf.registeredAllowedOrigins = get("registeredAllowedOrigins", "");
-  conf.signImageWidth = getInt("signImageWidth", conf.signImageWidth);
-  conf.signImageHeight = getInt("signImageHeight", conf.signImageHeight);
-  conf.startFimadorRemote = getBool("startFimadorRemote", conf.startFimadorRemote);
-  conf.allowOriginPort = getBool("allowOriginPort", conf.allowOriginPort);
-  conf.preferredBrowser = get("preferredBrowser", conf.preferredBrowser);
   if (auto simplified = "simplifiedMode" in props) {
     // La versión Java guardaba "null" antes de que se eligiera el modo.
     if (*simplified == "null") conf.simplified_mode.nullify();
@@ -643,46 +612,17 @@ string[string] settingsToProperties(const Settings conf, const string[string] ex
   string[string] props;
   foreach (key, value; existing) props[key] = value;
   string boolText(bool value) { return value ? "true" : "false"; }
-  props["withoutvisiblesign"] = boolText(conf.withoutVisibleSign);
-  props["overwritesourcefile"] = boolText(conf.overwriteSourceFile);
-  props["reason"] = conf.reason;
-  props["place"] = conf.place;
-  props["contact"] = conf.contact;
-  props["dateformat"] = conf.dateFormat;
-  props["defaultsignmessage"] = conf.defaultSignMessage;
-  props["pagenumber"] = conf.pageNumber.to!string;
-  props["signwidth"] = conf.signWidth.to!string;
-  props["signheight"] = conf.signHeight.to!string;
-  props["fontsize"] = conf.fontSize.to!string;
-  props["font"] = conf.font;
-  props["fontcolor"] = conf.fontColor;
-  props["backgroundcolor"] = conf.backgroundColor;
-  props["singx"] = conf.signX.to!string;
-  props["singy"] = conf.signY.to!string;
-  props["fontalignment"] = conf.fontAlignment;
-  props["signrotation"] = conf.signRotation;
-  props["previewzoom"] = conf.previewZoom;
-  props["showlogs"] = boolText(conf.showLogs);
+  static foreach (entry; propertyKeys) {{
+    alias Type = typeof(__traits(getMember, Settings, entry[0]));
+    auto value = __traits(getMember, conf, entry[0]);
+    static if (is(Type == bool)) props[entry[1]] = boolText(value);
+    else static if (is(Type == int)) props[entry[1]] = value.to!string;
+    else props[entry[1]] = value;
+  }}
   props["advancedlogs"] = conf.advancedLogs;
   props["pdfimgscalefactor"] = format("%.2f", conf.pDFImgScaleFactor);
-  props["padesLevel"] = conf.pAdESLevel;
-  props["xadesLevel"] = conf.xAdESLevel;
-  props["cadesLevel"] = conf.cAdESLevel;
-  props["jadesLevel"] = conf.jAdESLevel;
-  props["sofficePath"] = conf.sofficePath;
-  props["language"] = conf.language;
-  props["country"] = conf.country;
-  props["startwindowstate"] = conf.startwindowstate;
-  props["themeMode"] = conf.themeMode;
-  props["showTrayNotifications"] = boolText(conf.showTrayNotifications);
-  props["max_number_process_doc"] = conf.max_number_process_doc.to!string;
-  props["signImageWidth"] = conf.signImageWidth.to!string;
-  props["signImageHeight"] = conf.signImageHeight.to!string;
-  props["startFimadorRemote"] = boolText(conf.startFimadorRemote);
-  props["allowOriginPort"] = boolText(conf.allowOriginPort);
   if (obfuscatedKeyPassword !is null) props["keyPassword"] = obfuscatedKeyPassword;
   else props.remove("keyPassword");
-  props["preferredBrowser"] = conf.preferredBrowser;
   props["simplifiedMode"] = conf.simplified_mode.isNull ? "null" : boolText(conf.simplified_mode.get);
   props[pluginsKey] = conf.activePlugins.join("|");
   if (conf.extraPKCS11Lib.length) props["extrapkcs11Lib"] = conf.extraPKCS11Lib;
@@ -690,16 +630,26 @@ string[string] settingsToProperties(const Settings conf, const string[string] ex
   props[pkcs12Key] = conf.pKCS12File.join("|");
   if (conf.image !is null) props["image"] = conf.image;
   else props.remove("image");
-  props["registeredAllowedOrigins"] = conf.registeredAllowedOrigins;
+  foreach (string retired; retiredPropertyKeys) props.remove(retired);
   return props;
 }
 
+/**
+ * Claves de config.properties que ya no se usan (el ancho y el alto de la firma, que nunca
+ * cambiaron el recuadro: lo mide su contenido, escalado por signScale). Se quitan al guardar.
+ */
+private immutable string[] retiredPropertyKeys = ["signwidth", "signheight"];
+
 /// Campos que se guardan en la configuración de un documento (docSettingsToProperties).
 immutable string[] documentSettingsFields = [
-  "country", "reason", "pDFImgScaleFactor", "signWidth", "fontSize", "language", "cAdESLevel", "signX", "pageNumber",
-  "backgroundColor", "signY", "fontAlignment", "contact", "fontColor", "place", "image", "signHeight", "pAdESLevel",
+  "country", "reason", "pDFImgScaleFactor", "fontSize", "language", "cAdESLevel", "signX", "pageNumber",
+  "backgroundColor", "signY", "fontAlignment", "contact", "fontColor", "place", "image", "pAdESLevel",
   "overwriteSourceFile", "xAdESLevel", "dateFormat", "withoutVisibleSign", "defaultSignMessage", "font", "jAdESLevel",
+  "signScale",
 ];
+
+/// Campos que ya no se usan y que traen las configuraciones de documento guardadas antes; se ignoran.
+private immutable string[] retiredDocumentFields = ["signWidth", "signHeight"];
 
 /// Entradas de la configuración de un documento, con los nombres de campo como claves.
 string[string] documentSettingsToProperties(const Settings settings) @safe {
@@ -726,7 +676,7 @@ string[string] documentSettingsToProperties(const Settings settings) @safe {
  */
 void applyDocumentProperties(Settings settings, const string[string] props) @safe {
   foreach (key, value; props) {
-    bool known = false;
+    bool known = retiredDocumentFields.canFind(key);
     static foreach (field; documentSettingsFields) {
       if (key == field) {
         known = true;
@@ -764,7 +714,7 @@ string javaFloatText(float value) pure @safe {
 unittest {
   auto conf = new Settings();
   applyProperties(conf, null);
-  assert(conf.signWidth == 133 && conf.signHeight == 33 && conf.signX == 198);
+  assert(conf.signX == 198 && conf.fontSize == 7);
   assert(conf.pAdESLevel == "LTA" && conf.language == "es" && conf.allowOriginPort);
   assert(conf.activePlugins == [dummyPluginName, checkUpdatePluginName]);
   assert(conf.simplified_mode.isNull);
@@ -801,6 +751,19 @@ unittest {
   applyProperties(again, props);
   assert(again.reason == "Aprobación" && again.pKCS12File == ["/x.p12"]);
   assert(again.isSimplifiedMode && again.extraPKCS11Lib == "/opt/lib.so");
+  // Cada campo de la tabla de claves vuelve con el valor que se escribió.
+  auto changed = new Settings();
+  static foreach (entry; propertyKeys) {{
+    alias Type = typeof(__traits(getMember, Settings, entry[0]));
+    static if (is(Type == bool)) __traits(getMember, changed, entry[0]) = !__traits(getMember, changed, entry[0]);
+    else static if (is(Type == int)) __traits(getMember, changed, entry[0]) = 42;
+    else __traits(getMember, changed, entry[0]) = "valor de " ~ entry[0];
+  }}
+  auto reread = new Settings();
+  applyProperties(reread, settingsToProperties(changed, null, null));
+  static foreach (entry; propertyKeys) {
+    assert(__traits(getMember, reread, entry[0]) == __traits(getMember, changed, entry[0]), entry[0]);
+  }
 }
 
 @("should manage allowed and rejected origins without duplicates when editing the host lists")
@@ -873,5 +836,9 @@ unittest {
   assert(loaded.reason == "Motivo" && loaded.pDFImgScaleFactor == 1.5f && loaded.overwriteSourceFile);
   import std.exception : assertThrown;
   assertThrown(applyDocumentProperties(loaded, ["desconocido": "1"]));
-  assertThrown(applyDocumentProperties(loaded, ["signWidth": "ancho"]));
+  assertThrown(applyDocumentProperties(loaded, ["fontSize": "grande"]));
+  // Las guardadas con el ancho y el alto de la firma, que ya no existen, se siguen leyendo.
+  applyDocumentProperties(loaded, ["signWidth": "133", "signHeight": "33", "reason": "Otro"]);
+  assert(loaded.reason == "Otro");
+  assert("signwidth" !in settingsToProperties(new Settings(), ["signwidth": "133"], null));
 }

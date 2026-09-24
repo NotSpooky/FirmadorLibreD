@@ -32,7 +32,6 @@ module firmador.gui.shell;
 
 import std.algorithm : canFind, map;
 import std.array : array, replace, split;
-import std.base64 : Base64;
 import std.exception : enforce;
 import std.file : exists, isFile, mkdirRecurse, read, readText, write;
 import std.format : format;
@@ -56,6 +55,7 @@ import firmador.settingsjson : settingsFromJson;
 import firmador.settingsmanager : currentSettings;
 import firmador.signers.common : rootCause;
 import firmador.tokens.token : SecretPin;
+import firmador.util.base64 : encodeBase64;
 import firmador.util.json;
 import firmador.util.png : encodePng;
 
@@ -216,9 +216,14 @@ JSONValue itemResult(string externalId, JSONValue fields, string errorMessage) @
   return result;
 }
 
+/// El texto en una sola línea: un salto de línea desincronizaría al cliente del protocolo.
+string singleLine(string text) pure @safe {
+  return text.replace("\r", " ").replace("\n", " ");
+}
+
 /// Las dos líneas de un error del protocolo.
 string[2] errorLines(string message) pure @safe {
-  return [statusError, "ERROR: " ~ message.replace("\r", " ").replace("\n", " ")];
+  return [statusError, "ERROR: " ~ singleLine(message)];
 }
 
 /// Interfaz del modo: todo lo que no es protocolo va a la salida de error.
@@ -356,8 +361,8 @@ final class ShellInterface : ConsoleInterface {
       if (parent.length && !exists(parent)) mkdirRecurse(parent);
       write(fileOutput, toJSON(response, true));
       info("Respuesta guardada en ", fileOutput);
-      // La ruta viene del JSON y puede traer saltos de línea que desincronizarían al cliente.
-      secondLine = outputMessage ~ fileOutput.replace("\r", " ").replace("\n", " ");
+      // La ruta viene del JSON y puede traer saltos de línea.
+      secondLine = outputMessage ~ singleLine(fileOutput);
     } else {
       secondLine = toJSON(response);
     }
@@ -371,33 +376,64 @@ final class ShellInterface : ConsoleInterface {
    * identificador ni dispositivos visibles se usa la primera ranura PKCS#11.
    */
   private CardSignInfo requireCard(string serialNumber, const(char)[] pin) @trusted {
-    bool anyDevice = serialNumber.strip.length == 0;
-    CardSignInfo[] matches;
+    CardSignInfo[] cards;
     try {
-      foreach (card; detector.readSaveListSmartCard()) {
-        if (anyDevice || matchesIdentifier(card, serialNumber)) matches ~= card;
-      }
+      cards = detector.readSaveListSmartCard();
     } catch (Exception exception) {
       showError(exception);
     }
+    auto choice = chooseCard(cards, serialNumber, false);
     CardSignInfo card;
-    if (matches.length == 1) {
-      card = matches[0];
-    } else if (matches.length == 0 && anyDevice) {
-      warning("No se detectaron dispositivos; se firmará con el primer slot PKCS#11 disponible");
-      card = createPinOnlyCard(null);
-    } else if (matches.length == 0) {
-      printError("No se encontró un dispositivo de firma con el identificador: " ~ serialNumber);
-      return null;
-    } else {
-      string candidates = matches.map!(match => "\n  - " ~ match.displayInfo).join;
-      printError((anyDevice ? "Hay varios dispositivos de firma disponibles: indique 'serialnumber' en el JSON."
-        : "El identificador '" ~ serialNumber ~ "' coincide con más de un dispositivo; use el número de serie del "
-          ~ "certificado o la ruta completa del .p12.") ~ candidates);
-      return null;
+    final switch (choice.kind) {
+      case CardChoice.Kind.found:
+        card = cards[choice.matches[0]];
+        break;
+      case CardChoice.Kind.pinOnly:
+        warning("No se detectaron dispositivos; se firmará con el primer slot PKCS#11 disponible");
+        card = createPinOnlyCard(null);
+        break;
+      case CardChoice.Kind.notFound:
+        printError("No se encontró un dispositivo de firma con el identificador: " ~ serialNumber);
+        return null;
+      case CardChoice.Kind.ambiguous:
+        string candidates = choice.matches.map!(index => "\n  - " ~ cards[index].displayInfo).join;
+        printError((serialNumber.strip.length == 0
+          ? "Hay varios dispositivos de firma disponibles: indique 'serialnumber' en el JSON."
+          : "El identificador '" ~ serialNumber ~ "' coincide con más de un dispositivo; use el número de serie del "
+            ~ "certificado o la ruta completa del .p12.") ~ candidates);
+        return null;
     }
     card.pin = new SecretPin(pin);
     return card;
+  }
+
+  /**
+   * Hace `process` con cada elemento y arma su resultado (itemResult); un error se
+   * informa y queda en su resultado. Si `abortRest` se enciende, los que faltan quedan
+   * sin intentar.
+   *
+   * Returns: los resultados; `allOk` dice si todos salieron bien.
+   */
+  private JSONValue[] collectResults(Item)(Item[] items, scope JSONValue delegate(Item item) @safe process,
+      scope bool delegate() @safe abortRest, out bool allOk) @trusted {
+    allOk = true;
+    JSONValue[] results;
+    foreach (index, item; items) {
+      try {
+        results ~= itemResult(item.externalId, process(item), null);
+      } catch (Exception exception) {
+        allOk = false;
+        auto cause = rootCause(exception);
+        showError(cause);
+        results ~= itemResult(item.externalId, JSONValue(null), cause.msg.idup);
+      }
+      if (abortRest()) {
+        allOk = false;
+        foreach (skipped; items[index + 1 .. $]) results ~= itemResult(skipped.externalId, JSONValue(null), notAttempted);
+        break;
+      }
+    }
+    return results;
   }
 
   /// Firma cada elemento con la misma credencial; aborta el resto si el PIN falla.
@@ -408,26 +444,10 @@ final class ShellInterface : ConsoleInterface {
     if (card is null) return;
     // La credencial se comparte entre documentos: el PIN se destruye al terminar el lote.
     scope (exit) card.destroyPin();
-    bool allOk = true;
-    JSONValue[] results;
-    foreach (index, item; batch.commands) {
-      try {
-        results ~= itemResult(item.externalId, signOne(item, card), null);
-      } catch (Exception exception) {
-        allOk = false;
-        auto cause = rootCause(exception);
-        showError(cause);
-        results ~= itemResult(item.externalId, JSONValue(null), cause.msg.idup);
-      }
-      if (authenticationFailed) {
-        allOk = false;
-        foreach (skipped; batch.commands[index + 1 .. $]) results ~= itemResult(skipped.externalId, JSONValue(null),
-          notAttempted);
-        break;
-      }
-    }
+    bool allOk;
     JSONValue response;
-    response[listName] = results;
+    response[listName] = collectResults(batch.commands, (Item item) => signOne(item, card), () => authenticationFailed,
+      allOk);
     emit(response, batch.fileOutput, outputMessage, allOk);
   }
 
@@ -435,12 +455,9 @@ final class ShellInterface : ConsoleInterface {
     executeBatch!SignItem(batch, pin, "Documento firmado guardado en: ", "listResponseSignDocuments",
       (SignItem item, CardSignInfo card) @trusted {
         enforce(exists(item.filePath) && isFile(item.filePath), "El archivo no existe - " ~ item.filePath);
-        auto document = new Document(this, item.filePath);
-        if (item.settings !is null) document.setSettings(item.settings);
-        document.sign(card);
-        enforce(document.signedContent !is null, "No se pudo generar el documento firmado");
+        auto document = signWith(new Document(this, item.filePath), item.settings, card);
         JSONValue fields;
-        fields["base64SignedDocument"] = Base64.encode(document.signedContent).idup;
+        fields["base64SignedDocument"] = encodeBase64(document.signedContent);
         return fields;
       });
   }
@@ -452,10 +469,7 @@ final class ShellInterface : ConsoleInterface {
   private void executeSignRemote(ShellBatch!SignRemoteItem batch, const(char)[] pin) @trusted {
     executeBatch!SignRemoteItem(batch, pin, "Firma remota guardada en: ", "listResponseRemoteDocuments",
       (SignRemoteItem item, CardSignInfo card) @trusted {
-        auto document = new Document(this, item.document, item.documentName);
-        if (item.settings !is null) document.setSettings(item.settings);
-        document.sign(card);
-        enforce(document.signedContent !is null, "No se pudo generar el documento firmado");
+        auto document = signWith(new Document(this, item.document, item.documentName), item.settings, card);
         JSONValue fields;
         fields["remoteDocument"] = remoteDocumentJson(document.signedContent, document.pathToSaveName);
         return fields;
@@ -463,25 +477,16 @@ final class ShellInterface : ConsoleInterface {
   }
 
   private void executeValidate(ShellBatch!ValidateItem batch) @trusted {
-    bool allOk = true;
-    JSONValue[] results;
-    foreach (item; batch.commands) {
-      try {
-        enforce(exists(item.filePath) && isFile(item.filePath), "El archivo no existe - " ~ item.filePath);
-        auto document = new Document(this, item.filePath);
-        document.validate();
-        JSONValue fields;
-        fields["report"] = htmlToText(document.report);
-        results ~= itemResult(item.externalId, fields, null);
-      } catch (Exception exception) {
-        allOk = false;
-        auto cause = rootCause(exception);
-        showError(cause);
-        results ~= itemResult(item.externalId, JSONValue(null), cause.msg.idup);
-      }
-    }
+    bool allOk;
     JSONValue response;
-    response["listValidateDocumentResponses"] = results;
+    response["listValidateDocumentResponses"] = collectResults(batch.commands, (ValidateItem item) @trusted {
+      enforce(exists(item.filePath) && isFile(item.filePath), "El archivo no existe - " ~ item.filePath);
+      auto document = new Document(this, item.filePath);
+      document.validate();
+      JSONValue fields;
+      fields["report"] = htmlToText(document.report);
+      return fields;
+    }, () => false, allOk);
     emit(response, batch.fileOutput, "Reporte guardado en: ", allOk);
   }
 
@@ -512,7 +517,7 @@ final class ShellInterface : ConsoleInterface {
         ~ (request.document.length ? "el documento recibido" : request.filePath));
     }
     string[] images;
-    foreach (page; 0 .. pages) images ~= Base64.encode(encodePng(previewer.renderPage(page))).idup;
+    foreach (page; 0 .. pages) images ~= encodeBase64(encodePng(previewer.renderPage(page)));
     JSONValue response;
     response["previewImages"] = images;
     emit(response, request.fileOutput, "Previsualización guardada en: ", true);

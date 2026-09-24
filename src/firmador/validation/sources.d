@@ -100,93 +100,74 @@ final class OnlineValidationSource : ValidationDataSource {
   }
 
   bool ocsp(const Certificate certificate, const Certificate issuer, out OcspResponse result, out string failure)
-      @trusted {
+      @safe {
     if (certificate.ocspUrls.length == 0) {
       failure = "El certificado no indica un servicio OCSP";
       return false;
     }
     auto request = buildOcspRequest(certificate, issuer);
-    foreach (url; certificate.ocspUrls) {
-      try {
-        auto response = httpPost(url, request, "application/ocsp-request", null, serviceOptions());
-        if (response.status != 200) {
-          failure = format("El servicio OCSP %s respondió %d", url, response.status);
-          warning(failure);
-          continue;
-        }
-        result = parseOcspResponse(response.body);
-        return true;
-      } catch (Exception exception) {
-        failure = format("Falló la consulta OCSP a %s: %s", url, exception.msg);
-        warning(failure);
-      }
-    }
-    return false;
+    return fromFirstUrl!OcspResponse(certificate.ocspUrls, (url) => parseOcspResponse(serviceBody("El servicio OCSP",
+      url, httpPost(url, request, "application/ocsp-request", null, serviceOptions()))), result, failure);
   }
 
-  bool crl(const Certificate certificate, out CertificateRevocationList list, out string failure) @trusted {
+  bool crl(const Certificate certificate, out CertificateRevocationList list, out string failure) @safe {
     if (certificate.crlUrls.length == 0) {
       failure = "El certificado no indica dónde está su CRL";
       return false;
     }
-    foreach (url; certificate.crlUrls) {
-      lock.lock();
-      auto cached = url in crlCache;
-      bool fresh = cached !is null && (cached.nextUpdate.isNull || cached.nextUpdate.get > Clock.currTime);
-      if (fresh) {
-        list = *cached;
-        lock.unlock();
-        return true;
+    return fromFirstUrl!CertificateRevocationList(certificate.crlUrls, (url) {
+      synchronized (lock) {
+        auto cached = url in crlCache;
+        if (cached !is null && (cached.nextUpdate.isNull || cached.nextUpdate.get > Clock.currTime)) return *cached;
       }
-      lock.unlock();
-      try {
-        auto response = httpGet(url, null, serviceOptions());
-        if (response.status != 200) {
-          failure = format("La CRL %s respondió %d", url, response.status);
-          warning(failure);
-          continue;
-        }
-        list = parseCrl(response.body);
-        lock.lock();
-        crlCache[url] = list;
-        lock.unlock();
-        return true;
-      } catch (Exception exception) {
-        failure = format("No se pudo descargar la CRL %s: %s", url, exception.msg);
-        warning(failure);
-      }
-    }
-    return false;
+      auto downloaded = parseCrl(serviceBody("La CRL", url, httpGet(url, null, serviceOptions())));
+      synchronized (lock) crlCache[url] = downloaded;
+      return downloaded;
+    }, list, failure);
   }
 
-  Certificate[] issuers(const Certificate certificate) @trusted {
+  Certificate[] issuers(const Certificate certificate) @safe {
     Certificate[] found;
-    foreach (url; certificate.caIssuersUrls) {
-      lock.lock();
-      auto cached = url in issuerCache;
-      lock.unlock();
-      if (cached !is null) {
-        found ~= *cached;
-        continue;
+    string failure;
+    fromFirstUrl!(Certificate[])(certificate.caIssuersUrls, (url) {
+      synchronized (lock) {
+        auto cached = url in issuerCache;
+        if (cached !is null && cached.length) return *cached;
       }
-      try {
-        auto response = httpGet(url, null, serviceOptions());
-        if (response.status != 200) {
-          warning(format("El certificado de emisor %s respondió %d", url, response.status));
-          continue;
-        }
-        auto downloaded = certificatesFromAia(response.body);
-        lock.lock();
-        issuerCache[url] = downloaded;
-        lock.unlock();
-        found ~= downloaded;
-        if (downloaded.length) break;
-      } catch (Exception exception) {
-        warning(format("No se pudo descargar el certificado de emisor %s: %s", url, exception.msg));
-      }
-    }
+      auto downloaded = certificatesFromAia(serviceBody("El certificado de emisor", url,
+        httpGet(url, null, serviceOptions())));
+      synchronized (lock) issuerCache[url] = downloaded;
+      enforce(downloaded.length, "La descarga no trae certificados");
+      return downloaded;
+    }, found, failure);
     return found;
   }
+}
+
+/// Cuerpo de la respuesta de un servicio de validación, si respondió 200.
+private const(ubyte)[] serviceBody(string service, string url, HttpResponse response) @safe {
+  enforce(response.status == 200, format("%s %s respondió %d", service, url, response.status));
+  return response.body;
+}
+
+/**
+ * Prueba las URL en orden hasta que `fetch` obtenga algo de una. Cada fallo se registra
+ * como aviso, porque se sigue con la siguiente, y el último queda en `failure`.
+ *
+ * Returns: true si alguna URL dio `result`.
+ */
+private bool fromFirstUrl(T)(const string[] urls, scope T delegate(string url) @safe fetch, out T result,
+    out string failure) @safe {
+  foreach (url; urls) {
+    try {
+      result = fetch(url);
+      return true;
+    } catch (Exception exception) {
+      failure = format("Falló la consulta a %s: %s", url, exception.msg);
+      warning(failure);
+    }
+  }
+  return false;
 }
 
 /// Sin servicios en línea (firma nivel B sin Internet, validación sin conexión).

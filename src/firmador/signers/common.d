@@ -122,6 +122,15 @@ final class SigningServices {
     return source.timestamp(DigestAlgorithm.sha256, digest);
   }
 
+  /**
+   * Datos de validación de lo que reúne cada formato para su nivel LT
+   * (xadesSigningMaterial, jadesSigningMaterial…): cadenas y revocación de sus
+   * `certificates`, sin repetir las revocaciones que la firma ya trae.
+   */
+  ValidationData validationData(ValidationData material) @safe {
+    return validationData(material.certificates, material.ocspResponses, material.crls);
+  }
+
   /// Datos de validación (cadenas y revocación) de los certificados, para los niveles LT.
   ValidationData validationData(Certificate[] certificates, const(ubyte[])[] embeddedOcsp = null,
       const(ubyte[])[] embeddedCrls = null) @safe {
@@ -129,13 +138,6 @@ final class SigningServices {
   }
 }
 
-/// El texto de la excepción (y de las que la causaron) contiene la marca.
-bool causeContains(Throwable failure, string marker) @safe {
-  for (Throwable current = failure; current !is null; current = current.next) {
-    if (current.msg.canFind(marker)) return true;
-  }
-  return false;
-}
 
 /// Excepción más interna de la cadena (getRootCause).
 Throwable rootCause(Throwable failure) @safe {
@@ -203,20 +205,38 @@ struct PreparedDataSignature {
  * Firma con SHA-256 bytes preparados por otro (BasicSigner.sign): abre la credencial, elige
  * la clave de no repudio y firma. Null si no se pudo; el motivo ya se mostró.
  */
-PreparedDataSignature* signPreparedData(GuiInterface gui, CardSignInfo card, const(ubyte)[] data) @trusted {
+PreparedDataSignature* signPreparedData(GuiInterface gui, CardSignInfo card, const(ubyte)[] data) @safe {
+  return withSigningKey!(PreparedDataSignature*)(gui, card, "Error al firmar los datos preparados",
+    (signingKey) => new PreparedDataSignature(signingKey.sign(data), signingKey.key.rsa, signingKey.certificate));
+}
+
+/**
+ * Abre la credencial, hace `use` con su clave y la cierra. Si no se puede abrir, o `use`
+ * falla, avisa (salvo que ya se avisó: ReportedSigningFailure) y devuelve `T.init`.
+ *
+ * Params:
+ *   gui = donde se avisa.
+ *   card = la credencial, con su PIN.
+ *   failureContext = qué se hacía, para la bitácora si `use` falla.
+ *   use = lo que se hace con la clave abierta.
+ */
+T withSigningKey(T)(GuiInterface gui, CardSignInfo card, string failureContext,
+    scope T delegate(SigningKey signingKey) @safe use) @safe {
   SigningKey signingKey;
   try {
     signingKey = openSigningKey(gui, card);
   } catch (ReportedSigningFailure) {
-    return null;
+    return T.init;
   }
   scope (exit) signingKey.close();
   try {
-    return new PreparedDataSignature(signingKey.sign(data), signingKey.key.rsa, signingKey.certificate);
+    return use(signingKey);
+  } catch (ReportedSigningFailure) {
+    return T.init;
   } catch (Exception exception) {
-    error("Error al firmar los datos preparados: ", exception.msg);
+    error(failureContext, ": ", exception.msg);
     gui.showError(exception);
-    return null;
+    return T.init;
   }
 }
 

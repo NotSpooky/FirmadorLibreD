@@ -33,10 +33,11 @@ import std.logger : trace, warning;
 import firmador.cms.tsp;
 import firmador.containers.asic;
 import firmador.crypto.digest;
-import firmador.signers.asic : containerResolver;
+import firmador.util.base64 : encodeBase64;
 import firmador.util.zip;
 import firmador.validation.certpath;
 import firmador.validation.cmsverify : validateTimestamp;
+import firmador.validation.conclusion : finishSignature, unreadableSignature, unreadableTimestamp;
 import firmador.validation.model;
 import firmador.validation.pool;
 import firmador.validation.sources;
@@ -104,10 +105,7 @@ private SignatureResult withVerdict(SignatureResult signature, const Verdict ext
   verdict.subIndication = signature.subIndication;
   verdict.messages = signature.messages.dup;
   verdict.absorb(extra);
-  signature.indication = verdict.isPassed ? Indication.totalPassed : verdict.indication;
-  signature.subIndication = verdict.subIndication;
-  signature.messages = verdict.messages;
-  return signature;
+  return finishSignature(signature, verdict, signature.format);
 }
 
 /**
@@ -135,13 +133,7 @@ DocumentValidationResult validateContainer(immutable(ubyte)[] container, string 
       result.signatures ~= signatures;
     } catch (Exception exception) {
       warning("Archivo de firmas ilegible en el contenedor: ", signatureFile.name, ": ", exception.msg);
-      SignatureResult unreadable;
-      unreadable.filename = signatureFile.name;
-      unreadable.format = "XAdES";
-      unreadable.indication = Indication.totalFailed;
-      unreadable.subIndication = SubIndication.formatFailure;
-      unreadable.messages ~= message(ValidationMessage.Level.error, "BBB_FC_IEFF_ANS", exception.msg);
-      result.signatures ~= unreadable;
+      result.signatures ~= unreadableSignature(signatureFile.name, "XAdES", exception.msg);
     }
   }
 
@@ -178,13 +170,7 @@ DocumentValidationResult validateContainer(immutable(ubyte)[] container, string 
       }
     } catch (Exception exception) {
       warning("Firma CAdES ilegible en el contenedor: ", signatureFile.name, ": ", exception.msg);
-      SignatureResult unreadable;
-      unreadable.filename = signatureFile.name;
-      unreadable.format = "CAdES";
-      unreadable.indication = Indication.totalFailed;
-      unreadable.subIndication = SubIndication.formatFailure;
-      unreadable.messages ~= message(ValidationMessage.Level.error, "BBB_FC_IEFF_ANS", exception.msg);
-      result.signatures ~= unreadable;
+      result.signatures ~= unreadableSignature(signatureFile.name, "CAdES", exception.msg);
     }
   }
 
@@ -194,15 +180,9 @@ DocumentValidationResult validateContainer(immutable(ubyte)[] container, string 
     TimestampResult stamped;
     try {
       auto token = parseTimeStampToken(timestampFile.content);
-      PathContext context;
-      context.pool = CertificatePool.withNationalHierarchy();
-      context.pool.addAll(token.signedData.certificates);
-      context.source = source;
-      context.allowOnline = allowOnline;
-      context.validationTime = result.validationTime;
-      context.bestSignatureTime = result.validationTime;
       if (coveredData(timestampFile.name, covered, manifestVerdict)) {
-        stamped = validateTimestamp(token, covered, TimestampResult.Kind.document, context);
+        stamped = validateTimestamp(token, covered, TimestampResult.Kind.document,
+          pathContext(source, allowOnline, result.validationTime));
         stamped.messages ~= manifestVerdict.messages;
         if (!manifestVerdict.isPassed) stamped.indication = Indication.failed;
       } else {
@@ -212,10 +192,8 @@ DocumentValidationResult validateContainer(immutable(ubyte)[] container, string 
         stamped.messages ~= message(ValidationMessage.Level.error, "BBB_CV_IRDOF_ANS");
       }
     } catch (Exception exception) {
-      stamped.kind = TimestampResult.Kind.document;
-      stamped.indication = Indication.failed;
-      stamped.subIndication = SubIndication.formatFailure;
-      stamped.messages ~= message(ValidationMessage.Level.error, "BBB_FC_IEFF_ANS", exception.msg);
+      warning("Sello de tiempo ilegible en el contenedor: ", timestampFile.name, ": ", exception.msg);
+      stamped = unreadableTimestamp(TimestampResult.Kind.document, exception.msg);
     }
     stamped.filename = timestampFile.name;
     result.documentTimestamps ~= stamped;
@@ -241,7 +219,7 @@ unittest {
   parameters.files = asicSignedFiles(content);
   parameters.en319132 = true;
   auto prepared = prepareXadesSignature(null, parameters, asicSignaturesRoot);
-  putSignatureDocument(content, asicXadesSignatureTemplate,
+  content = withSignatureDocument(content, asicXadesSignatureTemplate,
     completeXadesSignature(prepared, identity.key.sign(DigestAlgorithm.sha256, prepared.dataToSign)));
   auto container = writeContainer(content, Clock.currTime);
   auto result = validateContainer(container, "c.asice", new OfflineValidationSource, false);
@@ -258,12 +236,11 @@ unittest {
 
 @("should check each ASiCManifest reference digest against the container entries")
 unittest {
-  import std.base64 : Base64;
   auto file = ZipEntry("doc.txt", cast(immutable(ubyte)[]) "texto");
   string manifestXml = `<asic:ASiCManifest xmlns:asic="` ~ asicNamespace ~ `" xmlns:ds="` ~ xmldsigNamespace ~ `">`
     ~ `<asic:SigReference URI="META-INF/signature001.p7s" MimeType="application/pkcs7-signature"/>`
     ~ `<asic:DataObjectReference URI="doc.txt"><ds:DigestMethod Algorithm="` ~ digestXmlUri(DigestAlgorithm.sha256)
-    ~ `"/><ds:DigestValue>` ~ Base64.encode(digestOf(DigestAlgorithm.sha256, file.content)).idup
+    ~ `"/><ds:DigestValue>` ~ encodeBase64(digestOf(DigestAlgorithm.sha256, file.content))
     ~ `</ds:DigestValue></asic:DataObjectReference></asic:ASiCManifest>`;
   auto manifest = parseAsicManifest(cast(immutable(ubyte)[]) manifestXml);
   assert(manifest.signatureUri == "META-INF/signature001.p7s");

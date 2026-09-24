@@ -45,6 +45,8 @@ import dlangui.widgets.scroll;
 import dlangui.widgets.scrollbar;
 import dlangui.widgets.widget;
 
+import firmador.configuration : maxSignatureScale, minSignatureScale;
+import firmador.gui.desktop.common : indexIn;
 import firmador.gui.desktop.uithread : runOnUi;
 import firmador.pdf.engine : PageGeometry, PageRaster, PdfRect;
 import firmador.pdf.sigpreview : visualRect, visualSize;
@@ -75,8 +77,7 @@ private enum int fullPageIndex = 1;
 
 /// Posición en el selector del valor guardado; la de página completa si no se reconoce.
 int zoomIndexFor(string value) pure @safe {
-  auto index = zoomSettingValues().countUntil(value);
-  return index < 0 ? fullPageIndex : cast(int) index;
+  return indexIn(zoomSettingValues(), value, fullPageIndex);
 }
 
 /// Escala de la posición del selector (página completa si no hay nada elegido).
@@ -123,6 +124,45 @@ float[2] clampToPage(float x, float y, float boxWidth, float boxHeight, float pa
   float maxX = pageWidth - boxWidth - edgeSafetyMarginPoints;
   float maxY = pageHeight - boxHeight - edgeSafetyMarginPoints;
   return [max(0f, min(x, maxX)), max(0f, min(y, maxY))];
+}
+
+/**
+ * Escala que pide el arrastre de la esquina del recuadro: la del arrastre proyectado
+ * sobre la diagonal, para que agrande o achique aunque el cursor no la siga exacta.
+ *
+ * Params:
+ *   startScale = escala al empezar a arrastrar.
+ *   startWidth = ancho del recuadro al empezar, en puntos.
+ *   startHeight = alto del recuadro al empezar, en puntos.
+ *   draggedWidth = distancia horizontal del cursor a la esquina superior izquierda, en puntos.
+ *   draggedHeight = distancia vertical del cursor a esa esquina, en puntos.
+ * Returns: la escala pedida, sin límites (ver fittedSignatureScale).
+ */
+float draggedSignatureScale(float startScale, float startWidth, float startHeight, float draggedWidth,
+    float draggedHeight) pure nothrow @safe @nogc {
+  assert(startWidth > 0 && startHeight > 0, "Se cambia el tamaño de un recuadro de firma sin tamaño");
+  float ratio = (draggedWidth * startWidth + draggedHeight * startHeight)
+    / (startWidth * startWidth + startHeight * startHeight);
+  return startScale * ratio;
+}
+
+/**
+ * Escala pedida dentro de los límites de configuration.d y de lo que cabe en la página con
+ * el recuadro anclado en su esquina superior izquierda.
+ *
+ * Params:
+ *   requested = la escala pedida.
+ *   current = la escala con que el recuadro mide `width` × `height` (en puntos).
+ *   width = ancho actual del recuadro; 0 si todavía no se dibujó.
+ *   height = alto actual del recuadro.
+ *   roomWidth = espacio desde la esquina hasta el margen derecho de la página.
+ *   roomHeight = espacio desde la esquina hasta el margen inferior.
+ */
+float fittedSignatureScale(float requested, float current, float width, float height, float roomWidth,
+    float roomHeight) pure nothrow @safe @nogc {
+  float limit = maxSignatureScale;
+  if (width > 0 && height > 0) limit = min(limit, current * min(roomWidth / width, roomHeight / height));
+  return max(minSignatureScale, min(requested, limit));
 }
 
 /// Páginas que muestra la vista.
@@ -241,6 +281,8 @@ final class PageView : ScrollWidgetBase {
   void delegate(SignaturePlacement placement) onSignatureMoved;
   /// Cambió la página que ocupa el centro de la vista.
   void delegate(int page) onCurrentPage;
+  /// Cambió el tamaño del recuadro (esquina arrastrada o scaleSignature); recibe la escala nueva.
+  void delegate(float scale) onSignatureResized;
 
   private PageSource source;
   private float[2][] pageSizes;
@@ -261,9 +303,16 @@ final class PageView : ScrollWidgetBase {
 
   private ColorDrawBuf signatureImage;
   private float signatureWidth = 0, signatureHeight = 0;
+  /// Escala de la firma con la que el recuadro mide signatureWidth × signatureHeight.
+  private float signatureScale = 1;
   private bool signatureShown;
   private SignaturePlacement placement;
   private bool dragging;
+  /// Se arrastra la esquina del recuadro; tamaño y escala al empezar.
+  private bool resizing;
+  private float resizeStartWidth = 0, resizeStartHeight = 0, resizeStartScale = 1;
+  /// Lado del cuadro de la esquina con que se cambia el tamaño, en píxeles.
+  private enum int resizeHandleSize = 8;
 
   private Mutex renderLock;
   private Condition renderWakeup;
@@ -331,14 +380,15 @@ final class PageView : ScrollWidgetBase {
   }
 
   /**
-   * Cambia la imagen del recuadro (la apariencia dibujada a `currentScale`) y su tamaño en
-   * puntos; null oculta el recuadro.
+   * Cambia la imagen del recuadro (la apariencia dibujada a `currentScale`), su tamaño en
+   * puntos y la escala de la firma con que se dibujó; null oculta el recuadro.
    */
-  void setSignatureImage(ColorDrawBuf image, float widthPoints, float heightPoints) @trusted {
+  void setSignatureImage(ColorDrawBuf image, float widthPoints, float heightPoints, float scale = 1) @trusted {
     if (signatureImage !is image) release(signatureImage);
     signatureImage = image;
     signatureWidth = widthPoints;
     signatureHeight = heightPoints;
+    signatureScale = scale;
     signatureShown = image !is null && source !is null && source.placesSignature();
     if (signatureShown) moveSignature(placement.page, placement.x, placement.y);
     invalidate();
@@ -369,6 +419,38 @@ final class PageView : ScrollWidgetBase {
     placement = SignaturePlacement(page, clamped[0], clamped[1]);
     if (onSignatureMoved !is null) onSignatureMoved(placement);
     invalidate();
+  }
+
+  /**
+   * Cambia la escala de la firma (botones de tamaño) dentro de los límites y de la página, y
+   * avisa a onSignatureResized. Mientras llega la apariencia nueva se estira la actual.
+   */
+  void scaleSignature(float requested) @trusted {
+    if (pageSizes.length == 0) return;
+    auto room = roomForSignature();
+    resizeSignatureFrom(fittedSignatureScale(requested, signatureScale, signatureWidth, signatureHeight, room[0],
+      room[1]), signatureScale, signatureWidth, signatureHeight);
+    if (onSignatureResized !is null) onSignatureResized(signatureScale);
+  }
+
+  /// Escala actual de la firma en el recuadro.
+  float currentSignatureScale() const @safe {
+    return signatureScale;
+  }
+
+  /// Espacio desde la esquina superior izquierda del recuadro hasta los márgenes de su página.
+  private float[2] roomForSignature() const @safe {
+    auto size = pageSizes[placement.page];
+    return [size[0] - placement.x - edgeSafetyMarginPoints, size[1] - placement.y - edgeSafetyMarginPoints];
+  }
+
+  /// Pone la escala nueva midiendo el recuadro desde un tamaño y escala de partida.
+  private void resizeSignatureFrom(float newScale, float fromScale, float fromWidth, float fromHeight) {
+    float ratio = newScale / fromScale;
+    signatureWidth = fromWidth * ratio;
+    signatureHeight = fromHeight * ratio;
+    signatureScale = newScale;
+    moveSignature(placement.page, placement.x, placement.y);
   }
 
   /// Coloca el recuadro en una fracción de la página (posiciones del diálogo de ubicación).
@@ -525,7 +607,9 @@ final class PageView : ScrollWidgetBase {
       int height = cast(int) round(signatureHeight * scale);
       Rect box = Rect(left, top, left + width, top + height);
       buf.drawRescaled(box, signatureImage, Rect(0, 0, signatureImage.width, signatureImage.height));
-      buf.drawFrame(box, focused ? 0x1A57B8 : 0x646464, Rect(1, 1, 1, 1), 0xFFFFFFFF);
+      uint frameColor = focused ? 0x1A57B8 : 0x646464;
+      buf.drawFrame(box, frameColor, Rect(1, 1, 1, 1), 0xFFFFFFFF);
+      buf.fillRect(resizeHandle(box), frameColor);
     }
     reportCurrentPage();
   }
@@ -540,13 +624,30 @@ final class PageView : ScrollWidgetBase {
 
   // Ratón y teclado ---------------------------------------------------------
 
-  private bool insideSignature(int x, int y) {
-    if (!signatureShown) return false;
+  /// Recuadro de la firma en la ventana, en píxeles.
+  private Rect signatureBox() {
     Rect page = pageRect(placement.page);
     int left = page.left + cast(int) round(placement.x * scale);
     int top = page.top + cast(int) round(placement.y * scale);
-    return x >= left && y >= top && x < left + cast(int) round(signatureWidth * scale)
-      && y < top + cast(int) round(signatureHeight * scale);
+    return Rect(left, top, left + cast(int) round(signatureWidth * scale), top + cast(int) round(signatureHeight * scale));
+  }
+
+  /// Cuadro de la esquina inferior derecha con que se cambia el tamaño.
+  private static Rect resizeHandle(Rect box) {
+    return Rect(box.right - resizeHandleSize, box.bottom - resizeHandleSize, box.right, box.bottom);
+  }
+
+  private bool insideSignature(int x, int y) {
+    if (!signatureShown) return false;
+    Rect box = signatureBox();
+    return x >= box.left && y >= box.top && x < box.right && y < box.bottom;
+  }
+
+  /// El punto cae en la esquina de cambiar el tamaño (con unos píxeles de más para acertarle).
+  private bool onResizeHandle(int x, int y) {
+    if (!signatureShown || signatureWidth <= 0 || signatureHeight <= 0) return false;
+    Rect handle = resizeHandle(signatureBox());
+    return x >= handle.left - 3 && y >= handle.top - 3 && x < handle.right + 3 && y < handle.bottom + 3;
   }
 
   /// Centra el recuadro en el punto de la ventana, cambiando de página si hace falta.
@@ -557,6 +658,7 @@ final class PageView : ScrollWidgetBase {
   }
 
   override uint getCursorType(int x, int y) {
+    if (resizing || onResizeHandle(x, y)) return CursorType.SizeNWSE;
     return insideSignature(x, y) ? CursorType.SizeAll : CursorType.Arrow;
   }
 
@@ -570,10 +672,32 @@ final class PageView : ScrollWidgetBase {
         placeSignatureAtPoint(event.x, event.y);
         return true;
       }
+      if (onResizeHandle(event.x, event.y)) {
+        resizing = true;
+        resizeStartWidth = signatureWidth;
+        resizeStartHeight = signatureHeight;
+        resizeStartScale = signatureScale;
+        return true;
+      }
       if (insideSignature(event.x, event.y)) {
         dragging = true;
         return true;
       }
+    }
+    if (event.action == MouseAction.Move && resizing && (event.flags & MouseFlag.LButton)) {
+      Rect page = pageRect(placement.page);
+      float requested = draggedSignatureScale(resizeStartScale, resizeStartWidth, resizeStartHeight,
+        (event.x - page.left) / scale - placement.x, (event.y - page.top) / scale - placement.y);
+      auto room = roomForSignature();
+      resizeSignatureFrom(fittedSignatureScale(requested, resizeStartScale, resizeStartWidth, resizeStartHeight,
+        room[0], room[1]), resizeStartScale, resizeStartWidth, resizeStartHeight);
+      return true;
+    }
+    if ((event.action == MouseAction.ButtonUp || event.action == MouseAction.Cancel) && resizing) {
+      resizing = false;
+      // La apariencia se vuelve a dibujar una sola vez, al soltar.
+      if (onSignatureResized !is null) onSignatureResized(signatureScale);
+      return true;
     }
     if (event.action == MouseAction.Move && dragging && (event.flags & MouseFlag.LButton)) {
       placeSignatureAtPoint(event.x, event.y);
@@ -722,4 +846,19 @@ unittest {
 unittest {
   assert(clampToPage(-5, 10, 100, 30, 612, 792) == [0f, 10f]);
   assert(clampToPage(600, 790, 100, 30, 612, 792) == [510f, 760f]);
+}
+
+@("should scale the signature along the dragged diagonal within the limits and the room left on the page")
+unittest {
+  import std.math : isClose;
+  // Recuadro de 100 × 20 puntos a escala 1: arrastrar la esquina al doble lo duplica.
+  assert(isClose(draggedSignatureScale(1, 100, 20, 200, 40), 2));
+  assert(isClose(draggedSignatureScale(1.5, 100, 20, 50, 10), 0.75));
+  // Moverse sólo en horizontal también cambia la escala, sin que el cursor siga la diagonal.
+  assert(draggedSignatureScale(1, 100, 20, 150, 20) > 1);
+  // Con 250 × 100 puntos de espacio, el ancho limita a 2,5 veces.
+  assert(isClose(fittedSignatureScale(3, 1, 100, 20, 250, 100), 2.5));
+  assert(isClose(fittedSignatureScale(1.5, 1, 100, 20, 250, 100), 1.5));
+  assert(fittedSignatureScale(0.01, 1, 100, 20, 250, 100) == minSignatureScale);
+  assert(fittedSignatureScale(10, 1, 0, 0, 0, 0) == maxSignatureScale);
 }

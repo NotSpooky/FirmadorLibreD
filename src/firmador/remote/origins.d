@@ -70,20 +70,21 @@ shared static this() {
 Nullable!bool awaitPendingAuthorization(string origin) @trusted {
   synchronized (pendingLock) {
     if ((origin in asking) is null) return Nullable!bool.init;
-    while ((origin in asking) !is null) pendingAnswered.wait();
-    auto answer = origin in answers;
-    return Nullable!bool(answer !is null && *answer != HostAuthorization.denied);
+    return Nullable!bool(answerOfPending(origin) != HostAuthorization.denied);
   }
+}
+
+/// Espera a que termine la pregunta en curso por el origen y da su respuesta; se llama con pendingLock tomado.
+private HostAuthorization answerOfPending(string origin) @trusted {
+  while ((origin in asking) !is null) pendingAnswered.wait();
+  auto answer = origin in answers;
+  return answer is null ? HostAuthorization.denied : *answer;
 }
 
 /// Pregunta una sola vez por origen aunque lleguen varias solicitudes a la vez (ask).
 private HostAuthorization ask(GuiInterface gui, string origin) @trusted {
   synchronized (pendingLock) {
-    if ((origin in asking) !is null) {
-      while ((origin in asking) !is null) pendingAnswered.wait();
-      auto answer = origin in answers;
-      return answer is null ? HostAuthorization.denied : *answer;
-    }
+    if ((origin in asking) !is null) return answerOfPending(origin);
     asking[origin] = true;
     answers.remove(origin);
   }

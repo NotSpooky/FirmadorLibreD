@@ -55,7 +55,7 @@ import firmador.crypto.openssl : WrongPasswordException;
 import firmador.gui.desktop.common;
 import firmador.gui.desktop.dialogs;
 import firmador.gui.desktop.pageview : zoomAt, zoomIndexFor, zoomSettingValues;
-import firmador.gui.desktop.signpanel : rotationIndexFor, rotationLabels, rotationValues, zoomLabels;
+import firmador.gui.desktop.signpanel : rotationLabels, rotationValues, zoomLabels;
 import firmador.gui.desktop.window : DesktopInterface;
 import firmador.gui.guiinterface : NotificationType;
 import firmador.i18n : t;
@@ -132,7 +132,7 @@ final class ConfigPanel : VerticalLayout {
 
   private CheckBox simplifiedMode, withoutVisibleSign, showLogs, overwriteSourceFile, startRemote,
     startRemoteBasic, allowOriginPort, showTrayNotifications;
-  private EditLine reason, place, contact, dateFormat, pageNumber, signWidth, signHeight, signX, signY, fontSize,
+  private EditLine reason, place, contact, dateFormat, pageNumber, signX, signY, fontSize,
     fontColor, backgroundColor, imagePath, imageWidth, imageHeight, sofficePath, preferredBrowser, scaleFactor,
     pkcs11Library;
   private EditBox defaultSignMessage, allowedOrigins;
@@ -161,10 +161,7 @@ final class ConfigPanel : VerticalLayout {
     content.layoutWidth = FILL_PARENT;
     content.addChild(basic);
     content.addChild(advanced);
-    scroll = new VerticalScroll("configuracion-scroll");
-    scroll.contentWidget = content;
-    scroll.layoutWidth = FILL_PARENT;
-    scroll.layoutHeight = FILL_PARENT;
+    scroll = new VerticalScroll("configuracion-scroll", content);
     addChild(scroll);
     auto buttons = new HorizontalLayout;
     buttons.addChild(makeButton("restaurar", "configpanel_restore", null, () {
@@ -228,8 +225,7 @@ final class ConfigPanel : VerticalLayout {
   }
 
   private void section(VerticalLayout parent, string titleKey) {
-    auto title = new TextWidget(null, dt(titleKey));
-    title.fontWeight = 800;
+    auto title = boldTitle(titleKey);
     title.margins = Rect(0, 16, 0, 6);
     parent.addChild(title);
   }
@@ -284,8 +280,6 @@ final class ConfigPanel : VerticalLayout {
     defaultSignMessage.minHeight = 70;
     defaultSignMessage.tooltipText = tip("configpanel_default_sign_message_help");
     pageNumber = field(table, "configpanel_initial_page");
-    signWidth = field(table, "configpanel_signature_width");
-    signHeight = field(table, "configpanel_signature_height");
     signX = field(table, "configpanel_initial_position_x");
     signY = field(table, "configpanel_initial_position_y");
     fontSize = field(table, "configpanel_font_size");
@@ -400,9 +394,7 @@ final class ConfigPanel : VerticalLayout {
     password.passwordChar = '•';
     password.minWidth = 260;
     dialog.addChild(password);
-    auto ok = dialogAction(StandardAction.Ok, "dialog_accept");
-    auto cancel = dialogAction(StandardAction.Cancel, "dialog_cancel");
-    dialog.addButtons([ok, cancel], 0, cancel);
+    dialog.addOkCancel();
     dialog.open((const Action result) {
       auto characters = password.text.toUTF8.dup;
       password.text = ""d;
@@ -433,8 +425,7 @@ final class ConfigPanel : VerticalLayout {
   // Carga y aplicación ------------------------------------------------------------------
 
   private static void select(ComboBox box, const string[] values, string value) @trusted {
-    auto index = values.countUntil(value);
-    box.selectedItemIndex = index < 0 ? 0 : cast(int) index;
+    box.selectedItemIndex = indexIn(values, value);
   }
 
   /// Pone en los campos los valores de unos ajustes.
@@ -453,8 +444,6 @@ final class ConfigPanel : VerticalLayout {
     dateFormat.text = settings.dateFormat.toUTF32;
     defaultSignMessage.text = settings.defaultSignMessage.toUTF32;
     pageNumber.text = settings.pageNumber.to!dstring;
-    signWidth.text = settings.signWidth.to!dstring;
-    signHeight.text = settings.signHeight.to!dstring;
     signX.text = settings.signX.to!dstring;
     signY.text = settings.signY.to!dstring;
     fontSize.text = settings.fontSize.to!dstring;
@@ -465,7 +454,7 @@ final class ConfigPanel : VerticalLayout {
     imagePath.text = settings.image.toUTF32;
     imageWidth.text = settings.signImageWidth.to!dstring;
     imageHeight.text = settings.signImageHeight.to!dstring;
-    rotation.selectedItemIndex = rotationIndexFor(settings.signRotation);
+    select(rotation, rotationValues, settings.signRotation);
     zoom.selectedItemIndex = zoomIndexFor(settings.previewZoom);
     select(language, languages, settings.language);
     select(windowState, windowStates, settings.startwindowstate);
@@ -507,8 +496,7 @@ final class ConfigPanel : VerticalLayout {
     store.retainOnly(settings.pKCS12File);
     try {
       store.save();
-      if (save) writeSettings(settings, true);
-      else writeSettings(settings, false);
+      writeSettings(settings, save);
     } catch (Exception exception) {
       host.showError(exception);
       return;
@@ -539,8 +527,6 @@ final class ConfigPanel : VerticalLayout {
     settings.dateFormat = dateFormat.text.toUTF8;
     settings.defaultSignMessage = defaultSignMessage.text.toUTF8;
     settings.pageNumber = integerField(pageNumber.text.toUTF8, t("configpanel_initial_page"));
-    settings.signWidth = integerField(signWidth.text.toUTF8, t("configpanel_signature_width"));
-    settings.signHeight = integerField(signHeight.text.toUTF8, t("configpanel_signature_height"));
     settings.signX = integerField(signX.text.toUTF8, t("configpanel_initial_position_x"));
     settings.signY = integerField(signY.text.toUTF8, t("configpanel_initial_position_y"));
     settings.signXf.nullify();
@@ -548,8 +534,8 @@ final class ConfigPanel : VerticalLayout {
     settings.fontSize = integerField(fontSize.text.toUTF8, t("configpanel_font_size"));
     settings.signImageWidth = integerField(imageWidth.text.toUTF8, t("configpanel_signature_image_width"));
     settings.signImageHeight = integerField(imageHeight.text.toUTF8, t("configpanel_signature_image_height"));
-    settings.font = signatureFonts()[font.selectedItemIndex < 0 ? 0 : font.selectedItemIndex];
-    settings.fontAlignment = fontPositions[fontPosition.selectedItemIndex < 0 ? 0 : fontPosition.selectedItemIndex];
+    settings.font = valueAt(signatureFonts(), font.selectedItemIndex);
+    settings.fontAlignment = valueAt(fontPositions, fontPosition.selectedItemIndex);
     string textColor = fontColor.text.toUTF8.strip;
     string fillColor = backgroundColor.text.toUTF8.strip;
     try {
@@ -566,16 +552,16 @@ final class ConfigPanel : VerticalLayout {
     settings.backgroundColor = fillColor;
     string image = imagePath.text.toUTF8.strip;
     settings.image = image.length ? image : null;
-    settings.signRotation = rotationValues[rotation.selectedItemIndex < 0 ? 0 : rotation.selectedItemIndex];
-    settings.previewZoom = zoomSettingValues()[zoom.selectedItemIndex < 0 ? 0 : zoom.selectedItemIndex];
-    settings.language = languages[language.selectedItemIndex < 0 ? 0 : language.selectedItemIndex];
+    settings.signRotation = valueAt(rotationValues, rotation.selectedItemIndex);
+    settings.previewZoom = valueAt(zoomSettingValues(), zoom.selectedItemIndex);
+    settings.language = valueAt(languages, language.selectedItemIndex);
     settings.country = countryFor(settings.language);
-    settings.startwindowstate = windowStates[windowState.selectedItemIndex < 0 ? 0 : windowState.selectedItemIndex];
-    settings.themeMode = themeModes[themeMode.selectedItemIndex < 0 ? 0 : themeMode.selectedItemIndex];
-    settings.pAdESLevel = signatureLevels[padesLevel.selectedItemIndex < 0 ? 2 : padesLevel.selectedItemIndex];
-    settings.xAdESLevel = signatureLevels[xadesLevel.selectedItemIndex < 0 ? 2 : xadesLevel.selectedItemIndex];
-    settings.cAdESLevel = signatureLevels[cadesLevel.selectedItemIndex < 0 ? 2 : cadesLevel.selectedItemIndex];
-    settings.jAdESLevel = signatureLevels[jadesLevel.selectedItemIndex < 0 ? 2 : jadesLevel.selectedItemIndex];
+    settings.startwindowstate = valueAt(windowStates, windowState.selectedItemIndex);
+    settings.themeMode = valueAt(themeModes, themeMode.selectedItemIndex);
+    settings.pAdESLevel = valueAt(signatureLevels, padesLevel.selectedItemIndex, 2);
+    settings.xAdESLevel = valueAt(signatureLevels, xadesLevel.selectedItemIndex, 2);
+    settings.cAdESLevel = valueAt(signatureLevels, cadesLevel.selectedItemIndex, 2);
+    settings.jAdESLevel = valueAt(signatureLevels, jadesLevel.selectedItemIndex, 2);
     string library = pkcs11Library.text.toUTF8.strip;
     settings.extraPKCS11Lib = library.length ? library : null;
     settings.pKCS12File = pkcs12Files.dup;

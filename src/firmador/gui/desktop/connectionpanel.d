@@ -79,19 +79,13 @@ final class ConnectionPanel : VerticalLayout {
     left.layoutWidth = FILL_PARENT;
     left.layoutHeight = FILL_PARENT;
     left.layoutWeight = 1;
-    auto leftTitle = new TextWidget(null, dt("connection_panel_connections"));
-    leftTitle.fontWeight = 800;
-    left.addChild(leftTitle);
+    left.addChild(boldTitle("connection_panel_connections"));
     auto add = makeButton("agregar-conexion", "connection_panel_add", "connection_panel_add_button_accessible_description",
       () { importConnections(); return true; });
     left.addChild(add);
     list = new VerticalLayout("lista-conexiones");
     list.layoutWidth = FILL_PARENT;
-    auto listScroll = new VerticalScroll("lista-conexiones-scroll");
-    listScroll.contentWidget = list;
-    listScroll.layoutWidth = FILL_PARENT;
-    listScroll.layoutHeight = FILL_PARENT;
-    left.addChild(listScroll);
+    left.addChild(new VerticalScroll("lista-conexiones-scroll", list));
     split.addChild(left);
 
     auto right = new VerticalLayout;
@@ -99,23 +93,16 @@ final class ConnectionPanel : VerticalLayout {
     right.layoutHeight = FILL_PARENT;
     right.layoutWeight = 2;
     right.padding = Rect(12, 0, 0, 0);
-    auto rightTitle = new TextWidget(null, dt("connection_panel_info"));
-    rightTitle.fontWeight = 800;
-    right.addChild(rightTitle);
+    right.addChild(boldTitle("connection_panel_info"));
     details = new VerticalLayout("detalle-conexion");
     details.layoutWidth = FILL_PARENT;
-    auto detailScroll = new VerticalScroll("detalle-conexion-scroll");
-    detailScroll.contentWidget = details;
-    detailScroll.layoutWidth = FILL_PARENT;
-    detailScroll.layoutHeight = FILL_PARENT;
-    right.addChild(detailScroll);
+    right.addChild(new VerticalScroll("detalle-conexion-scroll", details));
     split.addChild(right);
     addChild(split);
 
     auto logHeader = new HorizontalLayout;
     logHeader.layoutWidth = FILL_PARENT;
-    auto logTitle = new TextWidget(null, dt("connection_panel_log"));
-    logTitle.fontWeight = 800;
+    auto logTitle = boldTitle("connection_panel_log");
     logTitle.layoutWidth = FILL_PARENT;
     logHeader.addChild(logTitle);
     logHeader.addChild(makeButton("vaciar-registro", "connection_panel_clear", "connection_panel_clear_description", () {
@@ -168,11 +155,7 @@ final class ConnectionPanel : VerticalLayout {
   }
 
   private Widget rowFor(Connection connection) {
-    auto row = new HorizontalLayout;
-    row.layoutWidth = FILL_PARENT;
-    row.padding = Rect(8, 6, 8, 6);
-    row.margins = Rect(0, 0, 0, 4);
-    row.backgroundColor = connection is selected ? 0xDCE8F7 : 0xF4F4F4;
+    auto row = selectableRow(connection is selected, 8);
     auto name = new Button(null, format("%s  %s", connection.isRunning() ? "●" : "○", connection.name).toUTF32);
     name.layoutWidth = FILL_PARENT;
     name.click = (Widget source) {
@@ -241,16 +224,14 @@ final class ConnectionPanel : VerticalLayout {
       details.addChild(request);
     }
     if (remote) {
-      auto allowedTitle = new TextWidget(null, dt("connection_panel_authorized_domains"));
+      auto allowedTitle = boldTitle("connection_panel_authorized_domains");
       allowedTitle.margins = Rect(0, 12, 0, 4);
-      allowedTitle.fontWeight = 800;
       details.addChild(allowedTitle);
       foreach (origin; settings.getAllowedHosts()) details.addChild(allowedOriginRow(origin));
       auto denied = settings.getNoAuthorizedHosts();
       if (denied.length) {
-        auto deniedTitle = new TextWidget(null, dt("connection_panel_no_authorized_domains"));
+        auto deniedTitle = boldTitle("connection_panel_no_authorized_domains");
         deniedTitle.margins = Rect(0, 12, 0, 4);
-        deniedTitle.fontWeight = 800;
         details.addChild(deniedTitle);
         foreach (origin; denied) details.addChild(deniedOriginRow(origin));
       }
@@ -259,8 +240,7 @@ final class ConnectionPanel : VerticalLayout {
 
   private Widget listenersFor(Connection connection) {
     auto panel = new VerticalLayout;
-    auto title = new TextWidget(null, dt("connection_panel_listeners"));
-    title.fontWeight = 800;
+    auto title = boldTitle("connection_panel_listeners");
     title.margins = Rect(0, 8, 0, 4);
     panel.addChild(title);
     auto ports = connection.runningPorts();

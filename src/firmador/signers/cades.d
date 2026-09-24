@@ -31,24 +31,16 @@ import firmador.asn1.oids;
 import firmador.cards.cardinfo : CardSignInfo;
 import firmador.cms.cades;
 import firmador.cms.signeddata;
-import firmador.cms.tsp;
 import firmador.crypto.digest;
 import firmador.gui.guiinterface;
 import firmador.settings;
-import firmador.settingsmanager : currentSettings;
 import firmador.signers.common;
 import firmador.signers.documentsigner;
-import firmador.validation.cmsverify : findSignerCertificate;
-import firmador.x509.certificate;
 
 /// Firmador CAdES.
-final class CadesSigner : DocumentSigner {
-  private GuiInterface gui;
-  private SigningServices services;
-
-  this(GuiInterface gui, SigningServices services = null) @safe {
-    this.gui = gui;
-    this.services = services is null ? SigningServices.online() : services;
+final class CadesSigner : ServicedSigner {
+  this(GuiInterface gui) @safe {
+    super(gui);
   }
 
   string formatName() const @safe {
@@ -59,8 +51,8 @@ final class CadesSigner : DocumentSigner {
     return ".p7s";
   }
 
-  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @trusted {
-    auto documentSettings = input.settings is null ? currentSettings() : cast(Settings) input.settings;
+  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @safe {
+    auto documentSettings = documentSettingsOf(input);
     return signWithCard(gui, card, (SigningKey key) @safe {
       auto certificate = key.certificate;
       auto level = documentSettings.getCAdESLevel();
@@ -80,70 +72,30 @@ final class CadesSigner : DocumentSigner {
    * Extiende la firma a LTA (extendDocument de DSS con CAdES_BASELINE_LTA). Una firma
    * separada necesita el documento que firma.
    */
-  immutable(ubyte)[] extend(const ExtensionInput input) @trusted {
+  immutable(ubyte)[] extend(const ExtensionInput input) @safe {
     return extendReporting(gui, () @safe {
       auto data = parseSignedData(input.signed);
       enforce(data.hasEContent || input.singleDetached !is null,
         "Para ampliar una firma CAdES separada hace falta el documento que firma");
-      immutable(ubyte)[] extended = input.signed;
-      if (data.signerInfos.length == 1 && data.signerInfos[0].unsignedAttributesOf(oidSignatureTimeStampToken).length == 0) {
-        extended = addCadesSignatureTimestamp(extended, (digest) => services.timestampDigest(digest));
-      }
-      extended = withCadesValidationData(extended, services);
-      return addCadesArchiveTimestamp(extended, data.hasEContent ? null : input.singleDetached,
-        (digest) => services.timestampDigest(digest));
+      // El sello de firma sólo se añade a una firma de un firmante que no lo tenga.
+      bool timestamped = data.signerInfos.length != 1
+        || data.signerInfos[0].unsignedAttributesOf(oidSignatureTimeStampToken).length > 0;
+      return raiseCadesLevel(input.signed, data.hasEContent ? null : input.singleDetached, SignatureLevel.lta, services,
+        timestamped);
     });
   }
 }
 
-/// Sube una firma CAdES de nivel B hasta `level`; `content` es el documento que firma.
-immutable(ubyte)[] raiseCadesLevel(immutable(ubyte)[] cms, const(ubyte)[] content, SignatureLevel level,
-    SigningServices services) @safe {
-  if (level == SignatureLevel.b) return cms;
-  auto signed = addCadesSignatureTimestamp(cms, (digest) => services.timestampDigest(digest));
-  if (level == SignatureLevel.t) return signed;
-  signed = withCadesValidationData(signed, services);
-  if (level == SignatureLevel.lt) return signed;
-  return addCadesArchiveTimestamp(signed, content, (digest) => services.timestampDigest(digest));
-}
-
-/// Añade los datos de validación del firmante y de las autoridades de sellado (nivel LT).
-private immutable(ubyte)[] withCadesValidationData(immutable(ubyte)[] cms, SigningServices services) @safe {
-  auto material = cadesSigningMaterial(cms, services);
-  auto data = services.validationData(material.certificates, material.embeddedOcsp, material.embeddedCrls);
-  return addCadesValidationData(cms, data);
-}
-
-/// Certificados cuya validación necesita una firma CMS y la revocación que ya incluye.
-struct CadesSigningMaterial {
-  Certificate[] certificates;
-  immutable(ubyte)[][] embeddedOcsp;
-  immutable(ubyte)[][] embeddedCrls;
-}
-
 /**
- * Firmante y autoridades de sellado de la firma (sellos de firma y de archivo).
- *
- * Throws: Exception si el certificado del firmante no está en la firma ni en la jerarquía.
+ * Sube una firma CAdES de nivel B hasta `level` (raiseLevel); `content` es el documento
+ * que firma, si no va dentro. `alreadyTimestamped` es para extender a LTA una firma que ya
+ * tiene su sello de firma.
  */
-CadesSigningMaterial cadesSigningMaterial(immutable(ubyte)[] cms, SigningServices services) @trusted {
-  auto data = parseSignedData(cms);
-  CadesSigningMaterial material;
-  material.embeddedOcsp = data.ocspResponses;
-  material.embeddedCrls = data.crls;
-  void add(Certificate certificate) {
-    if (certificate !is null && !containsCertificate(material.certificates, certificate)) material.certificates ~= certificate;
-  }
-  foreach (signer; data.signerInfos) {
-    auto certificate = findSignerCertificate(data, signer, services.pool);
-    enforce(certificate !is null, "La firma no incluye el certificado de su firmante");
-    add(certificate);
-    foreach (oid; [oidSignatureTimeStampToken, oidArchiveTimestampV3]) {
-      foreach (attribute; signer.unsignedAttributesOf(oid)) {
-        auto token = parseTimeStampToken(attribute.values[0].raw);
-        add(findSignerCertificate(token.signedData, token.signedData.signerInfos[0], services.pool));
-      }
-    }
-  }
-  return material;
+immutable(ubyte)[] raiseCadesLevel(immutable(ubyte)[] cms, const(ubyte)[] content, SignatureLevel level,
+    SigningServices services, bool alreadyTimestamped = false) @safe {
+  return raiseLevel(cms, level,
+    (signed) => addCadesSignatureTimestamp(signed, &services.timestampDigest),
+    (signed) => addCadesValidationData(signed, services.validationData(cadesSigningMaterial(signed, services.pool))),
+    (signed) => addCadesArchiveTimestamp(signed, content, &services.timestampDigest),
+    alreadyTimestamped);
 }

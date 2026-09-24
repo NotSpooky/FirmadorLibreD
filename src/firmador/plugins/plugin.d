@@ -41,6 +41,7 @@ import core.sync.mutex : Mutex;
 import firmador.configuration;
 import firmador.documents.document : Document;
 import firmador.gui.guiinterface : GuiInterface;
+import firmador.logging : withContext;
 import firmador.plugins.checkupdate : CheckUpdatePlugin;
 import firmador.settings : Settings;
 import firmador.settingsmanager : configDirectory, currentSettings, writeSettings;
@@ -205,13 +206,10 @@ final class DocumentSignLogs : Plugin {
     string path = buildPath(configDirectory(), "signlog.csv");
     fileLock.lock();
     scope (exit) fileLock.unlock();
-    try {
+    withContext("No se pudo registrar la firma en " ~ path, {
       append(path, line);
       info("Firma de ", document.name, " registrada en ", path);
-    } catch (Exception exception) {
-      error("No se pudo registrar la firma en ", path, ": ", exception.msg);
-      throw new Exception(format("No se pudo registrar la firma en %s: %s", path, exception.msg), exception);
-    }
+    });
   }
 }
 

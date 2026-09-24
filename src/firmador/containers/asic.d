@@ -34,10 +34,11 @@ import std.format : format;
 import std.path : extension;
 import std.string : toLower;
 
-import firmador.documents.mimetype : detectMimeType, mimeTypeString, SupportedMimeType;
+import firmador.documents.mimetype : detectMimeType, mimeTypeString;
 import firmador.util.zip;
 import firmador.xml.dom : escapeXml;
 import firmador.xml.xades : XadesFile, asicNamespace, openDocumentSignaturesNamespace;
+import firmador.xml.xmldsig : ExternalResolver;
 
 /// Tipo MIME de un contenedor ASiC-E.
 enum string asicEMimeType = "application/vnd.etsi.asic-e+zip";
@@ -216,15 +217,25 @@ ContainerContent newAsicEContainer(const ZipEntry[] documents) pure @safe {
   return content;
 }
 
-/// Reemplaza (por nombre) o añade un archivo de firma.
-void putSignatureDocument(ref ContainerContent content, string name, immutable(ubyte)[] signature) pure @safe {
+/// El contenedor con el archivo de firma `name` reemplazado o añadido; `content` no cambia.
+ContainerContent withSignatureDocument(ContainerContent content, string name, immutable(ubyte)[] signature)
+    pure @safe {
+  // La lista se copia: la del contenedor recibido la comparten sus otras copias.
+  content.signatureDocuments = content.signatureDocuments.dup;
   foreach (ref existing; content.signatureDocuments) {
     if (existing.name == name) {
       existing.content = signature;
-      return;
+      return content;
     }
   }
   content.signatureDocuments ~= ZipEntry(name, signature, false);
+  return content;
+}
+
+/// Resuelve las referencias de una firma del contenedor a sus archivos (URI con escapes).
+ExternalResolver containerResolver(const ContainerContent content) @safe {
+  auto entries = content.allEntries();
+  return (string uri) @safe => entryContent(entries, uri);
 }
 
 /// Escribe el contenedor en el orden de DSS, con el mimetype sin comprimir.

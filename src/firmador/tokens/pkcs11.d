@@ -224,15 +224,35 @@ final class Pkcs11Module {
     if (result != CKR_OK) throw new Pkcs11Exception(result, operation);
   }
 
+  /**
+   * Lista de largo variable de PKCS#11: `list(null, &count)` da el largo y
+   * `list(items, &count)` la llena.
+   */
+  private static T[] countedList(T)(string operation, scope c_ulong delegate(T* items, c_ulong* count) @system list)
+      @system {
+    c_ulong count;
+    check(list(null, &count), operation);
+    auto items = new T[count];
+    if (count) check(list(items.ptr, &count), operation);
+    return items[0 .. count];
+  }
+
   /// Ranuras con una tarjeta presente.
   CK_SLOT_ID[] slotsWithToken() @trusted {
-    return withPkcs11Lock!(CK_SLOT_ID[])(() {
-      c_ulong count;
-      check(functions.C_GetSlotList(CK_TRUE, null, &count), "C_GetSlotList");
-      auto slots = new CK_SLOT_ID[count];
-      if (count) check(functions.C_GetSlotList(CK_TRUE, slots.ptr, &count), "C_GetSlotList");
-      return slots[0 .. count];
-    });
+    return withPkcs11Lock!(CK_SLOT_ID[])(() => countedList!CK_SLOT_ID("C_GetSlotList",
+      (items, count) => functions.C_GetSlotList(CK_TRUE, items, count)));
+  }
+
+  /**
+   * La ranura pedida o, si `requested` es negativo, la primera con tarjeta.
+   *
+   * Throws: Pkcs11Exception con CKR_TOKEN_NOT_PRESENT si no hay ninguna tarjeta.
+   */
+  CK_SLOT_ID resolveSlot(long requested) @safe {
+    if (requested >= 0) return cast(CK_SLOT_ID) requested;
+    auto slots = slotsWithToken();
+    if (slots.length == 0) throw new Pkcs11Exception(CKR_TOKEN_NOT_PRESENT, "C_GetSlotList");
+    return slots[0];
   }
 
   /// La ranura reporta una tarjeta presente.
@@ -267,13 +287,8 @@ final class Pkcs11Module {
 
   /// Mecanismos que admite la tarjeta de la ranura.
   c_ulong[] mechanisms(CK_SLOT_ID slot) @trusted {
-    return withPkcs11Lock!(c_ulong[])(() {
-      c_ulong count;
-      check(functions.C_GetMechanismList(slot, null, &count), "C_GetMechanismList");
-      auto list = new c_ulong[count];
-      if (count) check(functions.C_GetMechanismList(slot, list.ptr, &count), "C_GetMechanismList");
-      return list[0 .. count];
-    });
+    return withPkcs11Lock!(c_ulong[])(() => countedList!c_ulong("C_GetMechanismList",
+      (items, count) => functions.C_GetMechanismList(slot, items, count)));
   }
 }
 
@@ -305,7 +320,7 @@ final class Pkcs11Session {
       if (!open) return;
       open = false;
       c_ulong result = owner.functions.C_CloseSession(handle);
-      if (result != CKR_OK && result != 0xB3 && result != 0xB0)
+      if (result != CKR_OK && result != CKR_SESSION_HANDLE_INVALID && result != CKR_SESSION_CLOSED)
         warning("C_CloseSession devolvió ", pkcs11ErrorName(result));
     });
   }
@@ -354,7 +369,8 @@ final class Pkcs11Session {
   private immutable(ubyte)[] attribute(CK_OBJECT_HANDLE object, c_ulong type) @trusted {
     CK_ATTRIBUTE query = CK_ATTRIBUTE(type, null, 0);
     c_ulong result = owner.functions.C_GetAttributeValue(handle, object, &query, 1);
-    if (result == 0x12 || result == 0x11 || query.ulValueLen == cast(c_ulong) -1) return null;
+    if (result == CKR_ATTRIBUTE_TYPE_INVALID || result == CKR_ATTRIBUTE_SENSITIVE
+        || query.ulValueLen == cast(c_ulong) -1) return null;
     Pkcs11Module.check(result, "C_GetAttributeValue");
     auto value = new ubyte[query.ulValueLen];
     query.pValue = value.ptr;

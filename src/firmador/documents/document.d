@@ -78,12 +78,8 @@ final class Document {
   this(GuiInterface gui, string pathname) @safe {
     info("Se creó una nueva instancia de Document para ", pathname);
     this.id = randomUUID();
-    this.gui = gui;
+    setUp(gui, baseName(pathname), detectMimeType(pathname));
     pathname_ = pathname;
-    name_ = baseName(pathname);
-    mimeType_ = detectMimeType(pathname);
-    settings_ = currentSettings();
-    preview_ = previewerFor(mimeType_, settings_);
     signer_ = signerFor(gui, settings_, mimeType_);
   }
 
@@ -93,14 +89,10 @@ final class Document {
    */
   this(GuiInterface gui, immutable(ubyte)[] content, string name, DocumentStatus status = DocumentStatus.toSign) @safe {
     this.id = randomUUID();
-    this.gui = gui;
-    name_ = name;
+    setUp(gui, name, detectMimeType(name));
     status_ = status;
-    mimeType_ = detectMimeType(name);
     if (status == DocumentStatus.toSign) data = content;
     else signedContent_ = content;
-    settings_ = currentSettings();
-    preview_ = previewerFor(mimeType_, settings_);
     signer_ = signerFor(gui, settings_, mimeType_);
     remote_ = true;
   }
@@ -109,19 +101,24 @@ final class Document {
   this(GuiInterface gui, UUID id, string name, string mimeType, string service, int pages, string serial,
       string origin, string expirationDate, string createdAt) @safe {
     this.id = id;
-    this.gui = gui;
-    name_ = name;
+    setUp(gui, name, mimeTypeFromString(mimeType));
     virtual_ = true;
     remote_ = true;
-    mimeType_ = mimeTypeFromString(mimeType);
     pages_ = pages;
-    settings_ = currentSettings();
-    preview_ = previewerFor(mimeType_, settings_);
     service_ = service;
     serial_ = serial;
     origin_ = origin;
     expirationDate_ = expirationDate;
     createdAt_ = createdAt;
+  }
+
+  /// Lo que comparten los tres orígenes: nombre, tipo, los ajustes vigentes y la vista previa.
+  private void setUp(GuiInterface gui, string name, SupportedMimeType mimeType) @safe {
+    this.gui = gui;
+    name_ = name;
+    mimeType_ = mimeType;
+    settings_ = currentSettings();
+    preview_ = previewerFor(mimeType_, settings_);
   }
 
   string name() const @safe { return name_; }
@@ -287,18 +284,16 @@ final class Document {
   }
 
   /// Carga la vista previa (salvo documentos virtuales) y avisa aunque falle (loadPreview).
-  void loadPreview() @trusted {
-    scope (exit) previewDone();
-    if (virtual_) return;
-    try {
-      preview.load(content(), name_);
-    } catch (Exception exception) {
-      error("Vista previa de ", name_, ": ", exception.msg);
-    }
+  void loadPreview() @safe {
+    if (virtual_) previewDone();
+    else loadPreviewOf(content());
   }
 
-  /// Carga la vista previa de un contenido recibido aparte (loadPreviewRemote).
-  void loadPreviewOf(immutable(ubyte)[] remoteContent) @trusted {
+  /**
+   * Carga la vista previa de un contenido recibido aparte (loadPreviewRemote). El
+   * contenido se obtiene dentro: si no se puede leer, se registra como la vista previa.
+   */
+  void loadPreviewOf(lazy immutable(ubyte)[] remoteContent) @trusted {
     scope (exit) previewDone();
     try {
       preview.load(remoteContent, name_);

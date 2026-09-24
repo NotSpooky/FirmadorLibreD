@@ -24,16 +24,15 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.signers.pades;
 
-import std.datetime.systime : Clock, SysTime;
+import std.datetime.systime : Clock;
 import std.exception : enforce;
 import std.format : format;
-import std.logger : error, info, warning;
+import std.logger : error, info;
 import std.math : round;
 
 import firmador.cards.cardinfo : CardSignInfo;
-import firmador.cms.signeddata : parseSignedData;
 import firmador.cms.tsp;
-import firmador.configuration : padesSignatureContentSize;
+import firmador.configuration : maxSignatureScale, minSignatureScale, padesSignatureContentSize;
 import firmador.crypto.digest;
 import firmador.gui.guiinterface;
 import firmador.i18n : t;
@@ -47,7 +46,6 @@ import firmador.signers.common;
 import firmador.signers.documentsigner;
 import firmador.signers.resources;
 import firmador.util.datetime;
-import firmador.validation.certpath : ValidationData;
 import firmador.x509.certificate;
 
 /// Resolución con que se interpreta el tamaño configurado de la imagen (IMAGE_DPI en Java).
@@ -69,32 +67,39 @@ ImageSize configuredImageSize(immutable(ubyte)[] image, int configuredWidth, int
 
 /**
  * Firma visible según los ajustes de la aplicación (fuente, colores, posición del texto y
- * tamaño de imagen) y del documento (texto, imagen, origen y rotación), como
- * appendVisibleSignature de la versión Java. `pageGeometry` hace falta para corregir el
- * origen con una rotación explícita.
+ * tamaño de imagen) y del documento (texto, imagen, origen, rotación y la escala elegida
+ * en la vista previa), como appendVisibleSignature de la versión Java. `pageGeometry`
+ * hace falta para corregir el origen con una rotación explícita.
+ *
+ * Throws: Exception si la escala del documento está fuera de los límites de configuration.d.
  */
 VisibleSignature visibleSignatureFor(const Settings appSettings, const Settings documentSettings,
     string text, immutable(ubyte)[] image, const PageGeometry pageGeometry) @safe {
+  float scale = documentSettings.signScale;
+  // También rechaza NaN, que llegaría de un docSettings dañado.
+  enforce(scale >= minSignatureScale && scale <= maxSignatureScale, format(
+    "La escala de la firma visible (%s) debe estar entre %s y %s", scale, minSignatureScale, maxSignatureScale));
   VisibleSignature visible;
   visible.text = appSettings.isOnlyImageAlignment ? null : text;
   visible.font = resolveSignatureFont(documentSettings.font.length ? documentSettings.font : appSettings.font);
-  visible.fontSize = appSettings.fontSize;
+  visible.fontSize = appSettings.fontSize * scale;
   visible.textColor = appSettings.getFontColor();
   visible.backgroundColor = appSettings.getBackgroundColor();
   visible.position = appSettings.getFontAlignment();
   if (image.length) {
     visible.image = image;
-    visible.imageSize = configuredImageSize(image, appSettings.signImageWidth, appSettings.signImageHeight);
+    auto imageSize = configuredImageSize(image, appSettings.signImageWidth, appSettings.signImageHeight);
+    imageSize.width = cast(int) round(imageSize.width * scale);
+    imageSize.height = cast(int) round(imageSize.height * scale);
+    visible.imageSize = imageSize;
   }
   float originX = documentSettings.signXf.isNull ? documentSettings.signX : documentSettings.signXf.get;
   float originY = documentSettings.signYf.isNull ? documentSettings.signY : documentSettings.signYf.get;
   visible.rotation = documentSettings.getSignRotation();
   int degrees = angleForRotation(documentSettings.signRotation);
   if (degrees != 0) {
-    VisibleSignature unrotated = visible;
-    unrotated.rotation = SignatureRotation.none;
-    auto input = layoutInput(unrotated, pageGeometry);
-    auto natural = naturalBoxSize(input, encoderFor(unrotated.font));
+    // naturalBoxSize mide la caja sin rotar, sea cual sea la rotación pedida.
+    auto natural = naturalBoxSize(layoutInput(visible, pageGeometry), encoderFor(visible.font));
     auto corrected = correctedOrigin(originX, originY, degrees, natural, pageGeometry.mediaBox.width,
       pageGeometry.mediaBox.height);
     info(format("Firma rotada %d grados: origen corregido a %s, %s (caja natural %s x %s)", degrees, corrected[0],
@@ -108,13 +113,9 @@ VisibleSignature visibleSignatureFor(const Settings appSettings, const Settings 
 }
 
 /// Firmador PAdES.
-final class PadesSigner : DocumentSigner {
-  private GuiInterface gui;
-  private SigningServices services;
-
-  this(GuiInterface gui, SigningServices services = null) @safe {
-    this.gui = gui;
-    this.services = services is null ? SigningServices.online() : services;
+final class PadesSigner : ServicedSigner {
+  this(GuiInterface gui) @safe {
+    super(gui);
   }
 
   string formatName() const @safe {
@@ -127,7 +128,7 @@ final class PadesSigner : DocumentSigner {
 
   immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @trusted {
     auto appSettings = currentSettings();
-    auto documentSettings = input.settings is null ? appSettings : cast(Settings) input.settings;
+    auto documentSettings = documentSettingsOf(input);
     return signWithCard(gui, card, (SigningKey key) @trusted {
       auto certificate = key.certificate;
       auto level = documentSettings.getPAdESLevel();
@@ -161,35 +162,30 @@ final class PadesSigner : DocumentSigner {
       auto attributes = padesSignedAttributes(preparedDigest(prepared), certificate).idup;
       auto chain = services.intermediateChain(certificate);
       bool rsa = key.key.rsa;
+      immutable(ubyte)[] complete(const(ubyte)[] value, const(ubyte)[] signatureTimestamp) @safe {
+        return completePadesSignature(prepared, padesCms(attributes, value, rsa, certificate, chain,
+          signatureTimestamp));
+      }
       SignatureAssembly assembly;
       assembly.dataToSign = attributes;
-      assembly.baseline = (const(ubyte)[] value) @safe => completePadesSignature(prepared,
-        padesCms(attributes, value, rsa, certificate, chain, null));
-      assembly.upgraded = (const(ubyte)[] value) @safe {
-        if (level == SignatureLevel.b) return completePadesSignature(prepared, padesCms(attributes, value, rsa,
-          certificate, chain, null));
-        auto token = services.timestamp(value);
-        auto signed = completePadesSignature(prepared, padesCms(attributes, value, rsa, certificate, chain, token.der));
-        if (level == SignatureLevel.t) return signed;
-        signed = withValidationData(signed);
-        if (level == SignatureLevel.lt) return signed;
-        return addDocumentTimestamp(signed, (digest) => services.timestampDigest(digest));
-      };
+      assembly.baseline = (const(ubyte)[] value) @safe => complete(value, null);
+      // El sello de firma va dentro del CMS: el nivel T se arma de nuevo con él.
+      assembly.upgraded = (const(ubyte)[] value) @safe => raiseLevel(complete(value, null), level,
+        (signed) => complete(value, services.timestamp(value).der), &withValidationData,
+        (signed) => addDocumentTimestamp(signed, &services.timestampDigest));
       return assembly;
     });
   }
 
   /// Añade al PDF los datos de validación de todos sus firmantes y sellos (nivel LT).
   private immutable(ubyte)[] withValidationData(immutable(ubyte)[] pdf) @safe {
-    auto material = signingMaterial(pdf);
-    auto data = services.validationData(material.certificates, material.embeddedOcsp, material.embeddedCrls);
-    return addPadesValidationData(pdf, data);
+    return addPadesValidationData(pdf, services.validationData(padesSigningMaterial(pdf, services.pool)));
   }
 
   /// Extiende el PDF a LTA: datos de validación de todas las firmas y sello de documento.
-  immutable(ubyte)[] extend(const ExtensionInput input) @trusted {
+  immutable(ubyte)[] extend(const ExtensionInput input) @safe {
     return extendReporting(gui, () @safe => addDocumentTimestamp(withValidationData(input.signed),
-      (digest) => services.timestampDigest(digest)));
+      &services.timestampDigest));
   }
 
   /**
@@ -211,8 +207,7 @@ final class PadesSigner : DocumentSigner {
         appearance.position = SignerTextPosition.right;
         appearance.rotation = SignatureRotation.automatic;
       }
-      return addDocumentTimestamp(pdf, (digest) => services.timestampDigest(digest),
-        visibleTimestamp, appearance, 0);
+      return addDocumentTimestamp(pdf, &services.timestampDigest, visibleTimestamp, appearance, 0);
     } catch (Exception exception) {
       error("Error al agregar un sello de tiempo independiente: ", exception.msg);
       gui.showError(exception);

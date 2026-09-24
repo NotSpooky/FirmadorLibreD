@@ -49,9 +49,10 @@ import firmador.remote.origins;
 import firmador.remote.slot;
 import firmador.settings : Settings;
 import firmador.settingsmanager : currentSettings;
-import firmador.signers.common : rootCause, signPreparedData;
+import firmador.signers.common : rootCause;
 import firmador.signers.documentsigner : SigningInput;
 import firmador.signers.xades : XadesSigner;
+import firmador.util.base64 : encodeBase64;
 import firmador.util.json : parseJsonText;
 
 /// Respuesta JSON.
@@ -182,19 +183,19 @@ final class RemoteServer {
       JSONValue[] cards;
       foreach (card; detector.readCardsWithIdentity()) cards ~= card.toJson();
       response.json(jsonBytes(JSONValue(cards)));
-    } else if (path.startsWith("/signDocument")) {
+      return;
+    }
+    // Las rutas de firma aceptan la consulta previa de CORS; /signDocument y /multipleSign van antes que /sign.
+    SigningRoute[4] signingRoutes = [SigningRoute("/signDocument", &signDocument),
+      SigningRoute("/multipleSign", &multipleSign), SigningRoute("/sign", &signPrepared),
+      SigningRoute("/authenticate", &authenticate)];
+    foreach (signingRoute; signingRoutes) {
+      if (!path.startsWith(signingRoute.prefix)) continue;
       if (preflight) response.status = 204;
-      else signDocument(request, response);
-    } else if (path.startsWith("/multipleSign")) {
-      if (preflight) response.status = 204;
-      else multipleSign(request, response);
-    } else if (path.startsWith("/sign")) {
-      if (preflight) response.status = 204;
-      else signPrepared(request, response);
-    } else if (path.startsWith("/authenticate")) {
-      if (preflight) response.status = 204;
-      else authenticate(request, response);
-    } else if (path.startsWith("/ok")) {
+      else signingRoute.handler(request, response);
+      return;
+    }
+    if (path.startsWith("/ok")) {
       JSONValue status;
       status["app"] = remoteAppId;
       status["port"] = port;
@@ -250,26 +251,47 @@ final class RemoteServer {
     }
   }
 
-  /// /sign: firma un resumen preparado por el servidor de la página.
-  private void signPrepared(ref const HttpRequest request, ref HttpResponse response) @trusted {
-    auto signRequest = parseRemoteSignRequest(parseJsonText(cast(string) request.body, "La solicitud /sign"));
-    auto card = cardFor(signRequest.serialNumber);
-    if (card is null) {
+  /**
+   * Lo común de las rutas de firma: busca la credencial `serial` (400 si no está o, con
+   * `needsCertificate`, si no trae su certificado), pide el PIN con la descripción e imagen
+   * de la página (406 si no se da), firma con `sign` y responde su JSON (406 si no se pudo
+   * firmar: `sign` devuelve null). Después cierra la sesión de la tarjeta, para que la
+   * próxima firma vuelva a pedir el PIN.
+   */
+  private void signWithRemoteCard(ref HttpResponse response, string serial, string description,
+      immutable(ubyte)[] image, scope JSONValue delegate(CardSignInfo card) @safe sign, bool needsCertificate = false)
+      @trusted {
+    auto card = cardFor(serial);
+    if (card is null || (needsCertificate && card.certificate is null)) {
       response.status = 400;
       return;
     }
     scope (exit) card.destroyPin();
-    if (!gui.requestRemotePin(card, signRequest.documentName, requestImage(signRequest.b64image))) {
+    if (!gui.requestRemotePin(card, description, image)) {
       response.status = 406;
       return;
     }
-    auto signature = signPreparedData(gui, card, signRequest.toBeSigned);
-    detector.restoreSessions();
-    if (signature is null) {
+    JSONValue answer;
+    try {
+      answer = sign(card);
+    } finally {
+      detector.restoreSessions();
+    }
+    if (answer.isNull) {
       response.status = 406;
       return;
     }
-    response.json(jsonBytes(remoteSignatureJson(signRequest, signature.value, signature.rsa, signature.certificate)));
+    response.json(jsonBytes(answer));
+  }
+
+  /// /sign: firma un resumen preparado por el servidor de la página.
+  private void signPrepared(ref const HttpRequest request, ref HttpResponse response) @trusted {
+    auto signRequest = parseRemoteSignRequest(parseJsonText(cast(string) request.body, "La solicitud /sign"));
+    signWithRemoteCard(response, signRequest.serialNumber, signRequest.documentName, requestImage(signRequest.b64image),
+      (card) {
+        auto answers = signRemoteRequests(gui, card, [signRequest]);
+        return answers is null ? JSONValue(null) : answers[0];
+      });
   }
 
   /// /multipleSign: varios resúmenes con un solo PIN.
@@ -279,26 +301,11 @@ final class RemoteServer {
       response.status = 400;
       return;
     }
-    auto card = cardFor(requests[0].serialNumber);
-    if (card is null) {
-      response.status = 400;
-      return;
-    }
-    scope (exit) card.destroyPin();
-    if (!gui.requestRemotePin(card, t("remote_http_worker_multiple_sign_documents"), null)) {
-      response.status = 406;
-      return;
-    }
-    JSONValue[] answers;
-    foreach (signRequest; requests) {
-      auto signature = signPreparedData(gui, card, signRequest.toBeSigned);
-      if (signature is null) {
-        response.status = 406;
-        return;
-      }
-      answers ~= remoteSignatureJson(signRequest, signature.value, signature.rsa, signature.certificate);
-    }
-    response.json(jsonBytes(JSONValue(answers)));
+    signWithRemoteCard(response, requests[0].serialNumber, t("remote_http_worker_multiple_sign_documents"), null,
+      (card) {
+        auto answers = signRemoteRequests(gui, card, requests);
+        return answers is null ? JSONValue(null) : JSONValue(answers);
+      });
   }
 
   /// /signDocument: firma un documento completo con los ajustes que trae.
@@ -307,51 +314,34 @@ final class RemoteServer {
       currentSettings());
     auto document = new Document(gui, signRequest.document, "document" ~ signRequest.extension);
     document.setSettings(signRequest.settings);
-    auto card = cardFor(signRequest.serialNumber);
-    if (card is null) {
-      response.status = 400;
-      return;
-    }
-    scope (exit) card.destroyPin();
-    if (!gui.requestRemotePin(card, "Firmando desde web...", null)) {
-      response.status = 406;
-      return;
-    }
-    document.sign(card);
-    auto signed = document.signedContent;
-    if (signed is null) {
-      response.status = 406;
-      return;
-    }
-    JSONValue result;
-    import std.base64 : Base64;
-    result["bytes"] = Base64.encode(signed).idup;
-    response.json(jsonBytes(result));
+    signWithRemoteCard(response, signRequest.serialNumber, "Firmando desde web...", null, (card) {
+      document.sign(card);
+      auto signed = document.signedContent;
+      if (signed is null) return JSONValue(null);
+      JSONValue result;
+      result["bytes"] = encodeBase64(signed);
+      return result;
+    });
   }
 
   /// /authenticate: firma el XML de autorización de ingreso a una plataforma.
   private void authenticate(ref const HttpRequest request, ref HttpResponse response) @trusted {
     auto authRequest = parseAuthenticationRequest(parseJsonText(cast(string) request.body, "La solicitud /authenticate"));
-    auto card = cardFor(authRequest.serialNumber);
-    if (card is null || card.certificate is null) {
-      response.status = 400;
-      return;
-    }
-    scope (exit) card.destroyPin();
-    if (!gui.requestRemotePin(card, authenticationDescription(authRequest), requestImage(authRequest.b64image))) {
-      response.status = 406;
-      return;
-    }
-    SigningInput input;
-    input.content = authenticationDocument(authRequest, card.certificate, Clock.currTime);
-    input.name = "autorizacion.xml";
-    input.mimeType = SupportedMimeType.XML;
-    input.settings = currentSettings();
-    auto signed = new XadesSigner(gui, true).sign(input, card);
-    if (signed is null) {
-      response.status = 406;
-      return;
-    }
-    response.json(jsonBytes(remoteDocumentJson(signed, "autorizacion_autenticacion.xml")));
+    signWithRemoteCard(response, authRequest.serialNumber, authenticationDescription(authRequest),
+      requestImage(authRequest.b64image), (card) {
+        SigningInput input;
+        input.content = authenticationDocument(authRequest, card.certificate, Clock.currTime);
+        input.name = "autorizacion.xml";
+        input.mimeType = SupportedMimeType.XML;
+        input.settings = currentSettings();
+        auto signed = new XadesSigner(gui, true).sign(input, card);
+        return signed is null ? JSONValue(null) : remoteDocumentJson(signed, "autorizacion_autenticacion.xml");
+      }, true);
   }
+}
+
+/// Ruta de firma de Firmador Remoto: el prefijo de la ruta y quién la atiende.
+private struct SigningRoute {
+  string prefix;
+  void delegate(ref const HttpRequest request, ref HttpResponse response) @trusted handler;
 }

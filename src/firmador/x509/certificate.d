@@ -37,6 +37,7 @@ import std.string : indexOf, strip;
 import firmador.asn1.der;
 import firmador.asn1.oids;
 import firmador.crypto.digest : DigestAlgorithm, digestOf;
+import firmador.util.base64 : encodeBase64;
 import firmador.x509.name;
 
 /// Extensión tal como viene en el certificado.
@@ -53,8 +54,7 @@ final class Certificate {
   int version_;
   BigInt serialNumber;
   immutable(ubyte)[] serialNumberDer;
-  string signatureAlgorithmOid;
-  immutable(ubyte)[] signatureAlgorithmDer;
+  AlgorithmIdentifier signatureAlgorithm;
   immutable(ubyte)[] signatureValue;
   DistinguishedName issuer;
   DistinguishedName subject;
@@ -147,6 +147,15 @@ bool sameCertificate(const Certificate first, const Certificate second) pure not
   return first !is null && second !is null && first.der == second.der;
 }
 
+/**
+ * Certificado para firmar: de entidad final, con firma digital y no repudio (el filtro de
+ * las credenciales que se ofrecen y de los firmantes que se informan en OOXML).
+ */
+bool isSigningCertificate(const Certificate certificate) pure nothrow @safe @nogc {
+  return !certificate.isCa && certificate.hasKeyUsage(KeyUsageBit.digitalSignature)
+    && certificate.hasKeyUsage(KeyUsageBit.nonRepudiation);
+}
+
 /// La lista contiene el certificado.
 bool containsCertificate(const(Certificate)[] list, const Certificate certificate) pure nothrow @safe @nogc {
   foreach (candidate; list) if (sameCertificate(candidate, certificate)) return true;
@@ -170,8 +179,7 @@ Certificate parseCertificate(const(ubyte)[] der) @safe {
   auto certificate = new Certificate;
   certificate.der = der.idup;
   certificate.tbsDer = tbs.raw.idup;
-  certificate.signatureAlgorithmDer = signatureAlgorithm.raw.idup;
-  certificate.signatureAlgorithmOid = parseAlgorithmIdentifier(signatureAlgorithm, "El algoritmo de firma del certificado").oid;
+  certificate.signatureAlgorithm = parseAlgorithmIdentifier(signatureAlgorithm, "El algoritmo de firma del certificado");
   certificate.signatureValue = signatureValue.bitStringBytes.idup;
 
   auto reader = tbs.reader();
@@ -313,7 +321,7 @@ Certificate[] parseCertificates(const(ubyte)[] data) @safe {
 
 /// Certificado DER en PEM, con líneas de 64 caracteres (lo que espera libcurl como raíz TLS).
 string certificatePem(const(ubyte)[] der) pure @safe {
-  string encoded = Base64.encode(der).idup;
+  string encoded = encodeBase64(der);
   string pem = "-----BEGIN CERTIFICATE-----\n";
   for (size_t start = 0; start < encoded.length; start += 64) {
     pem ~= encoded[start .. start + 64 > encoded.length ? encoded.length : start + 64] ~ "\n";

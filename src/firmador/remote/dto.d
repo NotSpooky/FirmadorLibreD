@@ -38,9 +38,13 @@ import std.string : indexOf;
 import std.uuid : parseUUID, UUID, UUIDParsingException;
 
 import firmador.asn1.oids : oidCommonName, oidSerialNumber;
+import firmador.cards.cardinfo : CardSignInfo;
 import firmador.crypto.openssl : pbkdf2Sha256;
+import firmador.gui.guiinterface : GuiInterface;
 import firmador.settings : Settings;
 import firmador.settingsjson : settingsFromJson;
+import firmador.signers.common : signPreparedData;
+import firmador.util.base64 : encodeBase64;
 import firmador.util.datetime : costaRicaTimeZone;
 import firmador.util.json;
 import firmador.x509.certificate;
@@ -127,6 +131,21 @@ string signatureAlgorithmName(bool rsa) pure nothrow @safe @nogc {
 }
 
 /**
+ * Firma con la credencial cada resumen preparado, con el PIN que ya tiene, y arma la
+ * respuesta de cada uno (remoteSignatureJson). Null si alguno no se pudo firmar; el motivo
+ * ya se le mostró al usuario (signPreparedData).
+ */
+JSONValue[] signRemoteRequests(GuiInterface gui, CardSignInfo card, const RemoteSignRequest[] requests) @safe {
+  JSONValue[] answers;
+  foreach (request; requests) {
+    auto signature = signPreparedData(gui, card, request.toBeSigned);
+    if (signature is null) return null;
+    answers ~= remoteSignatureJson(request, signature.value, signature.rsa, signature.certificate);
+  }
+  return answers;
+}
+
+/**
  * Respuesta a una petición de firma de resumen (RemoteSignatureValueDTO): la firma, el
  * documento y el certificado de la petición (o el de la credencial si no lo traía).
  */
@@ -134,7 +153,7 @@ JSONValue remoteSignatureJson(const RemoteSignRequest request, const(ubyte)[] si
     const Certificate cardCertificate) @safe {
   JSONValue signature;
   signature["algorithm"] = signatureAlgorithmName(rsa);
-  signature["value"] = Base64.encode(signatureValue).idup;
+  signature["value"] = encodeBase64(signatureValue);
   JSONValue json;
   json["signature"] = signature;
   json["documentid"] = request.documentId is null ? JSONValue(null) : JSONValue(request.documentId);
@@ -146,7 +165,7 @@ JSONValue remoteSignatureJson(const RemoteSignRequest request, const(ubyte)[] si
 /// Documento firmado (RemoteDocument de DSS: bytes, digestAlgorithm y name).
 JSONValue remoteDocumentJson(const(ubyte)[] bytes, string name) @safe {
   JSONValue json;
-  json["bytes"] = Base64.encode(bytes).idup;
+  json["bytes"] = encodeBase64(bytes);
   json["digestAlgorithm"] = JSONValue(null);
   json["name"] = name is null ? JSONValue(null) : JSONValue(name);
   return json;
@@ -239,7 +258,7 @@ immutable(ubyte)[] authenticationDocument(const AuthenticationRequest request, c
   import firmador.util.datetime : formatJavaDate, DateLanguage;
   string template_ = import("xml/authentication_template.xml");
   auto salt = decodeBase64Field(request.b64Salt, "b64Salt");
-  string derived = Base64.encode(pbkdf2Sha256(request.authCode, salt, authCodeIterations, 32)).idup;
+  string derived = encodeBase64(pbkdf2Sha256(request.authCode, salt, authCodeIterations, 32));
   string emitted = formatJavaDate("dd/MM/yyyy HH:mm:ss", now.toOtherTZ(costaRicaTimeZone()), DateLanguage.spanish);
   string xml = template_.replace("{REQUEST_DATE}", xmlText(request.authTime)).replace("{DOMAIN}", xmlText(request.domain))
     .replace("{TRANSACTION}", xmlText(request.authIdentifier))
@@ -279,7 +298,7 @@ unittest {
   auto certificate = parseCertificate(makeTestIdentity("JUAN <PEREZ>", "x").certificateDer);
   AuthenticationRequest request;
   request.authCode = "ABCDEF123456";
-  request.b64Salt = Base64.encode(cast(const(ubyte)[]) "sal").idup;
+  request.b64Salt = encodeBase64(cast(const(ubyte)[]) "sal");
   request.authIdentifier = "T-1";
   request.authTime = "2026-09-23";
   request.domain = "a.cr&b";

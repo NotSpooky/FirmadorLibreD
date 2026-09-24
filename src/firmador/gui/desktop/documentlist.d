@@ -219,11 +219,7 @@ final class DocumentListPanel : HorizontalLayout {
     left.addChild(search);
     rows = new VerticalLayout("filas");
     rows.layoutWidth = FILL_PARENT;
-    auto rowsScroll = new VerticalScroll("lista");
-    rowsScroll.contentWidget = rows;
-    rowsScroll.layoutWidth = FILL_PARENT;
-    rowsScroll.layoutHeight = FILL_PARENT;
-    left.addChild(rowsScroll);
+    left.addChild(new VerticalScroll("lista", rows));
     addChild(left);
 
     auto right = new VerticalLayout;
@@ -233,10 +229,7 @@ final class DocumentListPanel : HorizontalLayout {
     report = new RichText("reporte");
     report.padding = Rect(8, 8, 8, 8);
     report.onLink = (string link) { openMessageLink(link); };
-    reportScroll = new VerticalScroll("reporte-scroll");
-    reportScroll.contentWidget = report;
-    reportScroll.layoutWidth = FILL_PARENT;
-    reportScroll.layoutHeight = FILL_PARENT;
+    reportScroll = new VerticalScroll("reporte-scroll", report);
     right.addChild(reportScroll);
     actions = buildActions();
     right.addChild(actions);
@@ -249,9 +242,7 @@ final class DocumentListPanel : HorizontalLayout {
     auto panel = new VerticalLayout("acciones-lista");
     panel.layoutWidth = FILL_PARENT;
     panel.layoutHeight = FILL_PARENT;
-    auto title = new TextWidget(null, dt("list_document_actions"));
-    title.fontWeight = 800;
-    panel.addChild(title);
+    panel.addChild(boldTitle("list_document_actions"));
     Button add(string id, string key, bool delegate() action) {
       auto button = makeButton(id, key, null, action);
       button.layoutWidth = FILL_PARENT;
@@ -484,11 +475,7 @@ final class DocumentListPanel : HorizontalLayout {
   }
 
   private Widget rowFor(Document document) {
-    auto row = new HorizontalLayout;
-    row.layoutWidth = FILL_PARENT;
-    row.padding = Rect(6, 6, 6, 6);
-    row.margins = Rect(0, 0, 0, 4);
-    row.backgroundColor = document is current ? 0xDCE8F7 : 0xF4F4F4;
+    auto row = selectableRow(document is current);
     row.focusable = true;
     row.tooltipText = (t("list_document_docPanel_accessible") ~ document.name).toUTF32;
     auto check = new CheckBox(null, ""d);
@@ -612,15 +599,7 @@ final class DocumentListPanel : HorizontalLayout {
   private void chooseOutput(Document document) {
     if (document.isRemote) return;
     current = document;
-    auto settings = host.currentDocumentSettings();
-    string suffix = settings.overwriteSourceFile ? "" : "-firmado";
-    string outputExtension = document.signedExtension;
-    chooseSaveFile(window, t("guiswing_dialog_document_save"), dirName(document.pathname),
-      proposedSaveName(document.pathname, suffix, outputExtension), (string path) {
-      if (path is null) return;
-      document.setPathToSave(withOutputExtension(path, outputExtension));
-      reloadView();
-    });
+    chooseSignedOutput(window, document, host.currentDocumentSettings(), () { reloadView(); });
   }
 
   private void changeFormat(Document document) {
