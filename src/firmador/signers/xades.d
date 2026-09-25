@@ -43,72 +43,50 @@ import firmador.xml.dom;
 import firmador.xml.xades;
 import firmador.xml.xmldsig : ExternalResolver;
 
-/// Firmador XAdES.
-final class XadesSigner : ServicedSigner {
-  private bool xmlContent;
-
-  /**
-   * `xmlContent`: la firma va dentro del XML (el caso normal); si no, va en un documento
-   * aparte, como cuando se elegía XAdES en el diálogo de tipo de firma.
-   */
-  this(GuiInterface gui, bool xmlContent) @safe {
-    super(gui);
-    this.xmlContent = xmlContent;
-  }
-
-  string formatName() const pure @safe {
-    return "XAdES";
-  }
-
-  string signedExtension(string originalName) const pure @safe {
-    return ".xml";
-  }
-
-  /// La firma va dentro del documento.
-  bool isEnveloped() const pure nothrow @safe @nogc {
-    return xmlContent;
-  }
-
-  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @safe {
-    auto documentSettings = documentSettingsOf(input);
-    return signWithCard(gui, card, (SigningKey key) @safe {
-      XadesParameters parameters;
-      parameters.signingTime = Clock.currTime;
-      parameters.signingCertificate = key.certificate;
-      parameters.rsa = key.key.rsa;
-      parameters.mimeType = mimeTypeString(input.mimeType);
-      auto level = documentSettings.getXAdESLevel();
-      if (xmlContent) {
-        // Como la versión Java: la firma dentro del XML queda en nivel B.
-        parameters.packaging = XadesPackaging.enveloped;
-        level = SignatureLevel.b;
-        string root = xmlRootName(input.content);
-        if (isElectronicReceipt(root)) {
-          info("Comprobante electrónico ", root, ": se firma con la política de Hacienda");
-          parameters.policy = haciendaPolicy();
-        }
-      } else {
-        parameters.packaging = XadesPackaging.detached;
+/**
+ * Firma XAdES: dentro del XML (`enveloped`, el caso normal) o en un documento aparte, como
+ * cuando se elige XAdES en el diálogo de tipo de firma. Null si no se pudo (ya avisado).
+ */
+immutable(ubyte)[] signXades(GuiInterface gui, SigningServices services, const SigningInput input,
+    CardSignInfo card, bool enveloped) @safe {
+  auto documentSettings = documentSettingsOf(input);
+  return signWithCard(gui, card, (SigningKey key) @safe {
+    XadesParameters parameters;
+    parameters.signingTime = Clock.currTime;
+    parameters.signingCertificate = key.certificate;
+    parameters.rsa = key.key.rsa;
+    parameters.mimeType = mimeTypeString(input.mimeType);
+    auto level = documentSettings.getXAdESLevel();
+    if (enveloped) {
+      // Como la versión Java: la firma dentro del XML queda en nivel B.
+      parameters.packaging = XadesPackaging.enveloped;
+      level = SignatureLevel.b;
+      string root = xmlRootName(input.content);
+      if (isElectronicReceipt(root)) {
+        info("Comprobante electrónico ", root, ": se firma con la política de Hacienda");
+        parameters.policy = haciendaPolicy();
       }
-      auto prepared = prepareXadesSignature(input.content, parameters);
-      auto detachedContent = xmlContent ? null : input.content;
-      SignatureAssembly assembly;
-      assembly.dataToSign = prepared.dataToSign;
-      assembly.baseline = (const(ubyte)[] value) @safe => completeXadesSignature(prepared, value);
-      assembly.upgraded = (const(ubyte)[] value) @safe => raiseXadesLevel(completeXadesSignature(prepared, value),
-        prepared.signatureId, level, services, null, detachedContent);
-      return assembly;
-    });
-  }
+    } else {
+      parameters.packaging = XadesPackaging.detached;
+    }
+    auto prepared = prepareXadesSignature(input.content, parameters);
+    auto detachedContent = enveloped ? null : input.content;
+    SignatureAssembly assembly;
+    assembly.dataToSign = prepared.dataToSign;
+    assembly.baseline = (const(ubyte)[] value) @safe => completeXadesSignature(prepared, value);
+    assembly.upgraded = (const(ubyte)[] value) @safe => raiseXadesLevel(completeXadesSignature(prepared, value),
+      prepared.signatureId, level, services, null, detachedContent);
+    return assembly;
+  });
+}
 
-  /**
-   * Extiende a LTA todas las firmas XAdES del documento (extendDocument de DSS con
-   * XAdES_BASELINE_LTA). Una firma separada necesita el documento que firma.
-   */
-  immutable(ubyte)[] extend(const ExtensionInput input) @safe {
-    return extendReporting(gui, () @safe => extendXadesDocument(input.signed, services,
-      detachedResolver(input.detached), input.singleDetached));
-  }
+/**
+ * Extiende a LTA todas las firmas XAdES del documento (extendDocument de DSS con
+ * XAdES_BASELINE_LTA). Una firma separada necesita el documento que firma.
+ */
+immutable(ubyte)[] extendXades(GuiInterface gui, SigningServices services, const ExtensionInput input) @safe {
+  return extendReporting(gui, () @safe => extendXadesDocument(input.signed, services,
+    detachedResolver(input.detached), input.singleDetached));
 }
 
 /**
@@ -132,9 +110,9 @@ immutable(ubyte)[] raiseXadesLevel(immutable(ubyte)[] xml, string signatureId, S
     SigningServices services, ExternalResolver resolver, immutable(ubyte)[] detachedContent,
     bool alreadyTimestamped = false) @safe {
   return raiseLevel(xml, level,
-    (signed) => addSignatureTimestamp(signed, signatureId, &services.timestampDigest),
+    (signed) => addSignatureTimestamp(signed, signatureId, services.timestamper),
     (signed) => withXadesValidationData(signed, signatureId, services),
-    (signed) => addArchiveTimestamp(signed, signatureId, &services.timestampDigest, resolver, detachedContent),
+    (signed) => addArchiveTimestamp(signed, signatureId, services.timestamper, resolver, detachedContent),
     alreadyTimestamped);
 }
 

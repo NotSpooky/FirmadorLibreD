@@ -47,8 +47,7 @@ import firmador.x509.certificate;
  *
  * Throws: Asn1Exception si los bytes no son un SignedData.
  */
-DocumentValidationResult validateCades(immutable(ubyte)[] cms, string documentName, ValidationDataSource source,
-    bool allowOnline = true, const DetachedContent[] detached = null) @trusted {
+DocumentValidationResult validateCades(immutable(ubyte)[] cms, string documentName, ValidationSource source, const DetachedContent[] detached = null) @trusted {
   DocumentValidationResult result;
   result.documentName = documentName;
   result.validationTime = Clock.currTime;
@@ -61,7 +60,7 @@ DocumentValidationResult validateCades(immutable(ubyte)[] cms, string documentNa
     hasContent = true;
   }
   foreach (index, signer; data.signerInfos) {
-    auto context = pathContext(source, allowOnline, result.validationTime);
+    auto context = pathContext(source, result.validationTime);
     context.pool.addAll(data.certificates);
     context.embeddedOcsp = data.ocspResponses;
     context.embeddedCrls = data.crls;
@@ -125,14 +124,14 @@ unittest {
   auto content = cast(immutable(ubyte)[]) "contenido firmado";
   auto attributes = cadesSignedAttributes(digestOf(DigestAlgorithm.sha256, content), certificate, Clock.currTime);
   auto cms = cadesCms(attributes, identity.key.sign(DigestAlgorithm.sha256, attributes), true, certificate, []).idup;
-  auto result = validateCades(cms, "firma.p7s", new OfflineValidationSource, false, [DetachedContent("doc.txt", content)]);
+  auto result = validateCades(cms, "firma.p7s", null, [DetachedContent("doc.txt", content)]);
   assert(result.signatures.length == 1);
   assert(result.signatures[0].format == "CAdES-BASELINE-B");
   assert(result.signatures[0].subIndication == SubIndication.noCertificateChainFound);
   assert(result.signatures[0].filename == "doc.txt");
-  auto changed = validateCades(cms, "firma.p7s", new OfflineValidationSource, false,
+  auto changed = validateCades(cms, "firma.p7s", null,
     [DetachedContent("doc.txt", cast(immutable(ubyte)[]) "otro contenido")]);
   assert(changed.signatures[0].subIndication == SubIndication.hashFailure);
-  auto missing = validateCades(cms, "firma.p7s", new OfflineValidationSource, false);
+  auto missing = validateCades(cms, "firma.p7s", null);
   assert(missing.signatures[0].subIndication == SubIndication.signedDataNotFound);
 }

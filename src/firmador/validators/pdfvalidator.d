@@ -64,8 +64,7 @@ long coveredEnd(const long[] byteRange) pure nothrow @safe @nogc {
  *
  * Throws: PdfException si el archivo no es un PDF legible.
  */
-DocumentValidationResult validatePdf(immutable(ubyte)[] pdf, string documentName, ValidationDataSource source,
-    bool allowOnline = true) @trusted {
+DocumentValidationResult validatePdf(immutable(ubyte)[] pdf, string documentName, ValidationSource source) @trusted {
   DocumentValidationResult result;
   result.documentName = documentName;
   result.validationTime = Clock.currTime;
@@ -85,7 +84,7 @@ DocumentValidationResult validatePdf(immutable(ubyte)[] pdf, string documentName
     }
   }
 
-  auto baseContext = pathContext(source, allowOnline, result.validationTime, pool);
+  auto baseContext = pathContext(source, result.validationTime, pool);
   baseContext.embeddedOcsp = dss.ocsps.dup;
   baseContext.embeddedCrls = dss.crls.dup;
 
@@ -285,7 +284,7 @@ unittest {
   auto attributes = padesSignedAttributes(preparedDigest(prepared), certificate);
   auto signed = completePadesSignature(prepared,
     padesCms(attributes, identity.key.sign(DigestAlgorithm.sha256, attributes), true, certificate, [], null));
-  auto result = validatePdf(signed, "prueba.pdf", new OfflineValidationSource, false);
+  auto result = validatePdf(signed, "prueba.pdf", null);
   assert(result.signatures.length == 1);
   auto signature = result.signatures[0];
   assert(signature.format == "PAdES-BASELINE-B");
@@ -296,7 +295,7 @@ unittest {
   // Un byte cambiado dentro de lo firmado rompe el resumen.
   auto tampered = signed.dup;
   tampered[20] ^= 0x01;
-  auto broken = validatePdf(tampered.idup, "alterado.pdf", new OfflineValidationSource, false);
+  auto broken = validatePdf(tampered.idup, "alterado.pdf", null);
   assert(broken.signatures[0].indication == Indication.totalFailed);
   assert(broken.signatures[0].subIndication == SubIndication.hashFailure);
 }
@@ -323,7 +322,7 @@ unittest {
     padesCms(attributes, identity.key.sign(DigestAlgorithm.sha256, attributes), true, certificate, [], null));
   auto archived = addDocumentTimestamp(signed, &fakeStamp);
 
-  auto result = validatePdf(archived, "sellado.pdf", new OfflineValidationSource, false);
+  auto result = validatePdf(archived, "sellado.pdf", null);
   assert(result.signatures.length == 1);
   assert(result.documentTimestamps.length == 1);
   assert(result.documentTimestamps[0].indication != Indication.passed);

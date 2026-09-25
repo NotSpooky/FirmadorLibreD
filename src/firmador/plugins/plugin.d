@@ -26,15 +26,18 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.plugins.plugin;
 
-import std.algorithm : canFind, countUntil, remove;
+import std.algorithm : canFind, remove;
 import std.array : appender;
 import std.datetime.systime : Clock;
 import std.file : append;
 import std.format : format;
 import std.logger : error, info, warning;
+import std.meta : staticMap;
 import std.path : buildPath;
 import std.string : join;
+import std.sumtype : match, SumType;
 import std.system : endian, os;
+import std.typecons : Nullable, nullable;
 
 import core.sync.mutex : Mutex;
 
@@ -47,33 +50,40 @@ import firmador.settings : Settings;
 import firmador.settingsmanager : configDirectory, currentSettings, writeSettings;
 import firmador.util.datetime : costaRicaTimeZone, DateLanguage, formatJavaDate;
 
-/// Plugin; los métodos que no le interesan quedan vacíos.
-abstract class Plugin {
-  /// Nombre con que se activa en la configuración.
-  abstract string name() const @safe;
-  /// Al cargar el plugin; los que trabajan en segundo plano arrancan aquí.
-  void start() @safe {}
-  /// Cuando la interfaz ya está armada y la bitácora lista.
-  void startLogging() @safe {}
-  /// Al cerrar la aplicación.
-  void stop() @safe {}
-  /// Terminó la firma de un documento en la ventana.
-  void documentSigned(Document document) @safe {}
-}
+/**
+ * Plugin. Cada uno define `name` (con el que se activa en la configuración) y sólo los
+ * ganchos que le interesan: start (al cargarlo; los que trabajan en segundo plano
+ * arrancan aquí), startLogging (con la interfaz armada y la bitácora lista), stop (al
+ * cerrar la aplicación) y documentSigned (terminó la firma de un documento en la ventana).
+ */
+alias Plugin = SumType!(DummyPlugin, CheckUpdatePlugin, DocumentSignLogs, InstallerPlugin);
 
 /// Nombres de todos los plugins que existen, para el panel de configuración.
-immutable string[] knownPluginNames = [dummyPluginName, checkUpdatePluginName, documentSignLogsPluginName,
-  installerPluginName];
+immutable string[] knownPluginNames = [staticMap!(nameOf, Plugin.Types)];
 
-/// Crea un plugin por su nombre; null si no existe.
-Plugin createPlugin(string name, GuiInterface gui) pure @safe {
-  switch (name) {
-    case dummyPluginName: return new DummyPlugin;
-    case checkUpdatePluginName: return new CheckUpdatePlugin(gui);
-    case documentSignLogsPluginName: return new DocumentSignLogs;
-    case installerPluginName: return new InstallerPlugin;
-    default: return null;
+private enum nameOf(T) = T.name;
+
+/// Nombre con que se activa el plugin.
+string name(Plugin plugin) pure nothrow @safe @nogc {
+  return plugin.match!(active => typeof(active).name);
+}
+
+/// Llama al gancho `hook` del plugin con `arguments`, si el plugin lo define.
+void notify(string hook, Arguments...)(Plugin plugin, Arguments arguments) {
+  plugin.match!((active) {
+    static if (__traits(hasMember, typeof(active), hook)) __traits(getMember, active, hook)(arguments);
+  });
+}
+
+/// Crea un plugin por su nombre; nulo si no existe. Los que avisan al usuario reciben `gui`.
+Nullable!Plugin createPlugin(string name, GuiInterface gui) pure @safe {
+  static foreach (Type; Plugin.Types) {
+    if (name == Type.name) {
+      static if (is(typeof(Type(gui)))) return nullable(Plugin(Type(gui)));
+      else return nullable(Plugin(Type()));
+    }
   }
+  return Nullable!Plugin.init;
 }
 
 /// Plugins activos y su ciclo de vida (PluginManager).
@@ -88,14 +98,15 @@ final class PluginManager {
   /// Carga y arranca los plugins activos de la configuración; los desconocidos se registran como error.
   void load(const Settings settings) @trusted {
     foreach (name; settings.activePlugins.dup) {
-      auto plugin = createPlugin(name, gui);
-      if (plugin is null) {
+      auto created = createPlugin(name, gui);
+      if (created.isNull) {
         error("Error al cargar plugin (no existe): ", name);
         continue;
       }
+      auto plugin = created.get;
       synchronized (this) plugins_ ~= plugin;
       try {
-        plugin.start();
+        plugin.notify!"start"();
       } catch (Exception exception) {
         error("Error al iniciar el plugin ", name, ": ", exception.msg);
       }
@@ -108,13 +119,13 @@ final class PluginManager {
   }
 
   void startLogging() @safe {
-    foreach (plugin; plugins()) plugin.startLogging();
+    foreach (plugin; plugins()) plugin.notify!"startLogging"();
   }
 
   void stop() @safe {
     foreach (plugin; plugins()) {
       try {
-        plugin.stop();
+        plugin.notify!"stop"();
       } catch (Exception exception) {
         error("Error al detener el plugin ", plugin.name, ": ", exception.msg);
       }
@@ -125,7 +136,7 @@ final class PluginManager {
   void documentSigned(Document document) @safe {
     foreach (plugin; plugins()) {
       try {
-        plugin.documentSigned(document);
+        plugin.notify!"documentSigned"(document);
       } catch (Exception exception) {
         error("El plugin ", plugin.name, " falló al registrar la firma de ", document.name, ": ", exception.msg);
       }
@@ -134,18 +145,18 @@ final class PluginManager {
 }
 
 /// Deja en la bitácora los datos del sistema y la versión (DummyPlugin).
-final class DummyPlugin : Plugin {
-  override string name() const pure @safe { return dummyPluginName; }
+struct DummyPlugin {
+  enum string name = dummyPluginName;
 
-  override void start() @safe {
+  void start() @safe {
     info("Starting DummyPlugin");
   }
 
-  override void startLogging() @safe {
+  void startLogging() @safe {
     info(systemReport());
   }
 
-  override void stop() @safe {
+  void stop() @safe {
     info("Stopping DummyPlugin");
   }
 }
@@ -164,10 +175,10 @@ string systemReport() @safe {
 }
 
 /// Quita el propio plugin de la configuración tras la instalación (InstallerPlugin).
-final class InstallerPlugin : Plugin {
-  override string name() const pure @safe { return installerPluginName; }
+struct InstallerPlugin {
+  enum string name = installerPluginName;
 
-  override void start() @trusted {
+  void start() @trusted {
     auto settings = currentSettings();
     settings.activePlugins = settings.activePlugins.remove!(entry => entry == installerPluginName);
     settings.availablePlugins = settings.availablePlugins.remove!(entry => entry == installerPluginName);
@@ -188,16 +199,15 @@ string signLogLine(string date, string original, string signed, string card) pur
 }
 
 /// Registra cada firma hecha en la ventana en signlog.csv (DocumentSignLogs).
-final class DocumentSignLogs : Plugin {
+struct DocumentSignLogs {
+  enum string name = documentSignLogsPluginName;
   private static __gshared Mutex fileLock;
 
   shared static this() {
     fileLock = new Mutex;
   }
 
-  override string name() const pure @safe { return documentSignLogsPluginName; }
-
-  override void documentSigned(Document document) @trusted {
+  void documentSigned(Document document) @trusted {
     auto card = document.usedCard();
     if (card is null || document.signedWithErrors()) return;
     auto settings = document.settings();
@@ -218,4 +228,12 @@ unittest {
   assert(signLogLine("01/02/2026 10:00:00 a. m.", "/tmp/a.pdf", "/tmp/a-firmado.pdf", "Ana (0101 vence 2027)")
     == "01/02/2026 10:00:00 a. m.,/tmp/a.pdf,/tmp/a-firmado.pdf,Ana (0101 vence 2027)\n");
   assert(signLogLine("d", `/tmp/a,"b".pdf`, "x", "y") == `d,"/tmp/a,""b"".pdf",x,y` ~ "\n");
+}
+
+@("should create every known plugin by the Java class name stored in config.properties")
+unittest {
+  assert(knownPluginNames == ["cr.libre.firmador.plugins.DummyPlugin", "cr.libre.firmador.plugins.CheckUpdatePlugin",
+    "cr.libre.firmador.plugins.DocumentSignLogs", "cr.libre.firmador.plugins.InstallerPlugin"]);
+  foreach (known; knownPluginNames) assert(createPlugin(known, null).get.name == known);
+  assert(createPlugin("cr.libre.firmador.plugins.Otro", null).isNull);
 }

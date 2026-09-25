@@ -312,25 +312,15 @@ string documentValidationUrl(string validateUrl, UUID documentId) pure @safe {
   return validateUrl.replace("get_validate_document/", documentId.toString ~ "/get_validate_document/");
 }
 
-/// Inicia la integración con un servicio externo (WorkerFactory de ConnectionManager).
-ConnectionWorker startExternal(ConnectionManager manager, Connection connection) @safe {
-  auto worker = new ExternalIntegration(manager, connection);
-  worker.start();
-  return worker;
-}
-
 /// Hilo de la conexión con un servicio externo.
-final class ExternalIntegration : IntegrationWorker {
-  this(ConnectionManager manager, Connection connection) pure @safe {
-    super(manager, connection, "Code:19");
-  }
-
+final class ExternalIntegration {
+  mixin IntegrationWorker!"Code:19";
   /// Al detenerse cierra la sesión en el servicio (espera la red).
-  protected override void afterStop() @trusted {
+  private void afterStop() @trusted {
     closeSession();
   }
 
-  protected override void listen() @trusted {
+  private void listen() @trusted {
     auto config = connection.config;
     string negotiationUrl = withQuery(connection.url(config.negotiationUrl, "negociación"), [["alias", config.service]]);
     auto negotiated = httpGet(negotiationUrl, ["User-Agent": integrationUserAgent]);

@@ -48,8 +48,7 @@ import firmador.x509.certificate;
  *
  * Throws: JwsException o JsonShapeException si el documento no es un JWS.
  */
-DocumentValidationResult validateJades(immutable(ubyte)[] document, string documentName, ValidationDataSource source,
-    bool allowOnline = true, const DetachedContent[] detached = null) @trusted {
+DocumentValidationResult validateJades(immutable(ubyte)[] document, string documentName, ValidationSource source, const DetachedContent[] detached = null) @trusted {
   DocumentValidationResult result;
   result.documentName = documentName;
   result.validationTime = Clock.currTime;
@@ -57,7 +56,7 @@ DocumentValidationResult validateJades(immutable(ubyte)[] document, string docum
   const(ubyte)[] detachedContent = detached.length == 1 ? detached[0].content : null;
   foreach (index, signature; jws.signatures) {
     auto validated = validateJwsSignature(jws, signature, detachedContent,
-      pathContext(source, allowOnline, result.validationTime));
+      pathContext(source, result.validationTime));
     validated.id = format("S-%d", index + 1);
     validated.filename = jws.payload.length == 0 && detached.length == 1 ? detached[0].name : documentName;
     result.signatures ~= validated;
@@ -186,7 +185,7 @@ unittest {
   parameters.mimeType = "application/json";
   auto prepared = prepareJadesSignature(cast(const(ubyte)[]) `{"a":1}`, parameters);
   auto signed = completeJadesSignature(prepared, identity.key.sign(DigestAlgorithm.sha256, prepared.dataToSign));
-  auto result = validateJades(signed, "datos.json", new OfflineValidationSource, false);
+  auto result = validateJades(signed, "datos.json", null);
   assert(result.signatures.length == 1);
   assert(result.signatures[0].format == "JAdES-BASELINE-B");
   assert(result.signatures[0].subIndication == SubIndication.noCertificateChainFound);
@@ -194,6 +193,6 @@ unittest {
 
   auto jws = parseJws(signed);
   jws.payload = base64Url(cast(const(ubyte)[]) `{"a":2}`);
-  auto changed = validateJades(serializeJws(jws), "datos.json", new OfflineValidationSource, false);
+  auto changed = validateJades(serializeJws(jws), "datos.json", null);
   assert(changed.signatures[0].subIndication == SubIndication.sigCryptoFailure);
 }

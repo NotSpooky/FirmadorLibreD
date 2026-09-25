@@ -49,9 +49,7 @@ enum CertificateRole { signature, timestamp, revocation }
 /// Contexto de una validación de cadena.
 struct PathContext {
   CertificatePool pool;
-  ValidationDataSource source;
-  /// Se pueden consultar servicios en línea (AIA, OCSP, CRL).
-  bool allowOnline = true;
+  ValidationSource source;
   SysTime validationTime;
   /// Fecha mínima probada en que existía lo firmado (sello de tiempo), o la de validación.
   SysTime bestSignatureTime;
@@ -63,16 +61,15 @@ struct PathContext {
 
 /**
  * Contexto para validar las cadenas de un documento: `pool` (la jerarquía nacional si no
- * se da, más lo que se le añada), el servicio en línea, si se puede consultar, y la hora
+ * se da, más lo que se le añada), el servicio en línea (null sin conexión) y la hora
  * de validación, que es también la mejor hora probada hasta revisar los sellos
  * (firmador.validation.conclusion.concludeSignature).
  */
-PathContext pathContext(ValidationDataSource source, bool allowOnline, SysTime validationTime,
+PathContext pathContext(ValidationSource source, SysTime validationTime,
     CertificatePool pool = CertificatePool.withNationalHierarchy()) pure @safe {
   PathContext context;
   context.pool = pool;
   context.source = source;
-  context.allowOnline = allowOnline;
   context.validationTime = validationTime;
   context.bestSignatureTime = validationTime;
   return context;
@@ -105,10 +102,9 @@ private string roleSuffix(CertificateRole role) pure @safe {
 
 /**
  * Arma la cadena de `leaf` hasta una raíz de confianza con los certificados conocidos y,
- * si se permite, los emisores descargados por AIA.
+ * si hay `source`, los emisores descargados por AIA.
  */
-Certificate[] buildPath(Certificate leaf, CertificatePool pool, ValidationDataSource source, bool allowOnline,
-    out bool trusted) @safe {
+Certificate[] buildPath(Certificate leaf, CertificatePool pool, ValidationSource source, out bool trusted) @safe {
   Certificate[] path = [leaf];
   Certificate current = leaf;
   trusted = false;
@@ -118,7 +114,7 @@ Certificate[] buildPath(Certificate leaf, CertificatePool pool, ValidationDataSo
       return path;
     }
     Certificate issuer = findVerifiedIssuer(current, pool.issuerCandidates(current));
-    if (issuer is null && allowOnline && source !is null) {
+    if (issuer is null && source !is null) {
       foreach (downloaded; source.issuers(current)) pool.add(downloaded);
       issuer = findVerifiedIssuer(current, pool.issuerCandidates(current));
     }
@@ -148,7 +144,7 @@ private Certificate findVerifiedIssuer(Certificate certificate, Certificate[] ca
  */
 PathValidation validatePath(Certificate leaf, PathContext context) @safe {
   PathValidation result;
-  result.path = buildPath(leaf, context.pool, context.source, context.allowOnline, result.trusted);
+  result.path = buildPath(leaf, context.pool, context.source, result.trusted);
   if (!result.trusted) {
     result.verdict.degrade(Indication.indeterminate, SubIndication.noCertificateChainFound,
       message(ValidationMessage.Level.error, "BBB_XCV_CCCBB" ~ roleSuffix(context.role) ~ "_ANS"));
@@ -241,7 +237,7 @@ private RevocationInfo[] embeddedRevocations(const Certificate certificate, cons
 private RevocationInfo[] onlineRevocations(const Certificate certificate, const Certificate issuer,
     ref PathContext context, out string failure) @safe {
   RevocationInfo[] found;
-  if (!context.allowOnline || context.source is null) {
+  if (context.source is null) {
     failure = "no se permiten consultas en línea";
     return found;
   }
@@ -407,7 +403,7 @@ ValidationData missingFrom(const ValidationData wanted, const ValidationData pre
  * Throws: Exception si falta la información de revocación de algún certificado, con el
  * certificado y el motivo: sin ella la firma no puede subir de nivel.
  */
-ValidationData collectValidationData(Certificate[] certificates, CertificatePool pool, ValidationDataSource source,
+ValidationData collectValidationData(Certificate[] certificates, CertificatePool pool, ValidationSource source,
     SysTime now, const(ubyte[])[] embeddedOcsp = null, const(ubyte[])[] embeddedCrls = null) @safe {
   ValidationData data;
   Certificate[] pending = certificates.dup;
@@ -450,7 +446,7 @@ unittest {
   auto pool = CertificatePool.withNationalHierarchy();
   auto tsa = bundledCertificate!"certs/TSA SINPE v4.crt"();
   bool trusted;
-  auto path = buildPath(tsa, pool, new OfflineValidationSource, false, trusted);
+  auto path = buildPath(tsa, pool, null, trusted);
   assert(trusted);
   assert(path.length == 3);
   assert(path[$ - 1].subject.readableName == "CA RAIZ NACIONAL - COSTA RICA v2");
@@ -462,8 +458,7 @@ unittest {
   auto pool = CertificatePool.withNationalHierarchy();
   PathContext context;
   context.pool = pool;
-  context.source = new OfflineValidationSource;
-  context.allowOnline = false;
+  context.source = null;
   context.validationTime = Clock.currTime;
   context.bestSignatureTime = context.validationTime;
   context.role = CertificateRole.timestamp;
@@ -480,8 +475,7 @@ unittest {
   auto foreign = parseCertificate(makeTestIdentity("Raíz ajena", "x").certificateDer);
   PathContext context;
   context.pool = CertificatePool.withNationalHierarchy();
-  context.source = new OfflineValidationSource;
-  context.allowOnline = false;
+  context.source = null;
   context.validationTime = Clock.currTime;
   context.bestSignatureTime = context.validationTime;
   auto result = validatePath(foreign, context);
@@ -494,7 +488,7 @@ unittest {
   import core.time : dur;
   bool trusted;
   auto path = buildPath(bundledCertificate!"certs/TSA SINPE v4.crt"(), CertificatePool.withNationalHierarchy(),
-    new OfflineValidationSource, false, trusted);
+    null, trusted);
   auto tsa = path[0];
   SysTime during = tsa.notBefore + dur!"days"(1);
   SysTime after = tsa.notAfter + dur!"days"(1);
@@ -513,7 +507,7 @@ unittest {
   import core.time : dur;
   bool trusted;
   auto path = buildPath(bundledCertificate!"certs/TSA SINPE v4.crt"(), CertificatePool.withNationalHierarchy(),
-    new OfflineValidationSource, false, trusted);
+    null, trusted);
   SysTime during = path[0].notBefore + dur!"days"(1);
   auto issuedByLeaf = chainConstraintsVerdict([path[1], path[0]], during, during);
   assert(issuedByLeaf.subIndication == SubIndication.chainConstraintsFailure);
@@ -526,7 +520,7 @@ unittest {
   import std.typecons : nullable;
   bool trusted;
   auto path = buildPath(bundledCertificate!"certs/TSA SINPE v4.crt"(), CertificatePool.withNationalHierarchy(),
-    new OfflineValidationSource, false, trusted);
+    null, trusted);
   auto leaf = path[0], issuer = path[1];
   RevocationInfo revoked;
   revoked.status = CertificateStatus.revoked;
@@ -552,7 +546,7 @@ unittest {
   import std.typecons : Nullable, nullable;
   bool trusted;
   auto path = buildPath(bundledCertificate!"certs/TSA SINPE v4.crt"(), CertificatePool.withNationalHierarchy(),
-    new OfflineValidationSource, false, trusted);
+    null, trusted);
   auto leaf = path[0], issuer = path[1];
   SysTime during = leaf.notBefore + dur!"days"(1);
   auto missingLeaf = revocationVerdict(Nullable!RevocationInfo.init, leaf, issuer, true, CertificateRole.signature,

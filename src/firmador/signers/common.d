@@ -74,71 +74,69 @@ struct SigningKey {
   }
 
   void close() @safe {
-    if (token !is null) token.close();
+    token.close();
   }
 }
 
-/// Servicios que usa una firma: conjunto de certificados y servicios en línea.
-final class SigningServices {
+/**
+ * Servicios que usa una firma: conjunto de certificados y servicios en línea. Las copias
+ * comparten el conjunto y el servicio, que las funciones de abajo amplían y consultan.
+ */
+struct SigningServices {
   CertificatePool pool;
-  ValidationDataSource source;
-
-  this(ValidationDataSource source) @safe {
-    pool = CertificatePool.withNationalHierarchy();
-    this.source = source;
-  }
-
-  /// Servicios con conexión a los servicios del BCCR.
-  static SigningServices online() @safe {
-    return new SigningServices(new OnlineValidationSource);
-  }
-
-  /// Cadena del certificado con la jerarquía incluida, del emisor a la raíz (getCertificateChain en Java).
-  Certificate[] issuerChain(Certificate certificate) @safe {
-    bool trusted;
-    auto path = buildPath(certificate, pool, source, false, trusted);
-    return path.length > 1 ? path[1 .. $] : [];
-  }
-
-  /**
-   * Intermedios del firmante hasta la raíz de confianza, sin ella: lo que DSS incluye en
-   * la firma (BaselineBCertificateSelector con trustAnchorBPPolicy).
-   */
-  Certificate[] intermediateChain(Certificate certificate) @safe {
-    Certificate[] intermediates;
-    foreach (issuer; issuerChain(certificate)) {
-      if (pool.isTrusted(issuer)) break;
-      intermediates ~= issuer;
-    }
-    return intermediates;
-  }
-
-  /// Sello de tiempo sobre `data`.
-  TimeStampToken timestamp(const(ubyte)[] data) @safe {
-    return timestampDigest(digestOf(DigestAlgorithm.sha256, data));
-  }
-
-  /// Sello de tiempo sobre un resumen SHA-256 ya calculado.
-  TimeStampToken timestampDigest(const(ubyte)[] digest) @safe {
-    return source.timestamp(DigestAlgorithm.sha256, digest);
-  }
-
-  /**
-   * Datos de validación de lo que reúne cada formato para su nivel LT
-   * (xadesSigningMaterial, jadesSigningMaterial…): cadenas y revocación de sus
-   * `certificates`, sin repetir las revocaciones que la firma ya trae.
-   */
-  ValidationData validationData(ValidationData material) @safe {
-    return validationData(material.certificates, material.ocspResponses, material.crls);
-  }
-
-  /// Datos de validación (cadenas y revocación) de los certificados, para los niveles LT.
-  ValidationData validationData(Certificate[] certificates, const(ubyte[])[] embeddedOcsp = null,
-      const(ubyte[])[] embeddedCrls = null) @safe {
-    return collectValidationData(certificates, pool, source, Clock.currTime, embeddedOcsp, embeddedCrls);
-  }
+  ValidationSource source;
 }
 
+/// Servicios con la jerarquía nacional y conexión a los servicios del BCCR.
+SigningServices onlineSigningServices() @safe {
+  return SigningServices(CertificatePool.withNationalHierarchy(), new ValidationSource);
+}
+
+/// Cadena del certificado con la jerarquía incluida, del emisor a la raíz (getCertificateChain en Java).
+Certificate[] issuerChain(SigningServices services, Certificate certificate) @safe {
+  bool trusted;
+  auto path = buildPath(certificate, services.pool, null, trusted);
+  return path.length > 1 ? path[1 .. $] : [];
+}
+
+/**
+ * Intermedios del firmante hasta la raíz de confianza, sin ella: lo que DSS incluye en la
+ * firma (BaselineBCertificateSelector con trustAnchorBPPolicy).
+ */
+Certificate[] intermediateChain(SigningServices services, Certificate certificate) @safe {
+  Certificate[] intermediates;
+  foreach (issuer; issuerChain(services, certificate)) {
+    if (services.pool.isTrusted(issuer)) break;
+    intermediates ~= issuer;
+  }
+  return intermediates;
+}
+
+/// Sello de tiempo sobre `data`.
+TimeStampToken timestamp(SigningServices services, const(ubyte)[] data) @safe {
+  return timestamper(services)(digestOf(DigestAlgorithm.sha256, data));
+}
+
+/// Sellador de resúmenes SHA-256 ya calculados, para los formatos que agregan sellos.
+Timestamper timestamper(SigningServices services) @safe {
+  return (const(ubyte)[] digest) @safe => services.source.timestamp(DigestAlgorithm.sha256, digest);
+}
+
+/**
+ * Datos de validación de lo que reúne cada formato para su nivel LT
+ * (xadesSigningMaterial, jadesSigningMaterial…): cadenas y revocación de sus
+ * `certificates`, sin repetir las revocaciones que la firma ya trae.
+ */
+ValidationData validationData(SigningServices services, ValidationData material) @safe {
+  return validationData(services, material.certificates, material.ocspResponses, material.crls);
+}
+
+/// Datos de validación (cadenas y revocación) de los certificados, para los niveles LT.
+ValidationData validationData(SigningServices services, Certificate[] certificates,
+    const(ubyte[])[] embeddedOcsp = null, const(ubyte[])[] embeddedCrls = null) @safe {
+  return collectValidationData(certificates, services.pool, services.source, Clock.currTime, embeddedOcsp,
+    embeddedCrls);
+}
 
 /// Excepción más interna de la cadena (getRootCause).
 Throwable rootCause(Throwable failure) pure @safe {
@@ -224,14 +222,9 @@ PreparedDataSignature* signPreparedData(GuiInterface gui, CardSignInfo card, con
  */
 T withSigningKey(T)(GuiInterface gui, CardSignInfo card, string failureContext,
     scope T delegate(SigningKey signingKey) @safe use) @safe {
-  SigningKey signingKey;
   try {
-    signingKey = openSigningKey(gui, card);
-  } catch (ReportedSigningFailure) {
-    return T.init;
-  }
-  scope (exit) signingKey.close();
-  try {
+    auto signingKey = openSigningKey(gui, card);
+    scope (exit) signingKey.close();
     return use(signingKey);
   } catch (ReportedSigningFailure) {
     return T.init;

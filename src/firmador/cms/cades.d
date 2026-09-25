@@ -73,7 +73,7 @@ private const(SignerInfo) onlySigner(const SignedData data) pure @safe {
 /**
  * Lo que necesita el nivel LT de la firma: en `certificates`, los de sus firmantes y los de
  * las autoridades de sus sellos de firma y de archivo (buscados también en `pool`); en las
- * revocaciones, las que ya incluye. Es lo que recibe SigningServices.validationData
+ * revocaciones, las que ya incluye. Es lo que recibe validationData
  * (firmador.signers.common).
  *
  * Throws: Exception si el certificado de un firmante o de la autoridad de un sello no está

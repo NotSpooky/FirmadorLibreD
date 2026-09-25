@@ -614,7 +614,7 @@ Certificate matchSigningCertificate(const SigningCertificateReference[] referenc
 /**
  * Lo que necesita el nivel LT de la firma: en `certificates`, el de firma y los de las
  * autoridades de sellado (buscados también en `pool`); en las revocaciones, las que ya
- * incluye. Es lo que recibe SigningServices.validationData (firmador.signers.common).
+ * incluye. Es lo que recibe validationData de firmador.signers.common.
  *
  * Throws: XmlException si la firma no identifica su certificado; Exception si el
  * certificado de la autoridad de un sello no está en el sello ni en `pool`.

@@ -114,7 +114,7 @@ private SignatureResult withVerdict(SignatureResult signature, const Verdict ext
  * Throws: ZipFormatException si no es un ZIP legible.
  */
 DocumentValidationResult validateContainer(immutable(ubyte)[] container, string documentName,
-    ValidationDataSource source, bool allowOnline = true) @trusted {
+    ValidationSource source) @trusted {
   DocumentValidationResult result;
   result.documentName = documentName;
   result.validationTime = Clock.currTime;
@@ -128,7 +128,7 @@ DocumentValidationResult validateContainer(immutable(ubyte)[] container, string 
     try {
       auto document = XmlDocument.parse(signatureFile.content);
       scope (exit) document.close();
-      auto signatures = validateXmlSignatures(document, resolver, null, source, allowOnline, result.validationTime);
+      auto signatures = validateXmlSignatures(document, resolver, null, source, result.validationTime);
       foreach (ref signature; signatures) signature.filename = signatureFile.name;
       result.signatures ~= signatures;
     } catch (Exception exception) {
@@ -163,7 +163,7 @@ DocumentValidationResult validateContainer(immutable(ubyte)[] container, string 
     DetachedContent[] detached;
     if (coveredData(signatureFile.name, covered, manifestVerdict)) detached = [DetachedContent(signatureFile.name, covered)];
     try {
-      auto validated = validateCades(signatureFile.content, signatureFile.name, source, allowOnline, detached);
+      auto validated = validateCades(signatureFile.content, signatureFile.name, source, detached);
       foreach (signature; validated.signatures) {
         signature.filename = signatureFile.name;
         result.signatures ~= withVerdict(signature, manifestVerdict);
@@ -182,7 +182,7 @@ DocumentValidationResult validateContainer(immutable(ubyte)[] container, string 
       auto token = parseTimeStampToken(timestampFile.content);
       if (coveredData(timestampFile.name, covered, manifestVerdict)) {
         stamped = validateTimestamp(token, covered, TimestampResult.Kind.document,
-          pathContext(source, allowOnline, result.validationTime));
+          pathContext(source, result.validationTime));
         stamped.messages ~= manifestVerdict.messages;
         if (!manifestVerdict.isPassed) stamped.indication = Indication.failed;
       } else {
@@ -222,15 +222,14 @@ unittest {
   content = withSignatureDocument(content, asicXadesSignatureTemplate,
     completeXadesSignature(prepared, identity.key.sign(DigestAlgorithm.sha256, prepared.dataToSign)));
   auto container = writeContainer(content, Clock.currTime);
-  auto result = validateContainer(container, "c.asice", new OfflineValidationSource, false);
+  auto result = validateContainer(container, "c.asice", null);
   assert(result.signatures.length == 1);
   assert(result.signatures[0].format == "XAdES-BASELINE-B");
   assert(result.signatures[0].subIndication == SubIndication.noCertificateChainFound);
   assert(result.signatures[0].filename == asicXadesSignatureTemplate);
 
   content.signedDocuments[0].content = cast(immutable(ubyte)[]) "adiós";
-  auto tampered = validateContainer(writeContainer(content, Clock.currTime), "c.asice", new OfflineValidationSource,
-    false);
+  auto tampered = validateContainer(writeContainer(content, Clock.currTime), "c.asice", null);
   assert(tampered.signatures[0].subIndication == SubIndication.hashFailure);
 }
 

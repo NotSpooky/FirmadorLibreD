@@ -37,6 +37,7 @@ import std.datetime.systime : Clock;
 import std.format : format;
 import std.path : dirName;
 import std.string : strip;
+import std.typecons : Nullable, nullable;
 import std.utf : toUTF32, toUTF8;
 
 import dlangui.core.events;
@@ -65,13 +66,10 @@ import firmador.pdf.engine : PageGeometry;
 import firmador.pdf.sigpreview : renderSignaturePreview;
 import firmador.settings : Settings;
 import firmador.settingsmanager : currentSettings;
-import firmador.signers.cades : CadesSigner;
 import firmador.signers.common : signatureTextFor;
-import firmador.signers.documentsigner : DocumentSigner;
-import firmador.signers.jades : JadesSigner;
+import firmador.signers.detector : SignatureFormat;
 import firmador.signers.pades : visibleSignatureFor;
 import firmador.signers.resources : loadSignatureImage;
-import firmador.signers.xades : XadesSigner;
 
 /// Valores de rotación de la firma, en el orden del selector (ROTATION_VALUES).
 immutable string[] rotationValues = ["AUTOMATIC", "NONE", "ROTATE_90", "ROTATE_180", "ROTATE_270"];
@@ -134,18 +132,13 @@ const(CardSignInfo) previewCard(const(CardSignInfo)[] cards, string preferredKey
   return null;
 }
 
-/// Firmador del documento, que decide los formatos que se ofrecen (Document.signer).
-enum SignerKind { cades, xades, jades, other }
-
-/// Formato marcado de los que se ofrecen a documentos que no son PDF ni de oficina.
-enum FormatChoice { cades, xades, jades, asic }
-
 /// Controles de la pestaña de firma para un documento: los que se ven y el estado de los formatos.
 struct SignControls {
   bool topBar, sizeGroup, withoutVisible, fields, formatGroup, validate, advanced, save, collapse, cancel;
   /// Formatos que se ofrecen además de CAdES y ASiC-E.
   bool xades, jades;
-  FormatChoice checkedFormat;
+  /// Formato marcado: CAdES, XAdES, JAdES o ASiC-E.
+  SignatureFormat checkedFormat;
   bool signEnabled;
 }
 
@@ -160,10 +153,11 @@ struct SignControls {
  *     (salvo en los de oficina).
  *   remote = llegó por Firmador Remoto: se puede cancelar.
  *   virtual = lo trae un servicio externo, que lo firma sin recibir la escala.
- *   signer = firmador del documento; elige el formato marcado.
+ *   format = formato del firmador del documento; si no es uno de los que se ofrecen, se
+ *     marca ASiC-E.
  * Returns: los controles visibles y el formato marcado.
  */
-SignControls controlsFor(SupportedMimeType mime, bool simplified, bool remote, bool virtual, SignerKind signer)
+SignControls controlsFor(SupportedMimeType mime, bool simplified, bool remote, bool virtual, SignatureFormat format)
     pure nothrow @safe @nogc {
   SignControls controls;
   controls.signEnabled = true;
@@ -183,24 +177,12 @@ SignControls controlsFor(SupportedMimeType mime, bool simplified, bool remote, b
   } else {
     controls.formatGroup = true;
     controls.save = !simplified;
-    controls.xades = signer == SignerKind.xades;
-    controls.jades = signer == SignerKind.jades;
-    final switch (signer) {
-      case SignerKind.cades: controls.checkedFormat = FormatChoice.cades; break;
-      case SignerKind.xades: controls.checkedFormat = FormatChoice.xades; break;
-      case SignerKind.jades: controls.checkedFormat = FormatChoice.jades; break;
-      case SignerKind.other: controls.checkedFormat = FormatChoice.asic; break;
-    }
+    controls.xades = format == SignatureFormat.xades;
+    controls.jades = format == SignatureFormat.jades;
+    bool offered = format == SignatureFormat.cades || controls.xades || controls.jades;
+    controls.checkedFormat = offered ? format : SignatureFormat.asic;
   }
   return controls;
-}
-
-/// Tipo de firmador de un documento, para controlsFor.
-SignerKind signerKindOf(DocumentSigner signer) pure nothrow @safe @nogc {
-  if (cast(CadesSigner) signer) return SignerKind.cades;
-  if (cast(XadesSigner) signer) return SignerKind.xades;
-  if (cast(JadesSigner) signer) return SignerKind.jades;
-  return SignerKind.other;
 }
 
 /// Pestaña de firma.
@@ -444,12 +426,9 @@ final class SignPanel : VerticalLayout {
     if (!controls.formatGroup) return;
     xadesButton.visibility = shownIf(controls.xades);
     jadesButton.visibility = shownIf(controls.jades);
-    final switch (controls.checkedFormat) {
-      case FormatChoice.cades: cadesButton.checked = true; break;
-      case FormatChoice.xades: xadesButton.checked = true; break;
-      case FormatChoice.jades: jadesButton.checked = true; break;
-      case FormatChoice.asic: asicButton.checked = true; break;
-    }
+    auto buttons = [SignatureFormat.cades: cadesButton, SignatureFormat.xades: xadesButton,
+      SignatureFormat.jades: jadesButton, SignatureFormat.asic: asicButton];
+    buttons[controls.checkedFormat].checked = true;
   }
 
   private void applyFooterState(bool collapsed) {
@@ -480,20 +459,16 @@ final class SignPanel : VerticalLayout {
     current = document;
     levelOverride = null;
     applyControls(SignControls.init);
-    PageSource source;
-    if (document.isVirtual) {
-      source = new ImageSource(document.pages, (int page) @safe => host.virtualPage(document, page));
-    } else {
-      source = new PreviewerSource(document.preview);
-    }
-    pages.setSource(source);
+    pages.setSource(nullable(document.isVirtual
+      ? PageSource(VirtualPages(document.pages, (int page) @safe => host.virtualPage(document, page)))
+      : PageSource(document.preview)));
     signScale = document.settings.signScale;
     updateSizeLabel();
     int pageCount = pages.pageCount;
     pageSelector.setPages(pageCount);
     placeConfiguredSignature(currentSettings());
     applyControls(controlsFor(document.mimeType, currentSettings().isSimplifiedMode(), document.isRemote,
-      document.isVirtual, signerKindOf(document.signer)));
+      document.isVirtual, document.signer.format));
     refreshSignatureCount();
     applyFooterState(footerCollapsed);
     pages.showSignature(!withoutVisible.checked);
@@ -505,7 +480,7 @@ final class SignPanel : VerticalLayout {
   void clean() @trusted {
     current = null;
     previewGeneration++;
-    pages.setSource(null);
+    pages.setSource(Nullable!PageSource.init);
     pages.setSignatureImage(null, 0, 0);
     applyControls(SignControls.init);
   }
@@ -766,16 +741,16 @@ unittest {
 
 @("should offer the preview for PDF and office documents and the formats for the rest when choosing controls")
 unittest {
-  auto pdf = controlsFor(SupportedMimeType.PDF, false, false, false, SignerKind.other);
+  auto pdf = controlsFor(SupportedMimeType.PDF, false, false, false, SignatureFormat.asic);
   assert(pdf.topBar && pdf.sizeGroup && pdf.fields && pdf.withoutVisible && pdf.save && !pdf.formatGroup);
   // Un PDF virtual lo firma su servicio sin la escala; en modo simplificado no se guarda la configuración.
-  auto virtualPdf = controlsFor(SupportedMimeType.PDF, true, true, true, SignerKind.other);
+  auto virtualPdf = controlsFor(SupportedMimeType.PDF, true, true, true, SignatureFormat.asic);
   assert(!virtualPdf.sizeGroup && !virtualPdf.save && !virtualPdf.validate && !virtualPdf.cancel);
-  auto office = controlsFor(SupportedMimeType.DOCX, true, true, false, SignerKind.other);
+  auto office = controlsFor(SupportedMimeType.DOCX, true, true, false, SignatureFormat.asic);
   assert(office.topBar && !office.fields && office.save && !office.validate && office.cancel);
-  auto xml = controlsFor(SupportedMimeType.XML, false, false, false, SignerKind.xades);
-  assert(!xml.topBar && xml.formatGroup && xml.xades && !xml.jades && xml.checkedFormat == FormatChoice.xades);
-  auto binary = controlsFor(SupportedMimeType.BINARY, false, false, false, SignerKind.other);
-  assert(!binary.xades && !binary.jades && binary.checkedFormat == FormatChoice.asic && binary.signEnabled);
+  auto xml = controlsFor(SupportedMimeType.XML, false, false, false, SignatureFormat.xades);
+  assert(!xml.topBar && xml.formatGroup && xml.xades && !xml.jades && xml.checkedFormat == SignatureFormat.xades);
+  auto binary = controlsFor(SupportedMimeType.BINARY, false, false, false, SignatureFormat.asic);
+  assert(!binary.xades && !binary.jades && binary.checkedFormat == SignatureFormat.asic && binary.signEnabled);
   assert(!SignControls.init.signEnabled && !SignControls.init.topBar);
 }

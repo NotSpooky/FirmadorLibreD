@@ -47,7 +47,7 @@ import firmador.gui.desktop.common;
 import firmador.gui.desktop.window : DesktopInterface;
 import firmador.gui.guiinterface : NotificationType;
 import firmador.i18n : t;
-import firmador.signers.asic : AsicSigner;
+import firmador.signers.detector : DocumentSigner, SignatureFormat;
 import firmador.validation.model : DetachedContent;
 
 /// Archivo de una carpeta que se va a firmar.
@@ -270,7 +270,7 @@ final class DirectoryPanel : HorizontalLayout {
       host.showError(exception);
       return;
     }
-    container.setSigner(new AsicSigner(host));
+    container.setSigner(DocumentSigner(SignatureFormat.asic));
     container.setPathToSave(buildPath(dirName(directory), baseName(directory) ~ ".asice"));
     host.signDocuments([container]);
   }

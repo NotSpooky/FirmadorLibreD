@@ -62,8 +62,7 @@ ExternalResolver detachedResolver(const DetachedContent[] contents) pure @safe {
  *
  * Throws: XmlException si el documento no es XML bien formado.
  */
-DocumentValidationResult validateXml(immutable(ubyte)[] xml, string documentName, ValidationDataSource source,
-    bool allowOnline = true, const DetachedContent[] detached = null) @trusted {
+DocumentValidationResult validateXml(immutable(ubyte)[] xml, string documentName, ValidationSource source, const DetachedContent[] detached = null) @trusted {
   DocumentValidationResult result;
   result.documentName = documentName;
   result.validationTime = Clock.currTime;
@@ -78,18 +77,17 @@ DocumentValidationResult validateXml(immutable(ubyte)[] xml, string documentName
     }
   }
   scope (exit) if (emptyUriDocument !is null) emptyUriDocument.close();
-  result.signatures = validateXmlSignatures(document, detachedResolver(detached), emptyUriDocument, source,
-    allowOnline, result.validationTime);
+  result.signatures = validateXmlSignatures(document, detachedResolver(detached), emptyUriDocument, source, result.validationTime);
   foreach (ref signature; result.signatures) if (signature.filename.length == 0) signature.filename = documentName;
   return result;
 }
 
 /// Valida cada firma del documento que no está dentro de otra.
 SignatureResult[] validateXmlSignatures(XmlDocument document, ExternalResolver resolver, XmlDocument emptyUriDocument,
-    ValidationDataSource source, bool allowOnline, SysTime validationTime) @trusted {
+    ValidationSource source, SysTime validationTime) @trusted {
   SignatureResult[] signatures;
   foreach (element; topLevelSignatures(document)) {
-    signatures ~= validateXmlSignature(document, element, pathContext(source, allowOnline, validationTime), resolver,
+    signatures ~= validateXmlSignature(document, element, pathContext(source, validationTime), resolver,
       emptyUriDocument);
   }
   return signatures;
@@ -264,7 +262,7 @@ unittest {
   parameters.policy = haciendaPolicy();
   auto prepared = prepareXadesSignature(content, parameters);
   auto signed = completeXadesSignature(prepared, identity.key.sign(DigestAlgorithm.sha256, prepared.dataToSign));
-  auto result = validateXml(signed, "mensaje.xml", new OfflineValidationSource, false);
+  auto result = validateXml(signed, "mensaje.xml", null);
   assert(result.signatures.length == 1);
   auto signature = result.signatures[0];
   assert(signature.format == "XAdES-BASELINE-B");
@@ -274,11 +272,11 @@ unittest {
 
   import std.array : replace;
   auto tampered = cast(immutable(ubyte)[]) (cast(string) signed).replace("<Clave>1</Clave>", "<Clave>2</Clave>");
-  auto broken = validateXml(tampered, "alterado.xml", new OfflineValidationSource, false);
+  auto broken = validateXml(tampered, "alterado.xml", null);
   assert(broken.signatures[0].indication == Indication.totalFailed);
   assert(broken.signatures[0].subIndication == SubIndication.hashFailure);
 
-  auto unsigned = validateXml(content, "sin-firma.xml", new OfflineValidationSource, false);
+  auto unsigned = validateXml(content, "sin-firma.xml", null);
   assert(unsigned.signatures.length == 0);
 }
 
@@ -293,9 +291,9 @@ unittest {
   parameters.packaging = XadesPackaging.detached;
   auto prepared = prepareXadesSignature(content, parameters);
   auto signed = completeXadesSignature(prepared, identity.key.sign(DigestAlgorithm.sha256, prepared.dataToSign));
-  auto withContent = validateXml(signed, "firma.xml", new OfflineValidationSource, false,
+  auto withContent = validateXml(signed, "firma.xml", null,
     [DetachedContent("datos.xml", content)]);
   assert(withContent.signatures[0].subIndication == SubIndication.noCertificateChainFound);
-  auto withoutContent = validateXml(signed, "firma.xml", new OfflineValidationSource, false);
+  auto withoutContent = validateXml(signed, "firma.xml", null);
   assert(withoutContent.signatures[0].indication == Indication.totalFailed);
 }

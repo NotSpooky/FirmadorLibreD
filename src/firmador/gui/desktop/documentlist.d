@@ -66,7 +66,7 @@ import firmador.i18n : t;
 import firmador.plugins.plugin : csvField;
 import firmador.settingsmanager : configFilePath, documentSettingsDirectory, loadDocumentSettings,
   saveDocumentSettings, writeFileAtomically;
-import firmador.signers.detector : formatOf, selectableFormats, SignatureFormat, signerForFormat;
+import firmador.signers.detector : DocumentSigner, formatName, selectableFormats, SignatureFormat;
 
 /// Fila de document_list.csv.
 struct SavedDocument {
@@ -514,7 +514,7 @@ final class DocumentListPanel : HorizontalLayout {
     preview.click = (Widget source) { goToSign(document); return true; };
     counts.addChild(preview);
     if (!document.isVirtual && !document.isRemote) {
-      auto formatButton = new Button(null, (t("list_document_format") ~ " " ~ document.signer.formatName).toUTF32);
+      auto formatButton = new Button(null, (t("list_document_format") ~ " " ~ document.signer.format.formatName).toUTF32);
       formatButton.click = (Widget source) { changeFormat(document); return true; };
       counts.addChild(formatButton);
     }
@@ -604,10 +604,10 @@ final class DocumentListPanel : HorizontalLayout {
 
   private void changeFormat(Document document) {
     current = document;
-    showSignatureTypeDialog(window, selectableFormats(document.mimeType), formatOf(document.signer),
+    showSignatureTypeDialog(window, selectableFormats(document.mimeType), document.signer.format,
       (bool changed, SignatureFormat chosen) {
       if (!changed) return;
-      document.setSigner(signerForFormat(host, chosen));
+      document.setSigner(DocumentSigner(chosen));
       reloadView();
     });
   }

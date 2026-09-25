@@ -66,8 +66,7 @@ struct OoxmlSignatureCheck {
  *
  * Throws: ZipFormatException si no es un ZIP legible.
  */
-OoxmlSignatureCheck[] checkOoxmlSignatures(immutable(ubyte)[] package_, ValidationDataSource source,
-    bool allowOnline = true) @trusted {
+OoxmlSignatureCheck[] checkOoxmlSignatures(immutable(ubyte)[] package_, ValidationSource source) @trusted {
   auto entries = readZip(package_);
   auto resolver = packageResolver(entries);
   OoxmlSignatureCheck[] checks;
@@ -101,7 +100,7 @@ OoxmlSignatureCheck[] checkOoxmlSignatures(immutable(ubyte)[] package_, Validati
       check.valid = verification.referencesValid && verification.signatureValid && manifestValid;
       auto values = document.elements(opcDigitalSignatureNamespace, "Value");
       if (values.length) check.signingTime = parseRfc3339(values[0].text.strip);
-      check.validOverTime = check.valid && validOverTime(document, signature, check.signer, source, allowOnline);
+      check.validOverTime = check.valid && validOverTime(document, signature, check.signer, source);
     } catch (Exception exception) {
       warning("Firma OOXML ilegible en ", partName, ": ", exception.msg);
     }
@@ -111,12 +110,12 @@ OoxmlSignatureCheck[] checkOoxmlSignatures(immutable(ubyte)[] package_, Validati
 }
 
 private bool validOverTime(XmlDocument document, const DsSignature signature, Certificate signer,
-    ValidationDataSource source, bool allowOnline) @trusted {
+    ValidationSource source) @trusted {
   auto unsigned = unsignedSignatureProperties(cast(XmlNode) signature.element);
   if (unsigned.isNull) return false;
   auto timestampElement = unsigned.child(xadesNamespace, "SignatureTimeStamp");
   if (timestampElement.isNull) return false;
-  auto context = pathContext(source, allowOnline, Clock.currTime);
+  auto context = pathContext(source, Clock.currTime);
   includeEmbedded(context, embeddedValidationData(cast(XmlNode) signature.element));
   auto stamp = xadesTimestamp(timestampElement);
   context.bestSignatureTime = stamp.token.info.genTime;
@@ -167,13 +166,13 @@ unittest {
   auto prepared = prepareOoxmlSignature(entries, parameters);
   auto signatureXml = completeOoxmlSignature(prepared, identity.key.sign(DigestAlgorithm.sha256, prepared.dataToSign));
   auto signedEntries = addSignaturePart(entries, signatureXml);
-  auto checks = checkOoxmlSignatures(writeZip(signedEntries, Clock.currTime), new OfflineValidationSource, false);
+  auto checks = checkOoxmlSignatures(writeZip(signedEntries, Clock.currTime), null);
   assert(checks.length == 1 && checks[0].valid && !checks[0].signingTime.isNull);
   assert(!checks[0].validOverTime);
 
   foreach (ref entry; signedEntries) {
     if (entry.name == "word/styles.xml") entry.content = cast(immutable(ubyte)[]) "<w:styles xmlns:w=\"urn:w\">x</w:styles>";
   }
-  auto tampered = checkOoxmlSignatures(writeZip(signedEntries, Clock.currTime), new OfflineValidationSource, false);
+  auto tampered = checkOoxmlSignatures(writeZip(signedEntries, Clock.currTime), null);
   assert(!tampered[0].valid);
 }

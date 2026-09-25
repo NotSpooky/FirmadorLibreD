@@ -34,7 +34,7 @@ import firmador.settings : Settings;
 import firmador.util.zip;
 import firmador.validation.model;
 import firmador.validation.report : reportHtml;
-import firmador.validation.sources : ValidationDataSource;
+import firmador.validation.sources : ValidationSource;
 import firmador.validators.cadesvalidator : validateCades;
 import firmador.validators.containervalidator : validateContainer;
 import firmador.validators.jadesvalidator : validateJades;
@@ -65,7 +65,7 @@ private bool isAsicContainer(const ZipEntry[] entries) pure @safe {
  * Throws: Exception si el documento está dañado de forma que no se puede interpretar.
  */
 DocumentValidation validateDocument(immutable(ubyte)[] content, string name, const Settings settings,
-    ValidationDataSource source) @trusted {
+    ValidationSource source) @trusted {
   auto type = detectMimeType(name);
   info("Validando ", name);
   DocumentValidationResult result;

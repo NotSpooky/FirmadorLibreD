@@ -45,7 +45,7 @@ import firmador.logging : withContext;
 import firmador.settingsmanager : configDirectory, writeFileAtomically;
 import firmador.util.json;
 import firmador.validation.model : DocumentValidationResult, Indication, indicationName;
-import firmador.validation.sources : OnlineValidationSource;
+import firmador.validation.sources : ValidationSource;
 import firmador.validators.xmlvalidator : validateXml;
 import firmador.xml.dom : escapeXml, XmlDocument, XmlNode;
 
@@ -353,7 +353,7 @@ ConnectionSignature summarizeConnectionSignature(const DocumentValidationResult 
  */
 ConnectionSignature checkConnectionSignature(string signedXml) @trusted {
   info("Validando la firma del archivo de conexión");
-  auto result = validateXml(cast(immutable(ubyte)[]) signedXml, "conexion.xml", new OnlineValidationSource());
+  auto result = validateXml(cast(immutable(ubyte)[]) signedXml, "conexion.xml", new ValidationSource);
   auto summary = summarizeConnectionSignature(result);
   info("Firma del archivo de conexión: ", summary.indication, " de ", summary.signerName);
   return summary;

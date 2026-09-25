@@ -57,102 +57,78 @@ private ContainerContent asicContainerFor(const SigningInput input) @safe {
   return newAsicEContainer(documents);
 }
 
-/// Firmador ASiC-E con XAdES.
-final class AsicSigner : ServicedSigner {
-  this(GuiInterface gui) @safe {
-    super(gui);
-  }
-
-  string formatName() const pure @safe {
-    return "ASiC-E";
-  }
-
-  string signedExtension(string originalName) const pure @safe {
-    return ".asice";
-  }
-
-  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @safe {
-    return signWithCard(gui, card, (SigningKey key) @safe {
-      auto content = asicContainerFor(input);
-      auto certificate = key.certificate;
-      XadesParameters parameters;
-      parameters.signingTime = Clock.currTime;
-      parameters.signingCertificate = certificate;
-      parameters.keyInfoCertificates = [certificate] ~ services.intermediateChain(certificate);
-      parameters.rsa = key.key.rsa;
-      parameters.packaging = XadesPackaging.container;
-      parameters.files = asicSignedFiles(content);
-      parameters.en319132 = true;
-      string[] existing;
-      foreach (signature; content.signatureDocuments) existing ~= signature.name;
-      string signatureName = nextSignatureName(asicXadesSignatureTemplate, existing);
-      auto prepared = prepareXadesSignature(null, parameters, asicSignaturesRoot);
-      SysTime signingTime = parameters.signingTime;
-      SignatureAssembly assembly;
-      assembly.dataToSign = prepared.dataToSign;
-      // Como la versión Java, la firma del contenedor queda en nivel B.
-      assembly.baseline = (const(ubyte)[] value) @safe {
-        auto signed = withSignatureDocument(content, signatureName, completeXadesSignature(prepared, value));
-        info("Firma añadida al contenedor ASiC-E como ", signatureName);
-        return writeContainer(signed, signingTime);
-      };
-      return assembly;
-    });
-  }
-
-  immutable(ubyte)[] extend(const ExtensionInput input) @safe {
-    return extendReporting(gui, () @safe => extendContainer(input.signed, services));
-  }
+/// Firma en un contenedor ASiC-E con XAdES en nivel B; null si no se pudo (ya avisado).
+immutable(ubyte)[] signAsic(GuiInterface gui, SigningServices services, const SigningInput input,
+    CardSignInfo card) @safe {
+  return signWithCard(gui, card, (SigningKey key) @safe {
+    auto content = asicContainerFor(input);
+    auto certificate = key.certificate;
+    XadesParameters parameters;
+    parameters.signingTime = Clock.currTime;
+    parameters.signingCertificate = certificate;
+    parameters.keyInfoCertificates = [certificate] ~ services.intermediateChain(certificate);
+    parameters.rsa = key.key.rsa;
+    parameters.packaging = XadesPackaging.container;
+    parameters.files = asicSignedFiles(content);
+    parameters.en319132 = true;
+    string[] existing;
+    foreach (signature; content.signatureDocuments) existing ~= signature.name;
+    string signatureName = nextSignatureName(asicXadesSignatureTemplate, existing);
+    auto prepared = prepareXadesSignature(null, parameters, asicSignaturesRoot);
+    SysTime signingTime = parameters.signingTime;
+    SignatureAssembly assembly;
+    assembly.dataToSign = prepared.dataToSign;
+    // Como la versión Java, la firma del contenedor queda en nivel B.
+    assembly.baseline = (const(ubyte)[] value) @safe {
+      auto signed = withSignatureDocument(content, signatureName, completeXadesSignature(prepared, value));
+      info("Firma añadida al contenedor ASiC-E como ", signatureName);
+      return writeContainer(signed, signingTime);
+    };
+    return assembly;
+  });
 }
 
-/// Firmador de documentos OpenDocument.
-final class OpenDocumentSigner : ServicedSigner {
-  this(GuiInterface gui) @safe {
-    super(gui);
-  }
+/// Extiende a LTA todas las firmas XAdES del contenedor; null si no se pudo (ya avisado).
+immutable(ubyte)[] extendAsic(GuiInterface gui, SigningServices services, const ExtensionInput input) @safe {
+  return extendReporting(gui, () @safe => extendContainer(input.signed, services));
+}
 
-  string formatName() const pure @safe {
-    return "OpenDocument";
-  }
+/// Firma un documento OpenDocument en el nivel configurado; null si no se pudo (ya avisado).
+immutable(ubyte)[] signOpenDocument(GuiInterface gui, SigningServices services, const SigningInput input,
+    CardSignInfo card) @safe {
+  auto documentSettings = documentSettingsOf(input);
+  return signWithCard(gui, card, (SigningKey key) @safe {
+    auto content = classifyContainer(readZip(input.content));
+    enforce(content.isOpenDocument, "El archivo no es un documento OpenDocument");
+    // Como DSS: con más de un archivo de firmas no se sabe en cuál añadir la nueva.
+    enforce(content.signatureDocuments.length <= 1, format("El documento tiene %d archivos de firmas; no se sabe en "
+      ~ "cuál añadir la nueva", content.signatureDocuments.length));
+    immutable(ubyte)[] existing = content.signatureDocuments.length ? content.signatureDocuments[0].content : null;
+    XadesParameters parameters;
+    parameters.signingTime = Clock.currTime;
+    parameters.signingCertificate = key.certificate;
+    parameters.rsa = key.key.rsa;
+    parameters.packaging = XadesPackaging.container;
+    parameters.files = openDocumentSignedFiles(content);
+    auto level = documentSettings.getXAdESLevel();
+    auto prepared = prepareXadesSignature(existing, parameters, openDocumentSignaturesRoot);
+    SysTime signingTime = parameters.signingTime;
+    auto resolver = containerResolver(content);
+    immutable(ubyte)[] assemble(immutable(ubyte)[] signatures) @safe {
+      return writeContainer(withSignatureDocument(content, openDocumentSignaturesName, signatures), signingTime);
+    }
+    SignatureAssembly assembly;
+    assembly.dataToSign = prepared.dataToSign;
+    assembly.baseline = (const(ubyte)[] value) @safe => assemble(completeXadesSignature(prepared, value));
+    assembly.upgraded = (const(ubyte)[] value) @safe => assemble(raiseXadesLevel(completeXadesSignature(prepared,
+      value), prepared.signatureId, level, services, resolver, null));
+    return assembly;
+  });
+}
 
-  string signedExtension(string originalName) const pure @safe {
-    return extension(originalName);
-  }
-
-  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @safe {
-    auto documentSettings = documentSettingsOf(input);
-    return signWithCard(gui, card, (SigningKey key) @safe {
-      auto content = classifyContainer(readZip(input.content));
-      enforce(content.isOpenDocument, "El archivo no es un documento OpenDocument");
-      // Como DSS: con más de un archivo de firmas no se sabe en cuál añadir la nueva.
-      enforce(content.signatureDocuments.length <= 1, format("El documento tiene %d archivos de firmas; no se sabe en "
-        ~ "cuál añadir la nueva", content.signatureDocuments.length));
-      immutable(ubyte)[] existing = content.signatureDocuments.length ? content.signatureDocuments[0].content : null;
-      XadesParameters parameters;
-      parameters.signingTime = Clock.currTime;
-      parameters.signingCertificate = key.certificate;
-      parameters.rsa = key.key.rsa;
-      parameters.packaging = XadesPackaging.container;
-      parameters.files = openDocumentSignedFiles(content);
-      auto level = documentSettings.getXAdESLevel();
-      auto prepared = prepareXadesSignature(existing, parameters, openDocumentSignaturesRoot);
-      SysTime signingTime = parameters.signingTime;
-      auto resolver = containerResolver(content);
-      immutable(ubyte)[] assemble(immutable(ubyte)[] signatures) @safe {
-        return writeContainer(withSignatureDocument(content, openDocumentSignaturesName, signatures), signingTime);
-      }
-      SignatureAssembly assembly;
-      assembly.dataToSign = prepared.dataToSign;
-      assembly.baseline = (const(ubyte)[] value) @safe => assemble(completeXadesSignature(prepared, value));
-      assembly.upgraded = (const(ubyte)[] value) @safe => assemble(raiseXadesLevel(completeXadesSignature(prepared,
-        value), prepared.signatureId, level, services, resolver, null));
-      return assembly;
-    });
-  }
-
-  immutable(ubyte)[] extend(const ExtensionInput input) @safe {
-    return extendReporting(gui, () @safe => extendContainer(input.signed, services));
-  }
+/// Extiende a LTA todas las firmas XAdES del documento; null si no se pudo (ya avisado).
+immutable(ubyte)[] extendOpenDocument(GuiInterface gui, SigningServices services, const ExtensionInput input) @safe {
+  return extendReporting(gui, () @safe => extendContainer(input.signed, services));
 }
 
 /**

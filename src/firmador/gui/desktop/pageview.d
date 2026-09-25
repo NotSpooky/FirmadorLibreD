@@ -36,6 +36,8 @@ import std.algorithm : max, min, remove, countUntil;
 import std.conv : to;
 import std.logger : error, trace, warning;
 import std.math : round;
+import std.sumtype : match, SumType;
+import std.typecons : Nullable;
 
 import dlangui.core.events;
 import dlangui.core.types;
@@ -218,15 +220,35 @@ float fittedSignatureScale(float requested, float current, float width, float he
   return max(minSignatureScale, min(requested, limit));
 }
 
-/// Páginas que muestra la vista.
-interface PageSource {
-  int pageCount() @safe;
-  /// Geometría de la página, para ubicar la firma y saber su tamaño.
-  PageGeometry geometry(int index) @safe;
-  /// Página dibujada a la escala dada (se llama desde un hilo aparte).
-  ColorDrawBuf render(int index, float scale) @safe;
-  /// Admite ubicar una firma visible (PDF).
-  bool placesSignature() @safe;
+/// Páginas de un documento virtual: imágenes que entrega el servicio.
+struct VirtualPages {
+  int count;
+  /// Trae la imagen de la página (desde 1), o null si no se pudo.
+  immutable(ubyte)[] delegate(int page) @safe fetch;
+}
+
+/// Páginas que muestra la vista: la vista previa de un documento local o las imágenes de uno virtual.
+alias PageSource = SumType!(Previewer, VirtualPages);
+
+/// Cantidad de páginas.
+int pageCount(PageSource source) @safe {
+  return source.match!((Previewer previewer) => previewer.pageCount(), (VirtualPages pages) => pages.count);
+}
+
+/// Geometría de la página, para ubicar la firma y saber su tamaño (una carta en los virtuales).
+PageGeometry geometry(PageSource source, int index) @safe {
+  return source.match!((Previewer previewer) => previewer.pageGeometry(index), (VirtualPages pages) => letterGeometry());
+}
+
+/// Página dibujada a la escala dada (se llama desde un hilo aparte); null si no se pudo.
+ColorDrawBuf render(PageSource source, int index, float scale) @safe {
+  return source.match!((Previewer previewer) => drawBufFromRaster(previewer.renderPage(index, scale)),
+    (VirtualPages pages) => renderVirtualPage(pages, index, scale));
+}
+
+/// Admite ubicar una firma visible (PDF).
+bool placesSignature(PageSource source) pure @safe {
+  return source.match!((Previewer previewer) => previewer.showsSignaturePosition(), (VirtualPages pages) => false);
 }
 
 /// Geometría de una carta, para las páginas que todavía no se conocen.
@@ -252,72 +274,24 @@ ColorDrawBuf drawBufFromRaster(const PageRaster raster) @trusted {
   return buffer;
 }
 
-/// Páginas de un documento local, dibujadas por su vista previa (mupdf).
-final class PreviewerSource : PageSource {
-  private Previewer previewer;
-
-  this(Previewer previewer) pure @safe {
-    this.previewer = previewer;
+/// Imagen de una página virtual a la escala dada; null si no llegó o no se puede leer.
+private ColorDrawBuf renderVirtualPage(VirtualPages pages, int index, float scale) @trusted {
+  auto bytes = pages.fetch(index + 1);
+  if (bytes.length == 0) return null;
+  ColorDrawBuf decoded;
+  try {
+    decoded = loadImage(bytes, "pagina");
+  } catch (Exception exception) {
+    warning("No se pudo leer la imagen de la página ", index + 1, ": ", exception.msg);
+    return null;
   }
-
-  int pageCount() @safe {
-    return previewer.pageCount();
-  }
-
-  PageGeometry geometry(int index) @safe {
-    return previewer.pageGeometry(index);
-  }
-
-  ColorDrawBuf render(int index, float scale) @safe {
-    return drawBufFromRaster(previewer.renderPage(index, scale));
-  }
-
-  bool placesSignature() @safe {
-    return previewer.showsSignaturePosition();
-  }
-}
-
-/// Páginas de un documento virtual: imágenes que entrega el servicio.
-final class ImageSource : PageSource {
-  private int pages;
-  private immutable(ubyte)[] delegate(int page) @safe fetch;
-
-  /// `fetch` trae la imagen de la página (desde 1) o null si no se pudo.
-  this(int pages, immutable(ubyte)[] delegate(int page) @safe fetch) pure @safe {
-    this.pages = pages;
-    this.fetch = fetch;
-  }
-
-  int pageCount() pure @safe {
-    return pages;
-  }
-
-  PageGeometry geometry(int index) pure @safe {
-    return letterGeometry();
-  }
-
-  ColorDrawBuf render(int index, float scale) @trusted {
-    auto bytes = fetch(index + 1);
-    if (bytes.length == 0) return null;
-    ColorDrawBuf decoded;
-    try {
-      decoded = loadImage(bytes, "pagina");
-    } catch (Exception exception) {
-      warning("No se pudo leer la imagen de la página ", index + 1, ": ", exception.msg);
-      return null;
-    }
-    if (decoded is null) return null;
-    // La imagen se ajusta al ancho que tendría una carta a esta escala.
-    int width = max(1, cast(int) (612 * scale));
-    int height = max(1, cast(int) (width * cast(float) decoded.height / decoded.width));
-    auto scaled = new ColorDrawBuf(width, height);
-    scaled.drawRescaled(Rect(0, 0, width, height), decoded, Rect(0, 0, decoded.width, decoded.height));
-    return scaled;
-  }
-
-  bool placesSignature() pure @safe {
-    return false;
-  }
+  if (decoded is null) return null;
+  // La imagen se ajusta al ancho que tendría una carta a esta escala.
+  int width = max(1, cast(int) (612 * scale));
+  int height = max(1, cast(int) (width * cast(float) decoded.height / decoded.width));
+  auto scaled = new ColorDrawBuf(width, height);
+  scaled.drawRescaled(Rect(0, 0, width, height), decoded, Rect(0, 0, decoded.width, decoded.height));
+  return scaled;
 }
 
 /// Posición del recuadro de firma.
@@ -339,7 +313,7 @@ final class PageView : ScrollWidgetBase {
   /// Cambió la escala de las páginas (zoom o tamaño de la vista); recibe los píxeles por punto nuevos.
   void delegate(float scale) onScaleChanged;
 
-  private PageSource source;
+  private Nullable!PageSource source;
   private float[2][] pageSizes;
   private PageGeometry[] geometries;
   private int[] pageTops;
@@ -376,7 +350,7 @@ final class PageView : ScrollWidgetBase {
   private int[] renderQueue;
   private int renderGeneration;
   private float renderScale;
-  private PageSource renderSource;
+  private Nullable!PageSource renderSource;
   private bool renderStopping;
 
   this(string ID = null) @trusted {
@@ -390,16 +364,16 @@ final class PageView : ScrollWidgetBase {
     worker.start();
   }
 
-  /// Muestra otro documento (null lo vacía).
-  void setSource(PageSource newSource) @trusted {
+  /// Muestra otro documento (nulo lo vacía).
+  void setSource(Nullable!PageSource newSource) @trusted {
     source = newSource;
     pageSizes = null;
     geometries = null;
-    if (source !is null) {
-      foreach (index; 0 .. source.pageCount()) {
+    if (!source.isNull) {
+      foreach (index; 0 .. source.get.pageCount()) {
         PageGeometry geometry;
         try {
-          geometry = source.geometry(index);
+          geometry = source.get.geometry(index);
         } catch (Exception exception) {
           warning("No se pudo leer la geometría de la página ", index + 1, ": ", exception.msg);
           geometry = letterGeometry();
@@ -446,14 +420,14 @@ final class PageView : ScrollWidgetBase {
     signatureWidth = widthPoints;
     signatureHeight = heightPoints;
     signatureScale = scale;
-    signatureShown = image !is null && source !is null && source.placesSignature();
+    signatureShown = image !is null && !source.isNull && source.get.placesSignature();
     if (signatureShown) moveSignature(placement.page, placement.x, placement.y);
     invalidate();
   }
 
   /// Oculta o muestra el recuadro (firma no visible, documentos sin PDF).
   void showSignature(bool shown) @trusted {
-    signatureShown = shown && signatureImage !is null && source !is null && source.placesSignature();
+    signatureShown = shown && signatureImage !is null && !source.isNull && source.get.placesSignature();
     invalidate();
   }
 
@@ -628,7 +602,7 @@ final class PageView : ScrollWidgetBase {
   // Dibujo ------------------------------------------------------------------
 
   override protected void drawClient(DrawBuf buf) {
-    if (source is null) return;
+    if (source.isNull) return;
     int[] wanted;
     foreach (page; 0 .. cast(int) pageSizes.length) {
       Rect rc = pageRect(page);
@@ -811,7 +785,7 @@ final class PageView : ScrollWidgetBase {
     while (true) {
       int page, requestGeneration;
       float requestScale;
-      PageSource requestSource;
+      Nullable!PageSource requestSource;
       synchronized (renderLock) {
         while (renderQueue.length == 0 && !renderStopping) renderWakeup.wait();
         if (renderStopping) return;
@@ -821,10 +795,10 @@ final class PageView : ScrollWidgetBase {
         requestScale = renderScale;
         requestSource = renderSource;
       }
-      if (requestSource is null) continue;
+      if (requestSource.isNull) continue;
       ColorDrawBuf image;
       try {
-        image = requestSource.render(page, requestScale);
+        image = requestSource.get.render(page, requestScale);
       } catch (Exception exception) {
         error("No se pudo dibujar la página ", page + 1, ": ", exception.msg);
       }

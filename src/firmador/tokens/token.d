@@ -30,6 +30,7 @@ import std.exception : enforce;
 import std.file : read;
 import std.format : format;
 import std.logger : info, trace, warning;
+import std.sumtype : match, SumType;
 import std.typecons : Nullable;
 
 import firmador.asn1.oids : KeyUsageBit;
@@ -81,20 +82,28 @@ struct TokenKey {
   package size_t index;
 }
 
-/// Dispositivo de firma abierto.
-interface SignatureToken {
-  /// Claves disponibles.
-  TokenKey[] keys() @safe;
+/// Dispositivo de firma abierto: la tarjeta (PKCS#11) o el almacén (PKCS#12).
+alias SignatureToken = SumType!(Pkcs11SignatureToken, Pkcs12SignatureToken);
 
-  /**
-   * Firma `data` con la clave: RSA PKCS#1 v1.5, o ECDSA en DER.
-   *
-   * Throws: Exception si el dispositivo no firma.
-   */
-  ubyte[] sign(const TokenKey key, DigestAlgorithm digest, const(ubyte)[] data) @safe;
+/// Claves disponibles.
+TokenKey[] keys(SignatureToken token) pure @safe {
+  return token.match!(opened => opened.keys());
+}
 
-  /// Cierra el dispositivo; después no se puede usar.
-  void close() @safe;
+/**
+ * Firma `data` con la clave: RSA PKCS#1 v1.5, o ECDSA en DER.
+ *
+ * Throws: Exception si el dispositivo no firma.
+ */
+ubyte[] sign(SignatureToken token, const TokenKey key, DigestAlgorithm digest, const(ubyte)[] data) @safe {
+  return token.match!(opened => opened.sign(key, digest, data));
+}
+
+/// Cierra el dispositivo, si se abrió; después no se puede usar.
+void close(SignatureToken token) @safe {
+  token.match!((opened) {
+    if (opened !is null) opened.close();
+  });
 }
 
 /**
@@ -109,7 +118,7 @@ Nullable!TokenKey selectNonRepudiationKey(TokenKey[] keys) pure @safe {
 }
 
 /// Tarjeta de firma por PKCS#11: una sesión con el usuario autenticado mientras esté abierta.
-final class Pkcs11SignatureToken : SignatureToken {
+final class Pkcs11SignatureToken {
   private Pkcs11Module module_;
   private Pkcs11Session session;
   private SecretPin pin;
@@ -181,7 +190,7 @@ final class Pkcs11SignatureToken : SignatureToken {
 }
 
 /// Almacén PKCS#12 abierto con su contraseña.
-final class Pkcs12SignatureToken : SignatureToken {
+final class Pkcs12SignatureToken {
   private Pkcs12Contents contents;
   private TokenKey key;
 

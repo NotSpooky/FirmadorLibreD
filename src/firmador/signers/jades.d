@@ -34,56 +34,43 @@ import firmador.settings;
 import firmador.signers.common;
 import firmador.signers.documentsigner;
 
-/// Firmador JAdES.
-final class JadesSigner : ServicedSigner {
-  this(GuiInterface gui) @safe {
-    super(gui);
-  }
+/// Firma JAdES envolvente en el nivel configurado; null si no se pudo (ya avisado).
+immutable(ubyte)[] signJades(GuiInterface gui, SigningServices services, const SigningInput input,
+    CardSignInfo card) @safe {
+  auto documentSettings = documentSettingsOf(input);
+  return signWithCard(gui, card, (SigningKey key) @safe {
+    JadesParameters parameters;
+    parameters.signingTime = Clock.currTime;
+    parameters.signingCertificate = key.certificate;
+    parameters.rsa = key.key.rsa;
+    parameters.mimeType = mimeTypeString(input.mimeType);
+    auto level = documentSettings.getJAdESLevel();
+    auto prepared = prepareJadesSignature(input.content, parameters);
+    SignatureAssembly assembly;
+    assembly.dataToSign = prepared.dataToSign;
+    assembly.baseline = (const(ubyte)[] value) @safe => completeJadesSignature(prepared, value);
+    assembly.upgraded = (const(ubyte)[] value) @safe => raiseJadesLevel(completeJadesSignature(prepared, value), 0,
+      level, services);
+    return assembly;
+  });
+}
 
-  string formatName() const pure @safe {
-    return "JAdES";
-  }
-
-  string signedExtension(string originalName) const pure @safe {
-    return ".json";
-  }
-
-  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @safe {
-    auto documentSettings = documentSettingsOf(input);
-    return signWithCard(gui, card, (SigningKey key) @safe {
-      JadesParameters parameters;
-      parameters.signingTime = Clock.currTime;
-      parameters.signingCertificate = key.certificate;
-      parameters.rsa = key.key.rsa;
-      parameters.mimeType = mimeTypeString(input.mimeType);
-      auto level = documentSettings.getJAdESLevel();
-      auto prepared = prepareJadesSignature(input.content, parameters);
-      SignatureAssembly assembly;
-      assembly.dataToSign = prepared.dataToSign;
-      assembly.baseline = (const(ubyte)[] value) @safe => completeJadesSignature(prepared, value);
-      assembly.upgraded = (const(ubyte)[] value) @safe => raiseJadesLevel(completeJadesSignature(prepared, value), 0,
-        level, services);
-      return assembly;
-    });
-  }
-
-  /**
-   * Extiende a LTA todas las firmas del JWS (extendDocument de DSS con
-   * JAdES_BASELINE_LTA): sigTst si falta, datos de validación y arcTst.
-   */
-  immutable(ubyte)[] extend(const ExtensionInput input) @safe {
-    return extendReporting(gui, () @safe {
-      immutable(ubyte)[] detachedContent = input.singleDetached;
-      immutable(ubyte)[] extended = input.signed;
-      auto count = parseJws(extended).signatures.length;
-      foreach (index; 0 .. count) {
-        bool timestamped = false;
-        foreach (component; parseJws(extended).signatures[index].etsiU) if (component.name == "sigTst") timestamped = true;
-        extended = raiseJadesLevel(extended, index, SignatureLevel.lta, services, detachedContent, timestamped);
-      }
-      return extended;
-    });
-  }
+/**
+ * Extiende a LTA todas las firmas del JWS (extendDocument de DSS con
+ * JAdES_BASELINE_LTA): sigTst si falta, datos de validación y arcTst.
+ */
+immutable(ubyte)[] extendJades(GuiInterface gui, SigningServices services, const ExtensionInput input) @safe {
+  return extendReporting(gui, () @safe {
+    immutable(ubyte)[] detachedContent = input.singleDetached;
+    immutable(ubyte)[] extended = input.signed;
+    auto count = parseJws(extended).signatures.length;
+    foreach (index; 0 .. count) {
+      bool timestamped = false;
+      foreach (component; parseJws(extended).signatures[index].etsiU) if (component.name == "sigTst") timestamped = true;
+      extended = raiseJadesLevel(extended, index, SignatureLevel.lta, services, detachedContent, timestamped);
+    }
+    return extended;
+  });
 }
 
 /**
@@ -94,9 +81,9 @@ final class JadesSigner : ServicedSigner {
 private immutable(ubyte)[] raiseJadesLevel(immutable(ubyte)[] document, size_t index, SignatureLevel level,
     SigningServices services, immutable(ubyte)[] detachedContent = null, bool alreadyTimestamped = false) @safe {
   return raiseLevel(document, level,
-    (signed) => addJadesSignatureTimestamp(signed, index, &services.timestampDigest),
+    (signed) => addJadesSignatureTimestamp(signed, index, services.timestamper),
     (signed) => addJadesValidationData(signed, index,
       services.validationData(jadesSigningMaterial(parseJws(signed).signatures[index], services.pool))),
-    (signed) => addJadesArchiveTimestamp(signed, index, &services.timestampDigest, detachedContent),
+    (signed) => addJadesArchiveTimestamp(signed, index, services.timestamper, detachedContent),
     alreadyTimestamped);
 }

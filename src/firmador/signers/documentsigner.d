@@ -18,11 +18,11 @@ You should have received a copy of the GNU General Public License
 along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /**
- * Interfaz común de los firmadores de cada formato (DocumentSigner, con su base
- * ServicedSigner) y lo que reciben: el contenido, su nombre y tipo y los ajustes con que
- * se firma. También los pasos que comparten: firmar con la credencial (signWithCard),
- * subir de nivel (raiseLevel) y extender a LTA avisando (extendReporting). Los firmadores
- * no conocen firmador.documents.document; el documento los llama con un SigningInput.
+ * Lo que reciben los firmadores de cada formato (firmador.signers.detector los elige): el
+ * contenido, su nombre y tipo y los ajustes con que se firma. También los pasos que
+ * comparten: firmar con la credencial (signWithCard), subir de nivel (raiseLevel) y
+ * extender a LTA avisando (extendReporting). Los firmadores no conocen
+ * firmador.documents.document; el documento los llama con un SigningInput.
  */
 module firmador.signers.documentsigner;
 
@@ -61,41 +61,9 @@ struct ExtensionInput {
   }
 }
 
-/// Firmador de un formato.
-interface DocumentSigner {
-  /**
-   * Firma el contenido con la credencial. Devuelve el documento firmado, o null si no se
-   * pudo; el motivo ya se le mostró al usuario.
-   */
-  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @safe;
-
-  /// Extiende la firma a LTA; null si no se pudo (también avisado).
-  immutable(ubyte)[] extend(const ExtensionInput input) @safe;
-
-  /// Nombre del formato para la interfaz (PAdES, XAdES…).
-  string formatName() const @safe;
-
-  /// Extensión (con punto) del archivo firmado a partir del nombre del original.
-  string signedExtension(string originalName) const @safe;
-}
-
 /// Ajustes con que se firma: los del documento, o los vigentes si no trae.
 const(Settings) documentSettingsOf(const SigningInput input) @safe {
   return input.settings is null ? currentSettings() : input.settings;
-}
-
-/**
- * Base de los firmadores: la interfaz con que avisan cada paso y los servicios de sello y
- * validación en línea del BCCR.
- */
-abstract class ServicedSigner : DocumentSigner {
-  protected GuiInterface gui;
-  protected SigningServices services;
-
-  this(GuiInterface gui) @safe {
-    this.gui = gui;
-    services = SigningServices.online();
-  }
 }
 
 /// Paso de subida de nivel de un formato: recibe la firma y la devuelve con lo añadido.

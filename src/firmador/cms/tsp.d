@@ -62,8 +62,8 @@ struct TimeStampToken {
 }
 
 /**
- * Sella un resumen SHA-256 ya calculado (SigningServices.timestampDigest en
- * firmador.signers.common); lo reciben los formatos que agregan sellos.
+ * Sella un resumen SHA-256 ya calculado (timestamper de firmador.signers.common); lo
+ * reciben los formatos que agregan sellos.
  */
 alias Timestamper = TimeStampToken delegate(const(ubyte)[] digest) @safe;
 

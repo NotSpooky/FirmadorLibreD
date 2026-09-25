@@ -41,8 +41,9 @@ import firmador.cards.detector : createPinOnlyCard, SmartCardDetector;
 import firmador.configuration : maxPinLength;
 import firmador.documents.document : Document;
 import firmador.gui.console;
-import firmador.signers.common : rootCause;
-import firmador.signers.pades : PadesSigner;
+import firmador.gui.guiinterface : GuiInterface;
+import firmador.signers.common : onlineSigningServices, rootCause;
+import firmador.signers.pades : timestampPdf;
 import firmador.signers.resources : pathFromFileUri;
 import firmador.tokens.token : SecretPin;
 
@@ -114,7 +115,9 @@ ArgsOptions parseArgsOptions(const string[] arguments) pure @safe {
 }
 
 /// Interfaz del modo: mensajes a la salida estándar, errores a la de error.
-final class ArgsInterface : ConsoleInterface {
+final class ArgsInterface : GuiInterface {
+  mixin ConsoleInterface;
+
   private SmartCardDetector detector;
   private ArgsOptions options;
   private bool hadError;
@@ -215,7 +218,8 @@ int runArgsMode(const string[] arguments, SmartCardDetector detector) @trusted {
     immutable(ubyte)[] result;
     if (options.timestamp) {
       // Sello de tiempo independiente: no se firma con la tarjeta ni se pide PIN.
-      result = new PadesSigner(gui).timestamp(cast(immutable(ubyte)[]) read(options.input), options.visibleTimestamp);
+      result = timestampPdf(gui, onlineSigningServices(), cast(immutable(ubyte)[]) read(options.input),
+        options.visibleTimestamp);
     } else {
       card = gui.getPin();
       if (card is null) {

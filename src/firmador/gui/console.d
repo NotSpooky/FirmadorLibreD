@@ -27,14 +27,10 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 module firmador.gui.console;
 
 import std.exception : enforce;
-import std.logger : error, info, trace, warning;
 
 import firmador.cards.cardinfo : CardSignInfo, matchesIdentifier;
 import firmador.documents.document : Document;
-import firmador.gui.guiinterface;
-import firmador.remote.slot : RemoteDocumentSlot;
 import firmador.settings : Settings;
-import firmador.settingsmanager : currentSettings;
 
 /// Credencial elegida entre las detectadas (chooseCard).
 struct CardChoice {
@@ -85,8 +81,21 @@ Document signWith(Document document, Settings settings, CardSignInfo card) @safe
   return document;
 }
 
-/// Base de los modos de consola; cada modo decide cómo informar errores y mensajes.
-abstract class ConsoleInterface : GuiInterface {
+/**
+ * Lo común de los modos de consola, para mezclar en una clase que implementa
+ * GuiInterface; cada modo define cómo informar errores y mensajes (showError,
+ * showMessage, showErrorAlert) y cómo obtener la credencial (getPin).
+ */
+mixin template ConsoleInterface() {
+  // El cuerpo se resuelve donde se mezcla: trae lo que usa.
+  import std.logger : error, info, trace, warning;
+  import firmador.cards.cardinfo : CardSignInfo;
+  import firmador.documents.document : Document;
+  import firmador.gui.guiinterface : HostAuthorization, NotificationType;
+  import firmador.remote.slot : RemoteDocumentSlot;
+  import firmador.settings : Settings;
+  import firmador.settingsmanager : currentSettings;
+
   /// Los pasos de una firma van a la bitácora (nunca a la salida estándar).
   void nextStep(string message) @safe {
     trace(message);

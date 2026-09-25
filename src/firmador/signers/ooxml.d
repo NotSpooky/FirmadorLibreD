@@ -40,64 +40,51 @@ import firmador.validation.certpath : ValidationData;
 import firmador.validation.cmsverify : timestampSignerCertificate;
 import firmador.x509.certificate;
 
-/// Firmador OOXML.
-final class OoxmlSigner : ServicedSigner {
-  this(GuiInterface gui) @safe {
-    super(gui);
-  }
-
-  string formatName() const pure @safe {
-    return "OpenXML";
-  }
-
-  string signedExtension(string originalName) const pure @safe {
-    return extension(originalName);
-  }
-
-  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @safe {
-    return signWithCard(gui, card, (SigningKey key) @safe {
-      auto entries = readZip(input.content);
-      OoxmlParameters parameters;
-      parameters.signingTime = Clock.currTime;
-      parameters.signingCertificate = key.certificate;
-      parameters.rsa = key.key.rsa;
-      auto prepared = prepareOoxmlSignature(entries, parameters);
-      auto signingTime = parameters.signingTime;
-      auto certificate = key.certificate;
-      immutable(ubyte)[] package_(immutable(ubyte)[] signatureXml) @safe {
-        return writeZip(addSignaturePart(entries, signatureXml), signingTime);
-      }
-      SignatureAssembly assembly;
-      assembly.dataToSign = prepared.dataToSign;
-      assembly.baseline = (const(ubyte)[] value) @safe => package_(completeOoxmlSignature(prepared, value));
-      assembly.upgraded = (const(ubyte)[] value) @safe {
-        auto signatureXml = addOoxmlXlProperties(completeOoxmlSignature(prepared, value), revocationDataFor(certificate),
-          &services.timestampDigest,
-          (const TimeStampToken token) @safe => revocationDataFor(timestampSignerCertificate(token, services.pool)));
-        info("Firma OOXML en nivel XAdES-X-L");
-        return package_(signatureXml);
-      };
-      return assembly;
-    });
-  }
-
-  /**
-   * Cadena y revocación de un certificado con los servicios en línea (TimeStampServiceCR),
-   * con la cadena sin él mismo, como la pide addOoxmlXlProperties.
-   */
-  private ValidationData revocationDataFor(Certificate certificate) @safe {
-    auto data = services.validationData([certificate]);
-    ValidationData revocation;
-    foreach (chained; data.certificates) {
-      if (!sameCertificate(chained, certificate)) revocation.certificates ~= chained;
+/// Firma un paquete OOXML en XAdES-X-L (o XAdES-BES sin servicios); null si no se pudo (ya avisado).
+immutable(ubyte)[] signOoxml(GuiInterface gui, SigningServices services, const SigningInput input,
+    CardSignInfo card) @safe {
+  return signWithCard(gui, card, (SigningKey key) @safe {
+    auto entries = readZip(input.content);
+    OoxmlParameters parameters;
+    parameters.signingTime = Clock.currTime;
+    parameters.signingCertificate = key.certificate;
+    parameters.rsa = key.key.rsa;
+    auto prepared = prepareOoxmlSignature(entries, parameters);
+    auto signingTime = parameters.signingTime;
+    auto certificate = key.certificate;
+    immutable(ubyte)[] package_(immutable(ubyte)[] signatureXml) @safe {
+      return writeZip(addSignaturePart(entries, signatureXml), signingTime);
     }
-    revocation.crls = data.crls;
-    revocation.ocspResponses = data.ocspResponses;
-    return revocation;
-  }
+    SignatureAssembly assembly;
+    assembly.dataToSign = prepared.dataToSign;
+    assembly.baseline = (const(ubyte)[] value) @safe => package_(completeOoxmlSignature(prepared, value));
+    assembly.upgraded = (const(ubyte)[] value) @safe {
+      auto signatureXml = addOoxmlXlProperties(completeOoxmlSignature(prepared, value), revocationDataFor(services, certificate),
+        services.timestamper,
+        (const TimeStampToken token) @safe => revocationDataFor(services, timestampSignerCertificate(token, services.pool)));
+      info("Firma OOXML en nivel XAdES-X-L");
+      return package_(signatureXml);
+    };
+    return assembly;
+  });
+}
 
-  /// Las firmas OOXML no se extienden: se devuelve el documento como está, como la versión Java.
-  immutable(ubyte)[] extend(const ExtensionInput input) pure @safe {
-    return input.signed;
+/**
+ * Cadena y revocación de un certificado con los servicios en línea (TimeStampServiceCR),
+ * con la cadena sin él mismo, como la pide addOoxmlXlProperties.
+ */
+private ValidationData revocationDataFor(SigningServices services, Certificate certificate) @safe {
+  auto data = services.validationData([certificate]);
+  ValidationData revocation;
+  foreach (chained; data.certificates) {
+    if (!sameCertificate(chained, certificate)) revocation.certificates ~= chained;
   }
+  revocation.crls = data.crls;
+  revocation.ocspResponses = data.ocspResponses;
+  return revocation;
+}
+
+/// Las firmas OOXML no se extienden: se devuelve el documento como está, como la versión Java.
+immutable(ubyte)[] extendOoxml(GuiInterface gui, SigningServices services, const ExtensionInput input) pure @safe {
+  return input.signed;
 }

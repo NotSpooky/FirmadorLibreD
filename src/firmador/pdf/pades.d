@@ -267,7 +267,7 @@ immutable(ubyte)[] completePadesSignature(const PreparedSignature prepared, cons
  * Lo que necesita el nivel LT del PDF: en `certificates`, los firmantes y las autoridades
  * de sellado de todas sus firmas y sellos (buscados también en `pool`); en las
  * revocaciones, las del DSS y las de las firmas. Es lo que recibe
- * SigningServices.validationData (firmador.signers.common). Las firmas ilegibles se omiten.
+ * validationData de firmador.signers.common. Las firmas ilegibles se omiten.
  *
  * Throws: Exception si el certificado de la autoridad de un sello no está en el sello ni en
  * `pool`.

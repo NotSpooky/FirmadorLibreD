@@ -523,7 +523,7 @@ immutable(ubyte)[] addJadesValidationData(const(ubyte)[] document, size_t index,
  * Lo que necesita el nivel LT de la firma: en `certificates`, el de firma (el de x5c que
  * coincide con x5t#S256, o el primero si la cabecera no lo trae) y los de las autoridades
  * de sus sigTst y arcTst (buscados también en `pool`); en las revocaciones, las que ya
- * incluye. Es lo que recibe SigningServices.validationData (firmador.signers.common).
+ * incluye. Es lo que recibe validationData de firmador.signers.common.
  *
  * Throws: JwsException si la firma no incluye su certificado de firma; Exception si el
  * certificado de la autoridad de un sello no está en el sello ni en `pool`.

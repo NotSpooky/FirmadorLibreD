@@ -352,7 +352,7 @@ RichLayout layoutBlocks(Metrics)(const RichBlock[] blocks, int width, int baseHe
 }
 
 /// Texto con formato, ajuste de línea y enlaces.
-class RichText : Widget {
+final class RichText : Widget {
   private RichBlock[] blocks;
   private PlacedText[] placed;
   private int laidOutWidth = -1;
@@ -376,7 +376,7 @@ class RichText : Widget {
   }
 
   /// Texto sin formato.
-  override @property dstring text() const {
+  override @property dstring text() const pure {
     return plainText(blocks);
   }
 

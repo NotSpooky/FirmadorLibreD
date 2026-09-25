@@ -39,6 +39,7 @@ import firmador.configuration : checkUpdatePluginName, firmadorVersion;
 import firmador.connections.passwordprovider : systemCredentialStore;
 import firmador.gui.args : localPathArgument, runArgsMode;
 import firmador.gui.console : ConsoleInterface;
+import firmador.gui.guiinterface : GuiInterface;
 import firmador.gui.shell : runShellMode;
 import firmador.launch : extractLaunchProperties, setLaunchProperties;
 import firmador.logging : configureLogging;
@@ -104,7 +105,9 @@ private void loadConsolePlugins(Settings settings) {
 }
 
 /// Interfaz mínima para los plugins de los modos de consola: todo va a la bitácora.
-private final class PluginConsole : ConsoleInterface {
+private final class PluginConsole : GuiInterface {
+  mixin ConsoleInterface;
+
   import firmador.cards.cardinfo : CardSignInfo;
 
   void showError(Throwable failure) @safe {

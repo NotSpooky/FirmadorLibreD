@@ -44,26 +44,6 @@ import firmador.net.http;
 import firmador.x509.certificate;
 import firmador.x509.crl;
 
-/// Origen de datos de validación; la firma nivel B no necesita ninguno.
-interface ValidationDataSource {
-  /**
-   * Sello de tiempo sobre el resumen dado.
-   *
-   * Throws: Exception si el servicio no está disponible o rechaza la solicitud.
-   */
-  TimeStampToken timestamp(DigestAlgorithm digest, const(ubyte)[] imprint) @safe;
-
-  /// Respuesta OCSP para el certificado, o la razón por la que no la hay en `failure`.
-  bool ocsp(const Certificate certificate, const Certificate issuer, out OcspResponse response, out string failure)
-    @safe;
-
-  /// CRL del certificado según sus puntos de distribución, o la razón en `failure`.
-  bool crl(const Certificate certificate, out CertificateRevocationList list, out string failure) @safe;
-
-  /// Certificados del emisor según AIA (vacío si no hay o no se pudieron descargar).
-  Certificate[] issuers(const Certificate certificate) @safe;
-}
-
 private HttpOptions serviceOptions() pure @safe {
   HttpOptions options;
   import core.time : dur;
@@ -73,8 +53,12 @@ private HttpOptions serviceOptions() pure @safe {
   return options;
 }
 
-/// Servicios en línea con caché de CRL y certificados de emisor durante la ejecución.
-final class OnlineValidationSource : ValidationDataSource {
+/**
+ * Servicios en línea con caché de CRL y certificados de emisor durante la ejecución. Donde
+ * se recibe una, null significa sin conexión (firma nivel B sin Internet, validación sin
+ * conexión): no se descargan emisores ni revocaciones.
+ */
+final class ValidationSource {
   private string timestampUrl;
   private CertificateRevocationList[string] crlCache;
   private Certificate[][string] issuerCache;
@@ -85,6 +69,11 @@ final class OnlineValidationSource : ValidationDataSource {
     lock = new Mutex;
   }
 
+  /**
+   * Sello de tiempo sobre el resumen dado.
+   *
+   * Throws: Exception si el servicio no está disponible o rechaza la solicitud.
+   */
   TimeStampToken timestamp(DigestAlgorithm digest, const(ubyte)[] imprint) @trusted {
     ubyte[] nonceBytes = secureRandomBytes(8);
     nonceBytes[0] &= 0x7F;
@@ -99,6 +88,7 @@ final class OnlineValidationSource : ValidationDataSource {
     return token;
   }
 
+  /// Respuesta OCSP para el certificado, o la razón por la que no la hay en `failure`.
   bool ocsp(const Certificate certificate, const Certificate issuer, out OcspResponse result, out string failure)
       @safe {
     if (certificate.ocspUrls.length == 0) {
@@ -110,6 +100,7 @@ final class OnlineValidationSource : ValidationDataSource {
       url, httpPost(url, request, "application/ocsp-request", null, serviceOptions()))), result, failure);
   }
 
+  /// CRL del certificado según sus puntos de distribución, o la razón en `failure`.
   bool crl(const Certificate certificate, out CertificateRevocationList list, out string failure) @safe {
     if (certificate.crlUrls.length == 0) {
       failure = "El certificado no indica dónde está su CRL";
@@ -126,6 +117,7 @@ final class OnlineValidationSource : ValidationDataSource {
     }, list, failure);
   }
 
+  /// Certificados del emisor según AIA (vacío si no hay o no se pudieron descargar).
   Certificate[] issuers(const Certificate certificate) @safe {
     Certificate[] found;
     string failure;
@@ -168,28 +160,6 @@ private bool fromFirstUrl(T)(const string[] urls, scope T delegate(string url) @
     }
   }
   return false;
-}
-
-/// Sin servicios en línea (firma nivel B sin Internet, validación sin conexión).
-final class OfflineValidationSource : ValidationDataSource {
-  TimeStampToken timestamp(DigestAlgorithm digest, const(ubyte)[] imprint) pure @safe {
-    throw new TimeStampException("No hay conexión con el servicio de sellado");
-  }
-
-  bool ocsp(const Certificate certificate, const Certificate issuer, out OcspResponse response, out string failure)
-      pure @safe {
-    failure = "Validación sin conexión";
-    return false;
-  }
-
-  bool crl(const Certificate certificate, out CertificateRevocationList list, out string failure) pure @safe {
-    failure = "Validación sin conexión";
-    return false;
-  }
-
-  Certificate[] issuers(const Certificate certificate) pure @safe {
-    return [];
-  }
 }
 
 /**

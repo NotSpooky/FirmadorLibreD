@@ -51,7 +51,7 @@ import firmador.settings : Settings;
 import firmador.settingsmanager : currentSettings;
 import firmador.signers.common : rootCause;
 import firmador.signers.documentsigner : SigningInput;
-import firmador.signers.xades : XadesSigner;
+import firmador.signers.detector : DocumentSigner, sign, SignatureFormat;
 import firmador.util.base64 : encodeBase64;
 import firmador.util.json : parseJsonText;
 
@@ -334,7 +334,7 @@ final class RemoteServer {
         input.name = "autorizacion.xml";
         input.mimeType = SupportedMimeType.XML;
         input.settings = currentSettings();
-        auto signed = new XadesSigner(gui, true).sign(input, card);
+        auto signed = DocumentSigner(SignatureFormat.xades, true).sign(gui, input, card);
         return signed is null ? JSONValue(null) : remoteDocumentJson(signed, "autorizacion_autenticacion.xml");
       }, true);
   }

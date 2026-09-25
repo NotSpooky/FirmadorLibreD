@@ -47,6 +47,7 @@ import firmador.configuration : shellMaxLineLength;
 import firmador.documents.document : Document;
 import firmador.documents.mimetype : detectMimeType;
 import firmador.gui.console;
+import firmador.gui.guiinterface : GuiInterface;
 import firmador.gui.errors : isAuthenticationFailure;
 import firmador.i18n : htmlToText, t;
 import firmador.previewers.previewer : previewerFor;
@@ -228,7 +229,9 @@ string[2] errorLines(string message) pure @safe {
 }
 
 /// Interfaz del modo: todo lo que no es protocolo va a la salida de error.
-final class ShellInterface : ConsoleInterface {
+final class ShellInterface : GuiInterface {
+  mixin ConsoleInterface;
+
   private SmartCardDetector detector;
   /// Lo encienden showError y showMessage: aborta el lote para no bloquear la tarjeta.
   private bool authenticationFailed;

@@ -49,7 +49,6 @@ import firmador.crypto.random : secureRandomString;
 import firmador.gui.guiinterface : GuiInterface;
 import firmador.i18n : t;
 import firmador.net.http : httpGet, HttpOptions;
-import firmador.plugins.plugin : Plugin;
 import firmador.util.desktop : insideFlatpak;
 import firmador.util.zip : isSafeEntryName, readZip;
 
@@ -103,23 +102,24 @@ string macBundleEntryPath(string entryName) pure @safe {
 }
 
 /// Avisa y, si el usuario acepta, instala la versión nueva.
-final class CheckUpdatePlugin : Plugin {
+struct CheckUpdatePlugin {
+  enum string name = checkUpdatePluginName;
   private GuiInterface gui;
 
   this(GuiInterface gui) pure @safe {
     this.gui = gui;
   }
 
-  override string name() const pure @safe { return checkUpdatePluginName; }
-
-  override void start() @trusted {
+  void start() @trusted {
     if (!releaseCheckEnabled) {
       info("CheckUpdatePlugin desactivado (configuration.releaseCheckEnabled): no se buscan actualizaciones");
     } else {
       info("Starting CheckUpdatePlugin");
+      // El hilo usa su propia copia: la del llamador puede dejar de existir.
+      auto plugin = this;
       auto worker = new Thread({
         try {
-          check();
+          plugin.check();
         } catch (Exception exception) {
           error("Error al buscar actualizaciones: ", exception.msg);
         }
@@ -129,7 +129,7 @@ final class CheckUpdatePlugin : Plugin {
     }
   }
 
-  override void stop() @safe {
+  void stop() @safe {
     info("Stopping CheckUpdatePlugin");
   }
 

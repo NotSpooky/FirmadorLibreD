@@ -58,7 +58,7 @@ import firmador.configuration : defaultRemotePort, firmadorVersion;
 import firmador.connections.config : firmadorRemotoService;
 import firmador.connections.connection;
 import firmador.connections.external;
-import firmador.connections.gaudi : startGaudi;
+import firmador.connections.gaudi : GaudiIntegration;
 import firmador.documents.document : Document;
 import firmador.documents.manager : DocumentManager;
 import firmador.gui.desktop.aboutpanel : AboutPanel;
@@ -181,7 +181,8 @@ final class DesktopInterface : GuiInterface, ConnectionView {
   private void build(string[] fileArguments, string remoteOrigin) {
     auto settings = currentSettings();
     simplified = settings.isSimplifiedMode();
-    connections = new ConnectionManager(this, this, detector, &startGaudi, &startExternal);
+    connections = new ConnectionManager(this, this, detector, &startIntegration!GaudiIntegration,
+      &startIntegration!ExternalIntegration);
     connections.load();
     manager = new DocumentManager(this);
 

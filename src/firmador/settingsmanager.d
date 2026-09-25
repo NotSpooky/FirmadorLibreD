@@ -39,6 +39,7 @@ import std.process : environment;
 import std.string : startsWith;
 
 import firmador.configuration : configDirectoryName;
+import firmador.connections.passwordprovider : SecureCredentialStore;
 import firmador.crypto.random : secureRandomString;
 import firmador.i18n : setMessagesLocale;
 import firmador.logging : setLogLevel, withContext;
@@ -46,23 +47,6 @@ import firmador.settings;
 import firmador.util.datetime : formatJavaDate, DateLanguage, costaRicaTimeZone;
 import firmador.util.desktop : insideFlatpak;
 import firmador.util.properties : parseProperties, formatProperties;
-
-/// Llavero del sistema donde se guarda la contraseña del almacén de tokens.
-interface SecureCredentialStore {
-  /// El llavero está disponible y es seguro.
-  bool isAvailable();
-  /**
-   * Contraseña guardada, o null si no hay.
-   *
-   * Throws: Exception si el llavero no responde (no es lo mismo que no tener contraseña:
-   * reemplazarla dejaría sin abrir los tokens guardados).
-   */
-  string load();
-  /// Guarda la contraseña; false si el llavero la rechazó.
-  bool save(string password);
-  /// Descripción del estado para las bitácoras (sin la contraseña).
-  string storageInfo();
-}
 
 private __gshared SecureCredentialStore credentialStore;
 private __gshared string overridePath;
@@ -84,11 +68,6 @@ shared static this() {
 /// Instala el llavero del sistema; sin él la contraseña se guarda ofuscada en config.properties.
 void setSecureCredentialStore(SecureCredentialStore store) @trusted {
   credentialStore = store;
-}
-
-/// Llavero instalado (null si no hay).
-SecureCredentialStore secureCredentialStore() @trusted {
-  return credentialStore;
 }
 
 /**
@@ -517,17 +496,16 @@ unittest {
   assert(first.keyPassword.length == 32);
   assert(readSettings().keyPassword == first.keyPassword);
 
-  // Un llavero que no responde: no se genera otra contraseña ni se guarda encima de la suya.
-  final class UnresponsiveKeyring : SecureCredentialStore {
-    bool saved;
-    bool isAvailable() { return true; }
-    string load() { throw new Exception("El servicio de secretos no responde"); }
-    bool save(string password) { saved = true; return true; }
-    string storageInfo() { return "llavero de prueba"; }
-  }
-  auto keyring = new UnresponsiveKeyring;
+  // Un llavero que responde al arrancar y luego deja de responder: no se genera otra
+  // contraseña ni se guarda encima de la suya.
+  int lookups;
+  bool saved;
+  auto keyring = new SecureCredentialStore(() @safe {
+    if (lookups++ == 0) return cast(string) null;
+    throw new Exception("El servicio de secretos no responde");
+  }, (string password) @safe { saved = true; });
   setSecureCredentialStore(keyring);
   scope (exit) setSecureCredentialStore(null);
   assert(readSettings().keyPassword.length == 0);
-  assert(!keyring.saved);
+  assert(!saved);
 }

@@ -27,12 +27,12 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.connections.connection;
 
-import core.atomic : atomicLoad, atomicStore;
 import core.thread : Thread;
 import core.time : dur;
 import std.algorithm : countUntil, remove, sort;
 import std.format : format;
 import std.logger : error, info, warning;
+import std.typecons : Nullable;
 import std.uuid : UUID;
 
 import firmador.cards.detector : SmartCardDetector;
@@ -81,72 +81,75 @@ interface ConnectionView {
   void loadingFinished() @safe;
 }
 
-/// Hilo de una integración (Gaudi o servicio externo).
-interface ConnectionWorker {
+/// Hilo de una integración (Gaudi o servicio externo), visto desde su conexión.
+struct ConnectionWorker {
   /// Sigue conectado o intentando conectarse.
-  bool isRunning() @safe;
+  bool delegate() @safe isRunning;
   /**
    * Pide terminar y cierra la sesión si corresponde. Puede esperar la red (no llamarlo
    * desde el hilo de la ventana), pero no espera a que el hilo acabe.
    */
-  void stop() @safe;
+  void delegate() @safe stop;
 }
 
 /**
- * Base de las integraciones que atienden un flujo de eventos en su propio hilo (Gaudi y
- * los servicios externos): el hilo, su estado, la cancelación y cómo se informan los
- * errores. Cada una implementa listen(); start() arranca el hilo cuando ya está armada.
+ * Lo común de las integraciones que atienden un flujo de eventos en su propio hilo (Gaudi
+ * y los servicios externos): el hilo, su estado, la cancelación y cómo se informan los
+ * errores. La clase que lo mezcla define `listen()` (negocia y atiende los eventos hasta
+ * que se cierre o se detenga) y, si necesita algo al detenerse, `afterStop()`;
+ * `failureCode` es el código con que se informa una caída («Code:14», «Code:19»…).
+ * startIntegration la crea y arranca su hilo.
  */
-abstract class IntegrationWorker : ConnectionWorker {
-  protected ConnectionManager manager;
-  protected Connection connection;
+mixin template IntegrationWorker(string failureCode) {
+  private ConnectionManager manager;
+  private Connection connection;
   /// Se pidió detener; el flujo de eventos lo consulta para cortar.
-  protected shared bool cancelled;
+  private shared bool cancelled;
   private shared bool running;
-  /// Código con que se informa una caída de la conexión («Code:14», «Code:19»…).
-  private string failureCode;
 
-  this(ConnectionManager manager, Connection connection, string failureCode) pure @safe {
+  this(ConnectionManager manager, Connection connection) pure @safe {
     this.manager = manager;
     this.connection = connection;
-    this.failureCode = failureCode;
   }
 
   /// Arranca el hilo que atiende la conexión.
-  final void start() @trusted {
+  void start() @trusted {
+    import core.atomic : atomicStore;
+    import core.thread : Thread;
     atomicStore(running, true);
     auto thread = new Thread(&run);
     thread.isDaemon = true;
     thread.start();
   }
 
-  final bool isRunning() pure @trusted {
+  bool isRunning() pure @trusted {
+    import core.atomic : atomicLoad;
     return atomicLoad(running);
   }
 
-  /// Pide terminar; afterStop hace lo que cada integración necesite al irse.
-  final void stop() @trusted {
+  /// Pide terminar y hace lo que la integración necesite al irse (afterStop).
+  void stop() @trusted {
+    import core.atomic : atomicStore;
+    import std.logger : info;
     info("Deteniendo la conexión ", connection.name);
     atomicStore(cancelled, true);
-    afterStop();
+    static if (__traits(hasMember, typeof(this), "afterStop")) afterStop();
   }
 
-  /// Negocia con el servicio y atiende sus eventos hasta que se cierre o se detenga.
-  protected abstract void listen() @trusted;
-
-  /// Lo que se hace al detener, después de pedir que termine el flujo (nada por omisión).
-  protected void afterStop() @safe {}
-
-  protected final bool isCancelled() pure @trusted {
+  private bool isCancelled() pure @trusted {
+    import core.atomic : atomicLoad;
     return atomicLoad(cancelled);
   }
 
   /// Informa un error de la conexión a la interfaz.
-  protected final void report(string message) @safe {
+  private void report(string message) @safe {
     manager.reportErrors(connection, [message]);
   }
 
   private void run() @trusted {
+    import core.atomic : atomicStore;
+    import std.logger : error, info;
+    import firmador.i18n : t;
     scope (exit) atomicStore(running, false);
     info("Iniciando la conexión con ", connection.name);
     try {
@@ -162,6 +165,13 @@ abstract class IntegrationWorker : ConnectionWorker {
   }
 }
 
+/// Crea la integración de una conexión y arranca su hilo (WorkerFactory de ConnectionManager).
+ConnectionWorker startIntegration(Integration)(ConnectionManager manager, Connection connection) @safe {
+  auto integration = new Integration(manager, connection);
+  integration.start();
+  return ConnectionWorker(&integration.isRunning, &integration.stop);
+}
+
 /// Una conexión con su estado en marcha.
 final class Connection {
   private ConnectionConfig config_;
@@ -169,7 +179,7 @@ final class Connection {
   private bool logged_;
   private string userLogged_;
   private RemoteServer[ushort] remoteServers;
-  private ConnectionWorker worker;
+  private Nullable!ConnectionWorker worker;
 
   this(ConnectionConfig config) pure @safe {
     config_ = config;
@@ -234,9 +244,9 @@ final class Connection {
   /// Está conectada: algún puerto de Firmador Remoto atendiendo, o su integración en marcha.
   bool isRunning() @trusted {
     if (kind == ConnectionKind.firmadorRemoto) return runningPorts().length > 0;
-    ConnectionWorker current;
+    Nullable!ConnectionWorker current;
     synchronized (this) current = worker;
-    return current !is null && current.isRunning();
+    return !current.isNull && current.get.isRunning();
   }
 
   /// Puertos que Firmador Remoto atiende; descarta los servidores que se detuvieron.
@@ -429,15 +439,15 @@ final class ConnectionManager {
   void stop(Connection connection) @trusted {
     connection.setLogged(false, "");
     RemoteServer[] servers;
-    ConnectionWorker current;
+    Nullable!ConnectionWorker current;
     synchronized (connection) {
       servers = connection.remoteServers.values;
       connection.remoteServers = null;
       current = connection.worker;
-      connection.worker = null;
+      connection.worker.nullify();
     }
     foreach (server; servers) server.stop();
-    if (current !is null) current.stop();
+    if (!current.isNull) current.get.stop();
     view.connectionChanged(connection);
   }
 

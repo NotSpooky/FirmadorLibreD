@@ -18,16 +18,22 @@ You should have received a copy of the GNU General Public License
 along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /**
- * Elección del firmador por tipo de documento (DocumentSignerDetector) y los formatos
- * que se pueden elegir a mano para cada tipo (SelectSignatureTypeDialog).
+ * Firmador de un documento: su elección por tipo (DocumentSignerDetector), los formatos
+ * que se pueden elegir a mano para cada tipo (SelectSignatureTypeDialog) y la firma y
+ * extensión con el formato elegido, que llaman a firmador.signers.asic, cades, jades,
+ * ooxml, pades y xades.
  */
 module firmador.signers.detector;
 
+import std.path : extension;
+
+import firmador.cards.cardinfo : CardSignInfo;
 import firmador.documents.mimetype;
 import firmador.gui.guiinterface;
 import firmador.settings : Settings;
 import firmador.signers.asic;
 import firmador.signers.cades;
+import firmador.signers.common : onlineSigningServices;
 import firmador.signers.documentsigner;
 import firmador.signers.jades;
 import firmador.signers.ooxml;
@@ -37,15 +43,22 @@ import firmador.signers.xades;
 /// Formatos de firma que se pueden elegir.
 enum SignatureFormat { asic, pades, cades, xades, jades, openDocument, openXml }
 
+/// Firmador de un documento: el formato y, en XAdES, si la firma va dentro del XML.
+struct DocumentSigner {
+  SignatureFormat format;
+  /// XAdES dentro del XML (el caso normal); si no, en un documento aparte (elegido a mano).
+  bool enveloped;
+}
+
 /// Firmador por omisión del tipo: CAdES si los ajustes lo fuerzan (forceCades).
-DocumentSigner signerFor(GuiInterface gui, const Settings settings, SupportedMimeType type) @safe {
-  if (settings !is null && settings.forceCades) return new CadesSigner(gui);
-  if (isPdf(type)) return new PadesSigner(gui);
-  if (isOpenDocument(type)) return new OpenDocumentSigner(gui);
-  if (isOpenXml(type)) return new OoxmlSigner(gui);
-  if (isXml(type)) return new XadesSigner(gui, true);
-  if (isJson(type)) return new JadesSigner(gui);
-  return new AsicSigner(gui);
+DocumentSigner signerFor(const Settings settings, SupportedMimeType type) pure @safe {
+  if (settings !is null && settings.forceCades) return DocumentSigner(SignatureFormat.cades);
+  if (isPdf(type)) return DocumentSigner(SignatureFormat.pades);
+  if (isOpenDocument(type)) return DocumentSigner(SignatureFormat.openDocument);
+  if (isOpenXml(type)) return DocumentSigner(SignatureFormat.openXml);
+  if (isXml(type)) return DocumentSigner(SignatureFormat.xades, true);
+  if (isJson(type)) return DocumentSigner(SignatureFormat.jades);
+  return DocumentSigner(SignatureFormat.asic);
 }
 
 /// Formatos que ofrece el diálogo de tipo de firma para el tipo de documento.
@@ -57,10 +70,10 @@ SignatureFormat[] selectableFormats(SupportedMimeType type) pure nothrow @safe {
   return [SignatureFormat.asic, SignatureFormat.cades, SignatureFormat.jades];
 }
 
-/// Nombre del formato en el diálogo.
-string formatLabel(SignatureFormat format_) pure nothrow @safe @nogc {
+/// Nombre del formato para la interfaz (PAdES, XAdES…).
+string formatName(SignatureFormat format_) pure nothrow @safe @nogc {
   final switch (format_) {
-    case SignatureFormat.asic: return "ASIC-E";
+    case SignatureFormat.asic: return "ASiC-E";
     case SignatureFormat.pades: return "PAdES";
     case SignatureFormat.cades: return "CAdES";
     case SignatureFormat.xades: return "XAdES";
@@ -70,26 +83,45 @@ string formatLabel(SignatureFormat format_) pure nothrow @safe @nogc {
   }
 }
 
-/// Firmador del formato elegido; XAdES elegido a mano firma separado, como la versión Java.
-DocumentSigner signerForFormat(GuiInterface gui, SignatureFormat format_) @safe {
-  final switch (format_) {
-    case SignatureFormat.asic: return new AsicSigner(gui);
-    case SignatureFormat.pades: return new PadesSigner(gui);
-    case SignatureFormat.cades: return new CadesSigner(gui);
-    case SignatureFormat.xades: return new XadesSigner(gui, false);
-    case SignatureFormat.jades: return new JadesSigner(gui);
-    case SignatureFormat.openDocument: return new OpenDocumentSigner(gui);
-    case SignatureFormat.openXml: return new OoxmlSigner(gui);
+/// Extensión (con punto) del archivo firmado a partir del nombre del original.
+string signedExtension(DocumentSigner signer, string originalName) pure @safe {
+  final switch (signer.format) {
+    case SignatureFormat.asic: return ".asice";
+    case SignatureFormat.pades: return ".pdf";
+    case SignatureFormat.cades: return ".p7s";
+    case SignatureFormat.xades: return ".xml";
+    case SignatureFormat.jades: return ".json";
+    case SignatureFormat.openDocument, SignatureFormat.openXml: return extension(originalName);
   }
 }
 
-/// Formato de un firmador, para marcarlo en el diálogo.
-SignatureFormat formatOf(const DocumentSigner signer) pure @safe {
-  if (cast(const PadesSigner) signer) return SignatureFormat.pades;
-  if (cast(const XadesSigner) signer) return SignatureFormat.xades;
-  if (cast(const CadesSigner) signer) return SignatureFormat.cades;
-  if (cast(const JadesSigner) signer) return SignatureFormat.jades;
-  if (cast(const OoxmlSigner) signer) return SignatureFormat.openXml;
-  if (cast(const OpenDocumentSigner) signer) return SignatureFormat.openDocument;
-  return SignatureFormat.asic;
+/**
+ * Firma el contenido con la credencial, con los servicios de sello y validación del BCCR.
+ * Devuelve el documento firmado, o null si no se pudo; el motivo ya se le mostró al usuario.
+ */
+immutable(ubyte)[] sign(DocumentSigner signer, GuiInterface gui, const SigningInput input, CardSignInfo card) @safe {
+  auto services = onlineSigningServices();
+  final switch (signer.format) {
+    case SignatureFormat.asic: return signAsic(gui, services, input, card);
+    case SignatureFormat.pades: return signPades(gui, services, input, card);
+    case SignatureFormat.cades: return signCades(gui, services, input, card);
+    case SignatureFormat.xades: return signXades(gui, services, input, card, signer.enveloped);
+    case SignatureFormat.jades: return signJades(gui, services, input, card);
+    case SignatureFormat.openDocument: return signOpenDocument(gui, services, input, card);
+    case SignatureFormat.openXml: return signOoxml(gui, services, input, card);
+  }
+}
+
+/// Extiende la firma a LTA; null si no se pudo (también avisado).
+immutable(ubyte)[] extend(DocumentSigner signer, GuiInterface gui, const ExtensionInput input) @safe {
+  auto services = onlineSigningServices();
+  final switch (signer.format) {
+    case SignatureFormat.asic: return extendAsic(gui, services, input);
+    case SignatureFormat.pades: return extendPades(gui, services, input);
+    case SignatureFormat.cades: return extendCades(gui, services, input);
+    case SignatureFormat.xades: return extendXades(gui, services, input);
+    case SignatureFormat.jades: return extendJades(gui, services, input);
+    case SignatureFormat.openDocument: return extendOpenDocument(gui, services, input);
+    case SignatureFormat.openXml: return extendOoxml(gui, services, input);
+  }
 }

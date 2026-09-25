@@ -32,7 +32,6 @@ import std.logger : error, info, warning;
 import std.string : fromStringz, toStringz;
 
 import firmador.configuration : keyringAccountName, keyringServiceName;
-import firmador.settingsmanager : SecureCredentialStore;
 
 /// Descripción del estado del llavero para la bitácora (getStorageInfo).
 string storageDescription(bool available, bool hasPassword) pure nothrow @safe {
@@ -40,17 +39,17 @@ string storageDescription(bool available, bool hasPassword) pure nothrow @safe {
   return hasPassword ? "Credential Manager del SO: ACTIVO" : "Credential Manager del SO: DISPONIBLE (sin contraseña guardada)";
 }
 
+version (linux) version = HasSystemKeyring;
+else version (Windows) version = HasSystemKeyring;
+else version (OSX) version = HasSystemKeyring;
+
 /**
  * Llavero del sistema de esta plataforma, o null si no hay uno usable (sin servicio de
  * secretos en la sesión, por ejemplo).
  */
 SecureCredentialStore systemCredentialStore() @safe {
-  version (linux) {
-    auto store = new LibsecretCredentialStore;
-  } else version (Windows) {
-    auto store = new WindowsCredentialStore;
-  } else version (OSX) {
-    auto store = new KeychainCredentialStore;
+  version (HasSystemKeyring) {
+    auto store = new SecureCredentialStore(() => keyringLookup(), (string password) => keyringStore(password));
   } else {
     warning("No hay llavero del sistema en esta plataforma; la contraseña del almacén de tokens irá en la configuración");
     return null;
@@ -63,16 +62,27 @@ SecureCredentialStore systemCredentialStore() @safe {
   return store;
 }
 
-/// Comportamiento común: disponibilidad calculada una vez y descripción del estado.
-private abstract class CachedCredentialStore : SecureCredentialStore {
+/**
+ * Llavero del sistema donde se guarda la contraseña del almacén de tokens
+ * (firmador.settingsmanager). Si está disponible se averigua una vez, consultándolo.
+ */
+final class SecureCredentialStore {
+  private string delegate() @safe lookup;
+  private void delegate(string password) @safe store;
   private bool probed;
   private bool available;
 
-  /// Consulta la contraseña; null si no hay. Lanza si el llavero no responde.
-  protected abstract string lookup() @safe;
-  /// Guarda la contraseña. Lanza si el llavero la rechaza.
-  protected abstract void store(string password) @safe;
+  /**
+   * Params:
+   *   lookup = consulta la contraseña (null si no hay); lanza si el llavero no responde.
+   *   store = guarda la contraseña; lanza si el llavero la rechaza.
+   */
+  this(string delegate() @safe lookup, void delegate(string password) @safe store) pure @safe {
+    this.lookup = lookup;
+    this.store = store;
+  }
 
+  /// El llavero está disponible y es seguro.
   bool isAvailable() @safe {
     if (!probed) {
       probed = true;
@@ -87,6 +97,12 @@ private abstract class CachedCredentialStore : SecureCredentialStore {
     return available;
   }
 
+  /**
+   * Contraseña guardada, o null si no hay.
+   *
+   * Throws: Exception si el llavero no responde (no es lo mismo que no tener contraseña:
+   * reemplazarla dejaría sin abrir los tokens guardados).
+   */
   string load() @safe {
     if (!isAvailable()) return null;
     try {
@@ -97,6 +113,7 @@ private abstract class CachedCredentialStore : SecureCredentialStore {
     }
   }
 
+  /// Guarda la contraseña; false si el llavero la rechazó.
   bool save(string password) @safe {
     enforce(password.length > 0, "La contraseña del almacén de tokens no puede estar vacía");
     if (!isAvailable()) {
@@ -113,6 +130,7 @@ private abstract class CachedCredentialStore : SecureCredentialStore {
     }
   }
 
+  /// Descripción del estado para las bitácoras (sin la contraseña).
   string storageInfo() @safe {
     if (!isAvailable()) return storageDescription(false, false);
     try {
@@ -126,43 +144,47 @@ private abstract class CachedCredentialStore : SecureCredentialStore {
 version (linux) {
   import csecret;
 
-  /// Secret Service (GNOME Keyring, KWallet, portal de flatpak) mediante libsecret.
-  private final class LibsecretCredentialStore : CachedCredentialStore {
-    private SecretSchema schema;
+  // Secret Service (GNOME Keyring, KWallet, portal de flatpak) mediante libsecret.
 
-    this() pure @trusted {
-      schema.name = "cr.libre.firmador.KeystorePassword";
-      schema.flags = SECRET_SCHEMA_NONE;
-      schema.attributes[0].name = "service";
-      schema.attributes[0].type = SECRET_SCHEMA_ATTRIBUTE_STRING;
-      schema.attributes[1].name = "account";
-      schema.attributes[1].type = SECRET_SCHEMA_ATTRIBUTE_STRING;
-    }
+  /// Esquema con que se guarda la contraseña.
+  private SecretSchema keyringSchema() pure @trusted {
+    SecretSchema schema;
+    schema.name = "cr.libre.firmador.KeystorePassword";
+    schema.flags = SECRET_SCHEMA_NONE;
+    schema.attributes[0].name = "service";
+    schema.attributes[0].type = SECRET_SCHEMA_ATTRIBUTE_STRING;
+    schema.attributes[1].name = "account";
+    schema.attributes[1].type = SECRET_SCHEMA_ATTRIBUTE_STRING;
+    return schema;
+  }
 
-    protected override string lookup() @trusted {
-      GError* failure = null;
-      char* found = secret_password_lookup_sync(&schema, null, &failure, "service".ptr,
-        keyringServiceName.toStringz, "account".ptr, keyringAccountName.toStringz, null);
-      throwOnError(failure, "consultar");
-      if (found is null) return null;
-      scope (exit) secret_password_free(found);
-      return fromStringz(found).idup;
-    }
+  /// Contraseña guardada en el llavero, o null si no hay (SecureCredentialStore.lookup).
+  private string keyringLookup() @trusted {
+    auto schema = keyringSchema();
+    GError* failure = null;
+    char* found = secret_password_lookup_sync(&schema, null, &failure, "service".ptr,
+      keyringServiceName.toStringz, "account".ptr, keyringAccountName.toStringz, null);
+    throwOnError(failure, "consultar");
+    if (found is null) return null;
+    scope (exit) secret_password_free(found);
+    return fromStringz(found).idup;
+  }
 
-    protected override void store(string password) @trusted {
-      GError* failure = null;
-      auto stored = secret_password_store_sync(&schema, "default".ptr, "Firmador Libre".ptr, password.toStringz, null,
-        &failure, "service".ptr, keyringServiceName.toStringz, "account".ptr, keyringAccountName.toStringz, null);
-      throwOnError(failure, "guardar");
-      enforce(stored, "libsecret no guardó la contraseña");
-    }
+  /// Guarda la contraseña en el llavero (SecureCredentialStore.store).
+  private void keyringStore(string password) @trusted {
+    auto schema = keyringSchema();
+    GError* failure = null;
+    auto stored = secret_password_store_sync(&schema, "default".ptr, "Firmador Libre".ptr, password.toStringz, null,
+      &failure, "service".ptr, keyringServiceName.toStringz, "account".ptr, keyringAccountName.toStringz, null);
+    throwOnError(failure, "guardar");
+    enforce(stored, "libsecret no guardó la contraseña");
+  }
 
-    private static void throwOnError(GError* failure, string action) @trusted {
-      if (failure is null) return;
-      string message = failure.message is null ? "sin detalle" : fromStringz(failure.message).idup;
-      g_error_free(failure);
-      throw new Exception(format("libsecret no pudo %s la contraseña: %s", action, message));
-    }
+  private void throwOnError(GError* failure, string action) @trusted {
+    if (failure is null) return;
+    string message = failure.message is null ? "sin detalle" : fromStringz(failure.message).idup;
+    g_error_free(failure);
+    throw new Exception(format("libsecret no pudo %s la contraseña: %s", action, message));
   }
 }
 
@@ -203,31 +225,32 @@ version (Windows) {
   private enum DWORD credPersistLocalMachine = 2;
   private enum DWORD errorNotFound = 1168;
 
-  /// Administrador de credenciales de Windows (advapi32).
-  private final class WindowsCredentialStore : CachedCredentialStore {
-    protected override string lookup() @trusted {
-      CREDENTIALW* credential = null;
-      if (!CredReadW(keyringServiceName.toUTF16z, credTypeGeneric, 0, &credential)) {
-        DWORD code = GetLastError();
-        if (code == errorNotFound) return null;
-        throw new Exception(format("CredReadW falló con el código %d", code));
-      }
-      scope (exit) CredFree(credential);
-      return (cast(char[]) credential.CredentialBlob[0 .. credential.CredentialBlobSize]).idup;
-    }
+  // Administrador de credenciales de Windows (advapi32).
 
-    protected override void store(string password) @trusted {
-      auto blob = cast(ubyte[]) password.dup;
-      scope (exit) blob[] = 0;
-      CREDENTIALW credential;
-      credential.Type = credTypeGeneric;
-      credential.TargetName = cast(wchar*) keyringServiceName.toUTF16z;
-      credential.UserName = cast(wchar*) keyringAccountName.toUTF16z;
-      credential.CredentialBlobSize = cast(DWORD) blob.length;
-      credential.CredentialBlob = blob.ptr;
-      credential.Persist = credPersistLocalMachine;
-      enforce(CredWriteW(&credential, 0), format("CredWriteW falló con el código %d", GetLastError()));
+  /// Contraseña guardada en el llavero, o null si no hay (SecureCredentialStore.lookup).
+  private string keyringLookup() @trusted {
+    CREDENTIALW* credential = null;
+    if (!CredReadW(keyringServiceName.toUTF16z, credTypeGeneric, 0, &credential)) {
+      DWORD code = GetLastError();
+      if (code == errorNotFound) return null;
+      throw new Exception(format("CredReadW falló con el código %d", code));
     }
+    scope (exit) CredFree(credential);
+    return (cast(char[]) credential.CredentialBlob[0 .. credential.CredentialBlobSize]).idup;
+  }
+
+  /// Guarda la contraseña en el llavero (SecureCredentialStore.store).
+  private void keyringStore(string password) @trusted {
+    auto blob = cast(ubyte[]) password.dup;
+    scope (exit) blob[] = 0;
+    CREDENTIALW credential;
+    credential.Type = credTypeGeneric;
+    credential.TargetName = cast(wchar*) keyringServiceName.toUTF16z;
+    credential.UserName = cast(wchar*) keyringAccountName.toUTF16z;
+    credential.CredentialBlobSize = cast(DWORD) blob.length;
+    credential.CredentialBlob = blob.ptr;
+    credential.Persist = credPersistLocalMachine;
+    enforce(CredWriteW(&credential, 0), format("CredWriteW falló con el código %d", GetLastError()));
   }
 }
 
@@ -250,34 +273,35 @@ version (OSX) {
   private enum OSStatus errSecSuccess = 0;
   private enum OSStatus errSecItemNotFound = -25_300;
 
-  /// Llavero de macOS (Security.framework).
-  private final class KeychainCredentialStore : CachedCredentialStore {
-    protected override string lookup() @trusted {
-      uint length;
-      void* data;
-      auto status = SecKeychainFindGenericPassword(null, cast(uint) keyringServiceName.length, keyringServiceName.ptr,
-        cast(uint) keyringAccountName.length, keyringAccountName.ptr, &length, &data, null);
-      if (status == errSecItemNotFound) return null;
-      enforce(status == errSecSuccess, format("SecKeychainFindGenericPassword falló con el código %d", status));
-      scope (exit) SecKeychainItemFreeContent(null, data);
-      return (cast(char*) data)[0 .. length].idup;
-    }
+  // Llavero de macOS (Security.framework).
 
-    protected override void store(string password) @trusted {
-      SecKeychainItemRef item;
-      auto status = SecKeychainFindGenericPassword(null, cast(uint) keyringServiceName.length, keyringServiceName.ptr,
-        cast(uint) keyringAccountName.length, keyringAccountName.ptr, null, null, &item);
-      if (status == errSecSuccess) {
-        scope (exit) CFRelease(item);
-        status = SecKeychainItemModifyAttributesAndData(item, null, cast(uint) password.length, password.ptr);
-        enforce(status == errSecSuccess, format("SecKeychainItemModifyAttributesAndData falló con el código %d", status));
-        return;
-      }
-      enforce(status == errSecItemNotFound, format("SecKeychainFindGenericPassword falló con el código %d", status));
-      status = SecKeychainAddGenericPassword(null, cast(uint) keyringServiceName.length, keyringServiceName.ptr,
-        cast(uint) keyringAccountName.length, keyringAccountName.ptr, cast(uint) password.length, password.ptr, null);
-      enforce(status == errSecSuccess, format("SecKeychainAddGenericPassword falló con el código %d", status));
+  /// Contraseña guardada en el llavero, o null si no hay (SecureCredentialStore.lookup).
+  private string keyringLookup() @trusted {
+    uint length;
+    void* data;
+    auto status = SecKeychainFindGenericPassword(null, cast(uint) keyringServiceName.length, keyringServiceName.ptr,
+      cast(uint) keyringAccountName.length, keyringAccountName.ptr, &length, &data, null);
+    if (status == errSecItemNotFound) return null;
+    enforce(status == errSecSuccess, format("SecKeychainFindGenericPassword falló con el código %d", status));
+    scope (exit) SecKeychainItemFreeContent(null, data);
+    return (cast(char*) data)[0 .. length].idup;
+  }
+
+  /// Guarda la contraseña en el llavero (SecureCredentialStore.store).
+  private void keyringStore(string password) @trusted {
+    SecKeychainItemRef item;
+    auto status = SecKeychainFindGenericPassword(null, cast(uint) keyringServiceName.length, keyringServiceName.ptr,
+      cast(uint) keyringAccountName.length, keyringAccountName.ptr, null, null, &item);
+    if (status == errSecSuccess) {
+      scope (exit) CFRelease(item);
+      status = SecKeychainItemModifyAttributesAndData(item, null, cast(uint) password.length, password.ptr);
+      enforce(status == errSecSuccess, format("SecKeychainItemModifyAttributesAndData falló con el código %d", status));
+      return;
     }
+    enforce(status == errSecItemNotFound, format("SecKeychainFindGenericPassword falló con el código %d", status));
+    status = SecKeychainAddGenericPassword(null, cast(uint) keyringServiceName.length, keyringServiceName.ptr,
+      cast(uint) keyringAccountName.length, keyringAccountName.ptr, cast(uint) password.length, password.ptr, null);
+    enforce(status == errSecSuccess, format("SecKeychainAddGenericPassword falló con el código %d", status));
   }
 }
 

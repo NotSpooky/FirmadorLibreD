@@ -63,7 +63,7 @@ import firmador.gui.desktop.richtext : RichText;
 import firmador.gui.desktop.secretfield : SecretField;
 import firmador.gui.guiinterface : HostAuthorization;
 import firmador.i18n : t;
-import firmador.signers.detector : formatLabel, SignatureFormat;
+import firmador.signers.detector : formatName, SignatureFormat;
 import firmador.tokens.token : SecretPin;
 import firmador.util.desktop : openPath, openUrl;
 
@@ -510,7 +510,7 @@ void showSignatureTypeDialog(Window parent, SignatureFormat[] formats, Signature
   dialog.addChild(new TextWidget(null, t("signature_type_prompt").toUTF32));
   RadioButton[] buttons;
   foreach (format_; formats) {
-    auto button = new RadioButton(null, formatLabel(format_).toUTF32);
+    auto button = new RadioButton(null, formatName(format_).toUTF32);
     button.checked = format_ == current;
     buttons ~= button;
     dialog.addChild(button);

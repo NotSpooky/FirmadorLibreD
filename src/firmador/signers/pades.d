@@ -112,107 +112,95 @@ VisibleSignature visibleSignatureFor(const Settings appSettings, const Settings 
   return visible;
 }
 
-/// Firmador PAdES.
-final class PadesSigner : ServicedSigner {
-  this(GuiInterface gui) @safe {
-    super(gui);
-  }
-
-  string formatName() const pure @safe {
-    return "PAdES";
-  }
-
-  string signedExtension(string originalName) const pure @safe {
-    return ".pdf";
-  }
-
-  immutable(ubyte)[] sign(const SigningInput input, CardSignInfo card) @trusted {
-    auto appSettings = currentSettings();
-    auto documentSettings = documentSettingsOf(input);
-    return signWithCard(gui, card, (SigningKey key) @trusted {
-      auto certificate = key.certificate;
-      auto level = documentSettings.getPAdESLevel();
-      PadesSignatureParameters parameters;
-      parameters.signingTime = Clock.currTime;
-      parameters.reason = documentSettings.reason;
-      parameters.location = documentSettings.place;
-      parameters.contactInfo = documentSettings.contact;
-      auto document = PdfDocument.open(input.content);
-      int pages = document.pageCount();
-      int pageNumber = resolvePageNumber(documentSettings.pageNumber, pages);
-      enforce(pageNumber >= 1 && pageNumber <= pages, format("El PDF no tiene la página %d", pageNumber));
-      parameters.pageIndex = pageNumber - 1;
-      if (documentSettings.isVisibleSignature) {
-        auto geometry = document.pageGeometry(parameters.pageIndex);
-        string text = signatureText(certificate, documentSettings, appSettings, parameters.signingTime);
-        auto image = loadSignatureImage(documentSettings.image);
-        parameters.visible = true;
-        parameters.appearance = visibleSignatureFor(appSettings, documentSettings, text, image, geometry);
-      }
-      document.close();
-      gui.nextStep(t("signers_adding_graphic_representation"));
-      PreparedSignature prepared;
-      try {
-        prepared = preparePadesSignature(input.content, parameters, padesSignatureContentSize);
-      } catch (SignatureOverlapException exception) {
-        error("Error al firmar (traslape de firma): ", exception.msg);
-        gui.showMessage(t("signers_signature_overlap"));
-        throw new ReportedSigningFailure(exception.msg, exception);
-      }
-      auto attributes = padesSignedAttributes(preparedDigest(prepared), certificate).idup;
-      auto chain = services.intermediateChain(certificate);
-      bool rsa = key.key.rsa;
-      immutable(ubyte)[] complete(const(ubyte)[] value, const(ubyte)[] signatureTimestamp) @safe {
-        return completePadesSignature(prepared, padesCms(attributes, value, rsa, certificate, chain,
-          signatureTimestamp));
-      }
-      SignatureAssembly assembly;
-      assembly.dataToSign = attributes;
-      assembly.baseline = (const(ubyte)[] value) @safe => complete(value, null);
-      // El sello de firma va dentro del CMS: el nivel T se arma de nuevo con él.
-      assembly.upgraded = (const(ubyte)[] value) @safe => raiseLevel(complete(value, null), level,
-        (signed) => complete(value, services.timestamp(value).der), &withValidationData,
-        (signed) => addDocumentTimestamp(signed, &services.timestampDigest));
-      return assembly;
-    });
-  }
-
-  /// Añade al PDF los datos de validación de todos sus firmantes y sellos (nivel LT).
-  private immutable(ubyte)[] withValidationData(immutable(ubyte)[] pdf) @safe {
-    return addPadesValidationData(pdf, services.validationData(padesSigningMaterial(pdf, services.pool)));
-  }
-
-  /// Extiende el PDF a LTA: datos de validación de todas las firmas y sello de documento.
-  immutable(ubyte)[] extend(const ExtensionInput input) @safe {
-    return extendReporting(gui, () @safe => addDocumentTimestamp(withValidationData(input.signed),
-      &services.timestampDigest));
-  }
-
-  /**
-   * Sella el PDF con un sello de tiempo de documento independiente, visible en la primera
-   * página si se pide (timestamp en la versión Java). Null si falla, avisado.
-   */
-  immutable(ubyte)[] timestamp(immutable(ubyte)[] pdf, bool visibleTimestamp) @trusted {
-    auto appSettings = currentSettings();
-    try {
-      VisibleSignature appearance;
-      if (visibleTimestamp) {
-        string date = formatJavaDate(appSettings.getDateFormat(), Clock.currTime.toOtherTZ(costaRicaTimeZone()),
-          dateLanguageFor(appSettings.language));
-        appearance.text = format(t("signers_info_timestamp_included"), date);
-        appearance.font = resolveSignatureFont(appSettings.font);
-        appearance.fontSize = appSettings.fontSize;
-        appearance.textColor = appSettings.getFontColor();
-        appearance.backgroundColor = appSettings.getBackgroundColor();
-        appearance.position = SignerTextPosition.right;
-        appearance.rotation = SignatureRotation.automatic;
-      }
-      return addDocumentTimestamp(pdf, &services.timestampDigest, visibleTimestamp, appearance, 0);
-    } catch (Exception exception) {
-      error("Error al agregar un sello de tiempo independiente: ", exception.msg);
-      gui.showError(exception);
-      return null;
+/// Firma el PDF en el nivel configurado, con firma visible si se pide; null si no se pudo (ya avisado).
+immutable(ubyte)[] signPades(GuiInterface gui, SigningServices services, const SigningInput input,
+    CardSignInfo card) @trusted {
+  auto appSettings = currentSettings();
+  auto documentSettings = documentSettingsOf(input);
+  return signWithCard(gui, card, (SigningKey key) @trusted {
+    auto certificate = key.certificate;
+    auto level = documentSettings.getPAdESLevel();
+    PadesSignatureParameters parameters;
+    parameters.signingTime = Clock.currTime;
+    parameters.reason = documentSettings.reason;
+    parameters.location = documentSettings.place;
+    parameters.contactInfo = documentSettings.contact;
+    auto document = PdfDocument.open(input.content);
+    int pages = document.pageCount();
+    int pageNumber = resolvePageNumber(documentSettings.pageNumber, pages);
+    enforce(pageNumber >= 1 && pageNumber <= pages, format("El PDF no tiene la página %d", pageNumber));
+    parameters.pageIndex = pageNumber - 1;
+    if (documentSettings.isVisibleSignature) {
+      auto geometry = document.pageGeometry(parameters.pageIndex);
+      string text = signatureText(certificate, documentSettings, appSettings, parameters.signingTime);
+      auto image = loadSignatureImage(documentSettings.image);
+      parameters.visible = true;
+      parameters.appearance = visibleSignatureFor(appSettings, documentSettings, text, image, geometry);
     }
+    document.close();
+    gui.nextStep(t("signers_adding_graphic_representation"));
+    PreparedSignature prepared;
+    try {
+      prepared = preparePadesSignature(input.content, parameters, padesSignatureContentSize);
+    } catch (SignatureOverlapException exception) {
+      error("Error al firmar (traslape de firma): ", exception.msg);
+      gui.showMessage(t("signers_signature_overlap"));
+      throw new ReportedSigningFailure(exception.msg, exception);
+    }
+    auto attributes = padesSignedAttributes(preparedDigest(prepared), certificate).idup;
+    auto chain = services.intermediateChain(certificate);
+    bool rsa = key.key.rsa;
+    immutable(ubyte)[] complete(const(ubyte)[] value, const(ubyte)[] signatureTimestamp) @safe {
+      return completePadesSignature(prepared, padesCms(attributes, value, rsa, certificate, chain,
+        signatureTimestamp));
+    }
+    SignatureAssembly assembly;
+    assembly.dataToSign = attributes;
+    assembly.baseline = (const(ubyte)[] value) @safe => complete(value, null);
+    // El sello de firma va dentro del CMS: el nivel T se arma de nuevo con él.
+    assembly.upgraded = (const(ubyte)[] value) @safe => raiseLevel(complete(value, null), level,
+      (signed) => complete(value, services.timestamp(value).der), (pdf) => withPadesValidationData(services, pdf),
+      (signed) => addDocumentTimestamp(signed, services.timestamper));
+    return assembly;
+  });
+}
+
+/// Añade al PDF los datos de validación de todos sus firmantes y sellos (nivel LT).
+private immutable(ubyte)[] withPadesValidationData(SigningServices services, immutable(ubyte)[] pdf) @safe {
+  return addPadesValidationData(pdf, services.validationData(padesSigningMaterial(pdf, services.pool)));
+}
+
+/// Extiende el PDF a LTA: datos de validación de todas las firmas y sello de documento.
+immutable(ubyte)[] extendPades(GuiInterface gui, SigningServices services, const ExtensionInput input) @safe {
+  return extendReporting(gui, () @safe => addDocumentTimestamp(withPadesValidationData(services, input.signed),
+    services.timestamper));
+}
+
+/**
+ * Sella el PDF con un sello de tiempo de documento independiente, visible en la primera
+ * página si se pide (timestamp en la versión Java). Null si falla, avisado.
+ */
+immutable(ubyte)[] timestampPdf(GuiInterface gui, SigningServices services, immutable(ubyte)[] pdf,
+    bool visibleTimestamp) @trusted {
+  auto appSettings = currentSettings();
+  try {
+    VisibleSignature appearance;
+    if (visibleTimestamp) {
+      string date = formatJavaDate(appSettings.getDateFormat(), Clock.currTime.toOtherTZ(costaRicaTimeZone()),
+        dateLanguageFor(appSettings.language));
+      appearance.text = format(t("signers_info_timestamp_included"), date);
+      appearance.font = resolveSignatureFont(appSettings.font);
+      appearance.fontSize = appSettings.fontSize;
+      appearance.textColor = appSettings.getFontColor();
+      appearance.backgroundColor = appSettings.getBackgroundColor();
+      appearance.position = SignerTextPosition.right;
+      appearance.rotation = SignatureRotation.automatic;
+    }
+    return addDocumentTimestamp(pdf, services.timestamper, visibleTimestamp, appearance, 0);
+  } catch (Exception exception) {
+    error("Error al agregar un sello de tiempo independiente: ", exception.msg);
+    gui.showError(exception);
+    return null;
   }
 }
 

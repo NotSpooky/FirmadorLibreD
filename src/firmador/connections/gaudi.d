@@ -171,23 +171,13 @@ private HttpOptions bccrOptions() @safe {
   return options;
 }
 
-/// Inicia la integración con el BCCR (WorkerFactory de ConnectionManager).
-ConnectionWorker startGaudi(ConnectionManager manager, Connection connection) @safe {
-  auto worker = new GaudiIntegration(manager, connection);
-  worker.start();
-  return worker;
-}
-
 /// Hilo de la conexión con el hub del BCCR.
-final class GaudiIntegration : IntegrationWorker {
+final class GaudiIntegration {
+  mixin IntegrationWorker!"Code:14";
   private string sendUrl;
 
-  this(ConnectionManager manager, Connection connection) pure @safe {
-    super(manager, connection, "Code:14");
-  }
-
   /// Negocia, abre el flujo de eventos y lo atiende hasta que se cierre o se detenga.
-  protected override void listen() @trusted {
+  private void listen() @trusted {
     auto options = bccrOptions();
     auto negotiated = httpGet(bccrUrl ~ bccrStartNegotiation, ["User-Agent": integrationUserAgent], options);
     enforce(negotiated.status == 200, format("La negociación con el BCCR respondió %d %s", negotiated.status,

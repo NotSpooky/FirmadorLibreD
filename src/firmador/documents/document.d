@@ -38,12 +38,10 @@ import firmador.gui.guiinterface;
 import firmador.previewers.previewer;
 import firmador.settings : Settings;
 import firmador.settingsmanager : currentSettings;
-import firmador.signers.asic : AsicSigner;
-import firmador.signers.cades : CadesSigner;
-import firmador.signers.detector : signerFor;
+import firmador.signers.detector;
 import firmador.signers.documentsigner;
 import firmador.validation.model : DetachedContent;
-import firmador.validation.sources : OnlineValidationSource;
+import firmador.validation.sources : ValidationSource;
 import firmador.validators.factory : validateDocument;
 
 /// Estado de firma del documento.
@@ -80,7 +78,7 @@ final class Document {
     this.id = randomUUID();
     setUp(gui, baseName(pathname), detectMimeType(pathname));
     pathname_ = pathname;
-    signer_ = signerFor(gui, settings_, mimeType_);
+    signer_ = signerFor(settings_, mimeType_);
   }
 
   /**
@@ -93,7 +91,7 @@ final class Document {
     status_ = status;
     if (status == DocumentStatus.toSign) data = content;
     else signedContent_ = content;
-    signer_ = signerFor(gui, settings_, mimeType_);
+    signer_ = signerFor(settings_, mimeType_);
     remote_ = true;
   }
 
@@ -151,10 +149,10 @@ final class Document {
   }
 
   /// Cambia los ajustes y vuelve a elegir el firmador según ellos (setSettings).
-  void setSettings(Settings settings) @trusted {
+  void setSettings(Settings settings) pure @trusted {
     synchronized (this) {
       settings_ = settings;
-      signer_ = signerFor(gui, settings, mimeType_);
+      signer_ = signerFor(settings, mimeType_);
     }
   }
 
@@ -167,13 +165,13 @@ final class Document {
   }
 
   /// Firma en un contenedor ASiC-E (forcesignASiC).
-  void forceAsic() @safe {
-    setSigner(new AsicSigner(gui));
+  void forceAsic() pure @safe {
+    setSigner(DocumentSigner(SignatureFormat.asic));
   }
 
   /// Firma separada CAdES (forceCades).
-  void forceCades() @safe {
-    setSigner(new CadesSigner(gui));
+  void forceCades() pure @safe {
+    setSigner(DocumentSigner(SignatureFormat.cades));
   }
 
   Previewer preview() pure @trusted {
@@ -195,7 +193,7 @@ final class Document {
     }
     scope (exit) validateDone();
     auto validation = validateDocument(signedContent_ !is null && status_ == DocumentStatus.signed && data is null
-      ? signedContent_ : content(), name_, settings, new OnlineValidationSource);
+      ? signedContent_ : content(), name_, settings, new ValidationSource);
     synchronized (this) {
       valid_ = validation.signed;
       signatureCount_ = validation.signatureCount;
@@ -221,7 +219,7 @@ final class Document {
     input.mimeType = mimeType_;
     input.settings = settings;
     input.additionalDocuments = additionalDocuments;
-    auto signed = signer.sign(input, card);
+    auto signed = signer.sign(gui, input, card);
     synchronized (this) {
       signedContent_ = signed;
       if (signed is null) {
@@ -242,7 +240,7 @@ final class Document {
     input.name = name_;
     // Como la versión Java, sólo lo que no es un tipo conocido se extiende con el original aparte.
     if (mimeType_ == SupportedMimeType.BINARY) input.detached = [DetachedContent(name_, content())];
-    auto extended = signer.extend(input);
+    auto extended = signer.extend(gui, input);
     synchronized (this) {
       if (extended !is null) signedContent_ = extended;
     }
@@ -259,12 +257,12 @@ final class Document {
   }
 
   /// Extensión del documento firmado según su firmador (getExtension).
-  string signedExtension() @safe {
+  string signedExtension() pure @safe {
     return signer.signedExtension(name_);
   }
 
   /// Ruta donde se guarda firmado: junto al original con «-firmado» (getPathToSave).
-  string pathToSave() @trusted {
+  string pathToSave() pure @trusted {
     synchronized (this) {
       if (pathToSave_ is null) {
         string base = pathname_.length ? pathname_ : name_;
@@ -279,7 +277,7 @@ final class Document {
   }
 
   /// Nombre con que se guarda firmado (getPathToSaveName).
-  string pathToSaveName() @safe {
+  string pathToSaveName() pure @safe {
     return baseName(pathToSave);
   }
 
