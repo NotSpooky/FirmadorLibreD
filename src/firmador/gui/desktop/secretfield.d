@@ -119,7 +119,7 @@ final class SecretField : Widget {
   }
 
   /// Cantidad de caracteres escritos.
-  size_t length() const @safe {
+  size_t length() const pure @safe {
     return secret.characterCount;
   }
 

@@ -121,17 +121,17 @@ final class Document {
     preview_ = previewerFor(mimeType_, settings_);
   }
 
-  string name() const @safe { return name_; }
-  string pathname() const @safe { return pathname_; }
-  SupportedMimeType mimeType() const @safe { return mimeType_; }
-  bool isRemote() const @safe { return remote_; }
-  bool isVirtual() const @safe { return virtual_; }
-  string service() const @safe { return service_; }
-  string serial() const @safe { return serial_; }
-  string origin() const @safe { return origin_; }
-  string expirationDate() const @safe { return expirationDate_; }
-  string createdAt() const @safe { return createdAt_; }
-  int pages() const @safe { return pages_; }
+  string name() const pure @safe { return name_; }
+  string pathname() const pure @safe { return pathname_; }
+  SupportedMimeType mimeType() const pure @safe { return mimeType_; }
+  bool isRemote() const pure @safe { return remote_; }
+  bool isVirtual() const pure @safe { return virtual_; }
+  string service() const pure @safe { return service_; }
+  string serial() const pure @safe { return serial_; }
+  string origin() const pure @safe { return origin_; }
+  string expirationDate() const pure @safe { return expirationDate_; }
+  string createdAt() const pure @safe { return createdAt_; }
+  int pages() const pure @safe { return pages_; }
 
   /**
    * Contenido original: el recibido en memoria o el del archivo.
@@ -146,7 +146,7 @@ final class Document {
   }
 
   /// Ajustes con que se firma el documento.
-  Settings settings() @trusted {
+  Settings settings() pure @trusted {
     synchronized (this) return settings_;
   }
 
@@ -158,11 +158,11 @@ final class Document {
     }
   }
 
-  DocumentSigner signer() @trusted {
+  DocumentSigner signer() pure @trusted {
     synchronized (this) return signer_;
   }
 
-  void setSigner(DocumentSigner signer) @trusted {
+  void setSigner(DocumentSigner signer) pure @trusted {
     synchronized (this) signer_ = signer;
   }
 
@@ -176,11 +176,11 @@ final class Document {
     setSigner(new CadesSigner(gui));
   }
 
-  Previewer preview() @trusted {
+  Previewer preview() pure @trusted {
     synchronized (this) return preview_;
   }
 
-  void setPreview(Previewer preview) @trusted {
+  void setPreview(Previewer preview) pure @trusted {
     synchronized (this) preview_ = preview;
   }
 
@@ -250,11 +250,11 @@ final class Document {
   }
 
   /// Contenido firmado, o null si no se firmó.
-  immutable(ubyte)[] signedContent() @trusted {
+  immutable(ubyte)[] signedContent() pure @trusted {
     synchronized (this) return signedContent_;
   }
 
-  void setSignedContent(immutable(ubyte)[] signed) @trusted {
+  void setSignedContent(immutable(ubyte)[] signed) pure @trusted {
     synchronized (this) signedContent_ = signed;
   }
 
@@ -274,7 +274,7 @@ final class Document {
     }
   }
 
-  void setPathToSave(string path) @trusted {
+  void setPathToSave(string path) pure @trusted {
     synchronized (this) pathToSave_ = path;
   }
 
@@ -313,25 +313,25 @@ final class Document {
     return preview.pageCount();
   }
 
-  string report() @trusted { synchronized (this) return report_; }
-  void setReport(string report) @trusted { synchronized (this) report_ = report; }
-  bool isSigned() @trusted { synchronized (this) return valid_; }
-  bool validated() @trusted { synchronized (this) return validated_; }
-  bool previewLoaded() @trusted { synchronized (this) return previewLoaded_; }
-  bool isReady() @trusted { synchronized (this) return ready_; }
-  size_t signatureCount() @trusted { synchronized (this) return signatureCount_; }
-  void setSignatureCount(size_t count) @trusted { synchronized (this) signatureCount_ = count; }
-  bool signedWithErrors() @trusted { synchronized (this) return signedWithErrors_; }
-  void setSignedWithErrors(bool value) @trusted { synchronized (this) signedWithErrors_ = value; }
-  CardSignInfo usedCard() @trusted { synchronized (this) return usedCard_; }
-  bool showPreview() @trusted { synchronized (this) return showPreview_; }
-  void setShowPreview(bool value) @trusted { synchronized (this) showPreview_ = value; }
-  bool massiveSign() @trusted { synchronized (this) return massiveSign_; }
-  void setMassiveSign(bool value) @trusted { synchronized (this) massiveSign_ = value; }
-  DocumentStatus status() @trusted { synchronized (this) return status_; }
-  void setStatus(DocumentStatus value) @trusted { synchronized (this) status_ = value; }
-  bool validating() @trusted { synchronized (this) return validating_; }
-  void setValidating(bool value) @trusted { synchronized (this) validating_ = value; }
+  string report() pure @trusted { synchronized (this) return report_; }
+  void setReport(string report) pure @trusted { synchronized (this) report_ = report; }
+  bool isSigned() pure @trusted { synchronized (this) return valid_; }
+  bool validated() pure @trusted { synchronized (this) return validated_; }
+  bool previewLoaded() pure @trusted { synchronized (this) return previewLoaded_; }
+  bool isReady() pure @trusted { synchronized (this) return ready_; }
+  size_t signatureCount() pure @trusted { synchronized (this) return signatureCount_; }
+  void setSignatureCount(size_t count) pure @trusted { synchronized (this) signatureCount_ = count; }
+  bool signedWithErrors() pure @trusted { synchronized (this) return signedWithErrors_; }
+  void setSignedWithErrors(bool value) pure @trusted { synchronized (this) signedWithErrors_ = value; }
+  CardSignInfo usedCard() pure @trusted { synchronized (this) return usedCard_; }
+  bool showPreview() pure @trusted { synchronized (this) return showPreview_; }
+  void setShowPreview(bool value) pure @trusted { synchronized (this) showPreview_ = value; }
+  bool massiveSign() pure @trusted { synchronized (this) return massiveSign_; }
+  void setMassiveSign(bool value) pure @trusted { synchronized (this) massiveSign_ = value; }
+  DocumentStatus status() pure @trusted { synchronized (this) return status_; }
+  void setStatus(DocumentStatus value) pure @trusted { synchronized (this) status_ = value; }
+  bool validating() pure @trusted { synchronized (this) return validating_; }
+  void setValidating(bool value) pure @trusted { synchronized (this) validating_ = value; }
 
   private void previewDone() @trusted {
     synchronized (this) {

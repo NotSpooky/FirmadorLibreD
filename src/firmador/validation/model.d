@@ -101,21 +101,30 @@ string subIndicationName(SubIndication sub) pure nothrow @safe @nogc {
   }
 }
 
-/// Mensaje de un control de validación.
+/**
+ * Mensaje de un control de validación. Guarda la clave y el detalle sin traducir, para que
+ * los controles no dependan del idioma (estado global de firmador.i18n) y puedan ser
+ * `pure`; el texto se traduce al mostrarlo (text).
+ */
 struct ValidationMessage {
   enum Level { error, warning, info }
   Level level;
   /// Clave del texto (dss-messages o messages).
   string key;
-  string text;
+  /// Dato que completa el texto (el nombre de un certificado, un motivo…), sin traducir.
+  string detail;
+
+  /// Texto de DSS para la clave (o el de messages.properties si no está ahí), con el detalle.
+  string text() const @safe {
+    string translated = validationMessage(key);
+    if (translated is null) translated = t(key);
+    return detail.length ? translated ~ " " ~ detail : translated;
+  }
 }
 
-/// Mensaje con el texto de DSS para la clave (o el de messages.properties si no está ahí).
-ValidationMessage message(ValidationMessage.Level level, string key, string detail = null) @safe {
-  string text = validationMessage(key);
-  if (text is null) text = t(key);
-  if (detail.length) text ~= " " ~ detail;
-  return ValidationMessage(level, key, text);
+/// Mensaje de un control; el texto se traduce al mostrarlo (ValidationMessage.text).
+ValidationMessage message(ValidationMessage.Level level, string key, string detail = null) pure nothrow @safe @nogc {
+  return ValidationMessage(level, key, detail);
 }
 
 /// Resultado de un paso: indicación, subindicación y mensajes acumulados.

@@ -258,7 +258,7 @@ RawSignatureEncoding rawSignatureEncoding(bool rsa, const Certificate certificat
 final class OpenSslPrivateKey {
   private EVP_PKEY* key;
 
-  private this(EVP_PKEY* key) @safe {
+  private this(EVP_PKEY* key) pure @safe {
     this.key = key;
   }
 

@@ -41,7 +41,7 @@ class JsonShapeException : Exception {
  *
  * Throws: JsonShapeException con `what` y el motivo si el texto no es JSON.
  */
-JSONValue parseJsonText(string text, string what) @safe {
+JSONValue parseJsonText(string text, string what) pure @safe {
   try {
     return parseJSON(text);
   } catch (JSONException exception) {
@@ -55,31 +55,31 @@ bool isObject(const JSONValue value) pure nothrow @safe @nogc {
 }
 
 /// Miembro de un objeto, o null si falta o el valor no es un objeto.
-const(JSONValue)* member(const JSONValue value, string key) @trusted {
+const(JSONValue)* member(const JSONValue value, string key) pure @trusted {
   if (value.type != JSONType.object) return null;
   return key in value.object;
 }
 
 /// Claves de un objeto.
-string[] objectKeys(const JSONValue value, string what) @trusted {
+string[] objectKeys(const JSONValue value, string what) pure @trusted {
   enforce!JsonShapeException(value.type == JSONType.object, format("%s debe ser un objeto JSON", what));
   return value.object.keys;
 }
 
 /// Elementos de una lista.
-const(JSONValue)[] arrayItems(const JSONValue value, string what) @trusted {
+const(JSONValue)[] arrayItems(const JSONValue value, string what) pure @trusted {
   enforce!JsonShapeException(value.type == JSONType.array, format("%s debe ser una lista JSON", what));
   return value.array;
 }
 
 /// El miembro no existe o es null.
-bool isAbsent(const JSONValue value, string key) @safe {
+bool isAbsent(const JSONValue value, string key) pure @safe {
   auto found = member(value, key);
   return found is null || found.type == JSONType.null_;
 }
 
 /// Texto obligatorio.
-string requiredString(const JSONValue value, string key, string what) @safe {
+string requiredString(const JSONValue value, string key, string what) pure @safe {
   auto found = member(value, key);
   enforce!JsonShapeException(found !is null && found.type == JSONType.string,
     format("%s: falta el texto «%s»", what, key));
@@ -87,7 +87,7 @@ string requiredString(const JSONValue value, string key, string what) @safe {
 }
 
 /// Texto opcional (null si falta o es null).
-string optionalString(const JSONValue value, string key, string what) @safe {
+string optionalString(const JSONValue value, string key, string what) pure @safe {
   auto found = member(value, key);
   if (found is null || found.type == JSONType.null_) return null;
   enforce!JsonShapeException(found.type == JSONType.string, format("%s: «%s» debe ser texto", what, key));
@@ -95,7 +95,7 @@ string optionalString(const JSONValue value, string key, string what) @safe {
 }
 
 /// Entero opcional.
-long optionalLong(const JSONValue value, string key, long fallback, string what) @safe {
+long optionalLong(const JSONValue value, string key, long fallback, string what) pure @safe {
   auto found = member(value, key);
   if (found is null || found.type == JSONType.null_) return fallback;
   if (found.type == JSONType.integer) return found.integer;
@@ -120,7 +120,7 @@ long optionalLong(const JSONValue value, string key, long fallback, string what)
 }
 
 /// Decimal opcional.
-double optionalDouble(const JSONValue value, string key, double fallback, string what) @safe {
+double optionalDouble(const JSONValue value, string key, double fallback, string what) pure @safe {
   auto found = member(value, key);
   if (found is null || found.type == JSONType.null_) return fallback;
   switch (found.type) {
@@ -132,7 +132,7 @@ double optionalDouble(const JSONValue value, string key, double fallback, string
 }
 
 /// Booleano opcional (acepta también "true"/"false" como texto, como Jackson).
-bool optionalBool(const JSONValue value, string key, bool fallback, string what) @safe {
+bool optionalBool(const JSONValue value, string key, bool fallback, string what) pure @safe {
   auto found = member(value, key);
   if (found is null || found.type == JSONType.null_) return fallback;
   if (found.type == JSONType.true_) return true;
@@ -146,7 +146,7 @@ bool optionalBool(const JSONValue value, string key, bool fallback, string what)
  *
  * Throws: JsonShapeException si el texto no es base64.
  */
-ubyte[] decodeBase64Field(string text, string what) @safe {
+ubyte[] decodeBase64Field(string text, string what) pure @safe {
   try {
     import std.array : replace;
     return Base64.decode(text.replace("\n", "").replace("\r", ""));
@@ -156,12 +156,12 @@ ubyte[] decodeBase64Field(string text, string what) @safe {
 }
 
 /// Bytes base64 obligatorios de un miembro.
-ubyte[] requiredBase64(const JSONValue value, string key, string what) @safe {
+ubyte[] requiredBase64(const JSONValue value, string key, string what) pure @safe {
   return decodeBase64Field(requiredString(value, key, what), format("%s: «%s»", what, key));
 }
 
 /// Lista de textos opcional.
-string[] optionalStringList(const JSONValue value, string key, string what) @safe {
+string[] optionalStringList(const JSONValue value, string key, string what) pure @safe {
   auto found = member(value, key);
   if (found is null || found.type == JSONType.null_) return null;
   string[] result;

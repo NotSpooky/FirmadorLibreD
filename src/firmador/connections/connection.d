@@ -106,7 +106,7 @@ abstract class IntegrationWorker : ConnectionWorker {
   /// Código con que se informa una caída de la conexión («Code:14», «Code:19»…).
   private string failureCode;
 
-  this(ConnectionManager manager, Connection connection, string failureCode) @safe {
+  this(ConnectionManager manager, Connection connection, string failureCode) pure @safe {
     this.manager = manager;
     this.connection = connection;
     this.failureCode = failureCode;
@@ -120,7 +120,7 @@ abstract class IntegrationWorker : ConnectionWorker {
     thread.start();
   }
 
-  final bool isRunning() @trusted {
+  final bool isRunning() pure @trusted {
     return atomicLoad(running);
   }
 
@@ -137,7 +137,7 @@ abstract class IntegrationWorker : ConnectionWorker {
   /// Lo que se hace al detener, después de pedir que termine el flujo (nada por omisión).
   protected void afterStop() @safe {}
 
-  protected final bool isCancelled() @trusted {
+  protected final bool isCancelled() pure @trusted {
     return atomicLoad(cancelled);
   }
 
@@ -171,47 +171,47 @@ final class Connection {
   private RemoteServer[ushort] remoteServers;
   private ConnectionWorker worker;
 
-  this(ConnectionConfig config) @safe {
+  this(ConnectionConfig config) pure @safe {
     config_ = config;
   }
 
   /// Datos guardados de la conexión.
-  ConnectionConfig config() @trusted {
+  ConnectionConfig config() pure @trusted {
     synchronized (this) return config_;
   }
 
-  string name() @safe { return config.name; }
-  string service() @safe { return config.service; }
-  ConnectionKind kind() @safe { return connectionKind(config.service); }
+  string name() pure @safe { return config.name; }
+  string service() pure @safe { return config.service; }
+  ConnectionKind kind() pure @safe { return connectionKind(config.service); }
 
   /**
    * URL completa de una ruta del servicio.
    *
    * Throws: ConnectionConfigException si falta la ruta o cambia de servidor.
    */
-  string url(string relative, string what) @safe {
+  string url(string relative, string what) pure @safe {
     return serviceUrl(config, relative, what);
   }
 
   /// Se inicia al abrir la aplicación.
-  bool startOn() @safe { return config.startOn; }
+  bool startOn() pure @safe { return config.startOn; }
 
-  void setStartOn(bool value) @trusted {
+  void setStartOn(bool value) pure @trusted {
     synchronized (this) config_.startOn = value;
   }
 
   /// Hay una sesión iniciada en el servicio externo.
-  bool isLogged() @trusted {
+  bool isLogged() pure @trusted {
     synchronized (this) return logged_;
   }
 
   /// Usuario con sesión iniciada (vacío si no hay).
-  string userLogged() @trusted {
+  string userLogged() pure @trusted {
     synchronized (this) return userLogged_;
   }
 
   /// Marca la sesión iniciada o cerrada.
-  void setLogged(bool logged, string user) @trusted {
+  void setLogged(bool logged, string user) pure @trusted {
     synchronized (this) {
       logged_ = logged;
       userLogged_ = logged ? user : "";
@@ -219,15 +219,15 @@ final class Connection {
   }
 
   /// Errores acumulados para mostrarlos en el detalle.
-  string[] errors() @trusted {
+  string[] errors() pure @trusted {
     synchronized (this) return errors_.dup;
   }
 
-  void addErrors(const string[] errors) @trusted {
+  void addErrors(const string[] errors) pure @trusted {
     synchronized (this) errors_ ~= errors;
   }
 
-  void clearErrors() @trusted {
+  void clearErrors() pure @trusted {
     synchronized (this) errors_ = null;
   }
 
@@ -240,7 +240,7 @@ final class Connection {
   }
 
   /// Puertos que Firmador Remoto atiende; descarta los servidores que se detuvieron.
-  ushort[] runningPorts() @trusted {
+  ushort[] runningPorts() pure @trusted {
     synchronized (this) {
       foreach (port; remoteServers.keys) if (!remoteServers[port].isRunning()) remoteServers.remove(port);
       auto ports = remoteServers.keys;
@@ -277,7 +277,7 @@ final class ConnectionManager {
    *   externalFactory = crea la integración con un servicio externo (firmador.connections.external).
    */
   this(GuiInterface gui, ConnectionView view, SmartCardDetector detector, WorkerFactory gaudiFactory,
-      WorkerFactory externalFactory) @safe {
+      WorkerFactory externalFactory) pure @safe {
     this.gui = gui;
     this.view = view;
     this.detector = detector;
@@ -302,12 +302,12 @@ final class ConnectionManager {
   }
 
   /// Conexiones en el orden en que se muestran.
-  Connection[] connections() @trusted {
+  Connection[] connections() pure @trusted {
     synchronized (this) return connections_.dup;
   }
 
   /// Conexión de ese servicio, o null.
-  Connection find(string service) @safe {
+  Connection find(string service) pure @safe {
     foreach (connection; connections()) if (connection.service == service) return connection;
     return null;
   }
@@ -523,9 +523,9 @@ final class ConnectionManager {
   }
 
   /// Interfaz y tarjetas compartidas, para las integraciones.
-  GuiInterface interface_() @safe { return gui; }
-  ConnectionView connectionView() @safe { return view; }
-  SmartCardDetector cards() @safe { return detector; }
+  GuiInterface interface_() pure @safe { return gui; }
+  ConnectionView connectionView() pure @safe { return view; }
+  SmartCardDetector cards() pure @safe { return detector; }
 }
 
 /// Aviso de sesión terminada de una conexión (ucr_integration_lost_connection).

@@ -291,7 +291,7 @@ final class PdfDocument {
   immutable(ubyte)[] bytes;
   private pdf_document* document;
 
-  private this(immutable(ubyte)[] bytes) @safe {
+  private this(immutable(ubyte)[] bytes) pure @safe {
     this.bytes = bytes;
   }
 
@@ -334,7 +334,7 @@ final class PdfDocument {
     }
   }
 
-  private pdf_document* handle() @safe {
+  private pdf_document* handle() pure @safe {
     enforce!PdfException(document !is null, "El PDF ya fue cerrado");
     return document;
   }
@@ -576,7 +576,7 @@ final class PdfDocument {
   }
 
   /// Acceso directo al documento de mupdf para las operaciones de escritura (firmador.pdf.writer).
-  package pdf_document* raw() @safe {
+  package pdf_document* raw() pure @safe {
     return handle();
   }
 }

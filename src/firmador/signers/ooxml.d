@@ -46,11 +46,11 @@ final class OoxmlSigner : ServicedSigner {
     super(gui);
   }
 
-  string formatName() const @safe {
+  string formatName() const pure @safe {
     return "OpenXML";
   }
 
-  string signedExtension(string originalName) const @safe {
+  string signedExtension(string originalName) const pure @safe {
     return extension(originalName);
   }
 
@@ -97,7 +97,7 @@ final class OoxmlSigner : ServicedSigner {
   }
 
   /// Las firmas OOXML no se extienden: se devuelve el documento como está, como la versión Java.
-  immutable(ubyte)[] extend(const ExtensionInput input) @safe {
+  immutable(ubyte)[] extend(const ExtensionInput input) pure @safe {
     return input.signed;
   }
 }

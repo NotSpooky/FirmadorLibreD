@@ -256,15 +256,99 @@ dstring plainText(const RichBlock[] blocks) pure @safe {
   return output[];
 }
 
+/// Estilo de un trozo de texto: lo que elige su fuente.
+struct TextStyle {
+  bool bold, italic, heading;
+}
+
 /**
  * Trozo ya ubicado para dibujarlo. Guarda el estilo y no la fuente: estos trozos los libera
  * el recolector, que al salir puede correr después de que dlangui cerró FreeType.
  */
-private struct PlacedText {
+struct PlacedText {
   int x, y, width, height;
   dstring text;
-  bool bold, italic, heading;
+  TextStyle style;
   string link;
+}
+
+/// Trozos ubicados y alto total del texto.
+struct RichLayout {
+  PlacedText[] placed;
+  int height;
+}
+
+/**
+ * Ubica los bloques en líneas de `width` píxeles: parte por palabras, y por caracteres las
+ * palabras más anchas que la línea (rutas, enlaces). Es `pure` si `metrics` lo es (las
+ * pruebas lo comprueban con medidas fijas); RichText le pasa las de sus fuentes.
+ *
+ * Params:
+ *   blocks = el texto (parseRichText).
+ *   width = ancho disponible.
+ *   baseHeight = alto de línea de la fuente del control; separa bloques y fija la sangría.
+ *   bulletWidth = ancho de la viñeta «• » en esa fuente.
+ *   metrics = da `int height(TextStyle)` y `int width(dstring, TextStyle)` de cada estilo.
+ * Returns: los trozos en coordenadas del contenido y el alto que ocupan.
+ */
+RichLayout layoutBlocks(Metrics)(const RichBlock[] blocks, int width, int baseHeight, int bulletWidth,
+    scope Metrics metrics) {
+  RichLayout layout;
+  int y = 0;
+  int indentStep = baseHeight * 3 / 2;
+  foreach (blockIndex, block; blocks) {
+    if (blockIndex) y += baseHeight / 2;
+    int left = block.indent * indentStep;
+    int x = left;
+    int lineHeight = baseHeight;
+    if (block.bullet) {
+      layout.placed ~= PlacedText(x, y, 0, baseHeight, "• "d, TextStyle.init, null);
+      left += bulletWidth;
+      x = left;
+    }
+    foreach (run; block.runs) {
+      auto style = TextStyle(run.bold, run.italic, block.heading);
+      int runHeight = metrics.height(style);
+      lineHeight = max(lineHeight, runHeight);
+      size_t start = 0;
+      while (start < run.text.length) {
+        if (run.text[start] == '\n') {
+          x = left;
+          y += lineHeight;
+          start++;
+          continue;
+        }
+        size_t end = start;
+        // Una palabra con su espacio siguiente, o un salto de línea.
+        while (end < run.text.length && run.text[end] != ' ' && run.text[end] != '\n') end++;
+        if (end < run.text.length && run.text[end] == ' ') end++;
+        dstring word = run.text[start .. end];
+        int wordWidth = metrics.width(word, style);
+        if (x > left && x + wordWidth > width) {
+          x = left;
+          y += lineHeight;
+          if (word.length && word[0] == ' ') {
+            start++;
+            continue;
+          }
+        }
+        if (wordWidth > width - left && word.length > 1) {
+          // Palabra más ancha que la línea (rutas, enlaces): se corta por caracteres.
+          size_t fit = 1;
+          while (fit < word.length && metrics.width(word[0 .. fit + 1], style) <= width - x) fit++;
+          word = word[0 .. fit];
+          wordWidth = metrics.width(word, style);
+          end = start + fit;
+        }
+        layout.placed ~= PlacedText(x, y, wordWidth, runHeight, word, style, run.link);
+        x += wordWidth;
+        start = end;
+      }
+    }
+    y += lineHeight;
+  }
+  layout.height = y;
+  return layout;
 }
 
 /// Texto con formato, ajuste de línea y enlaces.
@@ -309,70 +393,32 @@ class RichText : Widget {
     return text(plain.value);
   }
 
-  private FontRef fontFor(bool bold, bool italic, bool heading) {
+  private FontRef fontFor(TextStyle style) {
     FontRef base = font();
-    int size = heading ? base.size * 5 / 4 : base.size;
-    return FontManager.instance.getFont(size, bold || heading ? FontWeight.Bold : FontWeight.Normal, italic,
-      base.family, base.face);
+    int size = style.heading ? base.size * 5 / 4 : base.size;
+    return FontManager.instance.getFont(size, style.bold || style.heading ? FontWeight.Bold : FontWeight.Normal,
+      style.italic, base.family, base.face);
   }
 
-  /// Ubica los trozos con el ancho disponible.
-  private void layoutText(int width) {
-    placed = null;
-    int y = 0;
-    FontRef base = font();
-    int indentStep = base.height * 3 / 2;
-    foreach (blockIndex, block; blocks) {
-      if (blockIndex) y += base.height / 2;
-      int left = block.indent * indentStep;
-      int x = left;
-      int lineHeight = base.height;
-      if (block.bullet) {
-        placed ~= PlacedText(x, y, 0, base.height, "• "d, false, false, false, null);
-        left += base.textSize("• "d).x;
-        x = left;
-      }
-      foreach (run; block.runs) {
-        FontRef runFont = fontFor(run.bold, run.italic, block.heading);
-        lineHeight = max(lineHeight, runFont.height);
-        size_t start = 0;
-        while (start < run.text.length) {
-          if (run.text[start] == '\n') {
-            x = left;
-            y += lineHeight;
-            start++;
-            continue;
-          }
-          size_t end = start;
-          // Una palabra con su espacio siguiente, o un salto de línea.
-          while (end < run.text.length && run.text[end] != ' ' && run.text[end] != '\n') end++;
-          if (end < run.text.length && run.text[end] == ' ') end++;
-          dstring word = run.text[start .. end];
-          int wordWidth = runFont.textSize(word).x;
-          if (x > left && x + wordWidth > width) {
-            x = left;
-            y += lineHeight;
-            if (word.length && word[0] == ' ') {
-              start++;
-              continue;
-            }
-          }
-          if (wordWidth > width - left && word.length > 1) {
-            // Palabra más ancha que la línea (rutas, enlaces): se corta por caracteres.
-            size_t fit = 1;
-            while (fit < word.length && runFont.textSize(word[0 .. fit + 1]).x <= width - x) fit++;
-            word = word[0 .. fit];
-            wordWidth = runFont.textSize(word).x;
-            end = start + fit;
-          }
-          placed ~= PlacedText(x, y, wordWidth, runFont.height, word, run.bold, run.italic, block.heading, run.link);
-          x += wordWidth;
-          start = end;
-        }
-      }
-      y += lineHeight;
+  /// Medidas de las fuentes del control para layoutBlocks.
+  private static struct FontMetrics {
+    RichText owner;
+
+    int height(TextStyle style) {
+      return owner.fontFor(style).height;
     }
-    contentHeight = y;
+
+    int width(dstring text, TextStyle style) {
+      return owner.fontFor(style).textSize(text).x;
+    }
+  }
+
+  /// Ubica los trozos con el ancho disponible (layoutBlocks).
+  private void layoutText(int width) {
+    FontRef base = font();
+    auto layout = layoutBlocks(blocks, width, base.height, base.textSize("• "d).x, FontMetrics(this));
+    placed = layout.placed;
+    contentHeight = layout.height;
     laidOutWidth = width;
   }
 
@@ -405,7 +451,7 @@ class RichText : Widget {
     uint color = textColor;
     foreach (piece; placed) {
       uint pieceColor = piece.link.length ? 0x1A57B8 : color;
-      FontRef pieceFont = fontFor(piece.bold, piece.italic, piece.heading);
+      FontRef pieceFont = fontFor(piece.style);
       pieceFont.drawText(buf, rc.left + piece.x, rc.top + piece.y, piece.text, pieceColor);
       if (piece.link.length) {
         int underline = rc.top + piece.y + pieceFont.baseline + 1;
@@ -475,4 +521,42 @@ unittest {
   assert(blocks[0].runs[1].link == "file:///tmp/a%20b.pdf" && blocks[0].runs[1].text == "/tmp/a b.pdf"d);
   assert(plainText(blocks) == "Guardado en:\n/tmp/a b.pdf\néé\u00A0&bogus;"d);
   assert(parseRichText("<ul><li>uno</li><li>dos</li></ul>")[1].bullet);
+}
+
+version (unittest) {
+  /// Fuente de prueba: 10 píxeles por carácter y líneas de 20 (25 los títulos).
+  private struct FixedMetrics {
+    int height(TextStyle style) const pure @safe {
+      return style.heading ? 25 : 20;
+    }
+
+    int width(dstring text, TextStyle style) const pure @safe {
+      return cast(int) text.length * 10;
+    }
+  }
+}
+
+@("should wrap words and cut a word wider than the line by characters when laying out")
+pure @safe unittest {
+  auto layout = layoutBlocks(parseRichText("<p>uno dos tres</p><p>abcdefghijkl</p>"), 85, 20, 20, FixedMetrics());
+  auto words = layout.placed;
+  // «uno » y «dos » ocupan 80 de 85: «tres» ya no cabe y baja a la segunda línea.
+  assert(words[0] == PlacedText(0, 0, 40, 20, "uno "d, TextStyle.init, null));
+  assert(words[1].x == 40 && words[1].y == 0 && words[1].text == "dos "d);
+  assert(words[2].x == 0 && words[2].y == 20 && words[2].text == "tres"d);
+  // Segundo bloque tras media línea: de la palabra de 120 caben 8 caracteres y el resto baja.
+  assert(words[3] == PlacedText(0, 50, 80, 20, "abcdefgh"d, TextStyle.init, null));
+  assert(words[4].x == 0 && words[4].y == 70 && words[4].text == "ijkl"d);
+  assert(layout.height == 90);
+}
+
+@("should indent list items after the bullet and use the taller heading line when laying out")
+pure @safe unittest {
+  auto list = layoutBlocks(parseRichText("<ul><li>uno dos</li></ul>"), 200, 20, 15, FixedMetrics());
+  // Sangría de un nivel (30) y la viñeta de 15 delante del texto.
+  assert(list.placed[0].text == "• "d && list.placed[0].x == 30);
+  assert(list.placed[1].x == 45 && list.placed[2].x == 85);
+  auto heading = layoutBlocks(parseRichText("<h1>Título</h1><p>x</p>"), 200, 20, 15, FixedMetrics());
+  assert(heading.placed[0].style.heading && heading.placed[0].height == 25);
+  assert(heading.placed[1].y == 25 + 10 && heading.height == 55);
 }

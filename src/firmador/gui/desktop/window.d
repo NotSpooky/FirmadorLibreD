@@ -130,7 +130,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
    *   plugins = plugins ya cargados.
    *   background = arrancar oculta (--background): se muestra con otra instancia.
    */
-  this(SmartCardDetector detector, PluginManager plugins, bool background) @trusted {
+  this(SmartCardDetector detector, PluginManager plugins, bool background) pure @trusted {
     this.detector = detector;
     this.plugins = plugins;
     this.background = background;
@@ -524,7 +524,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     runOnUi(() => setActiveDocument(document));
   }
 
-  void signAllDone() @trusted {}
+  void signAllDone() pure @trusted {}
 
   void clearDone() @trusted {
     runOnUi(() => resetPreview());

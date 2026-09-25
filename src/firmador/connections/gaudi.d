@@ -63,7 +63,7 @@ struct GaudiNegotiation {
  *
  * Throws: JsonShapeException si falta un campo.
  */
-GaudiNegotiation parseGaudiNegotiation(const JSONValue json) @safe {
+GaudiNegotiation parseGaudiNegotiation(const JSONValue json) pure @safe {
   enum what = "La negociación con el BCCR";
   enforce!JsonShapeException(isObject(json), what ~ " debe ser un objeto JSON");
   GaudiNegotiation negotiation;
@@ -107,7 +107,7 @@ struct GaudiSignRequest {
  *
  * Throws: JsonShapeException si es «Firme» pero le faltan datos.
  */
-bool parseGaudiMessage(const JSONValue message, out GaudiSignRequest request) @safe {
+bool parseGaudiMessage(const JSONValue message, out GaudiSignRequest request) pure @safe {
   enum what = "La solicitud de firma del BCCR";
   auto calls = member(message, "M");
   if (calls is null || calls.type != JSONType.array) return false;
@@ -182,7 +182,7 @@ ConnectionWorker startGaudi(ConnectionManager manager, Connection connection) @s
 final class GaudiIntegration : IntegrationWorker {
   private string sendUrl;
 
-  this(ConnectionManager manager, Connection connection) @safe {
+  this(ConnectionManager manager, Connection connection) pure @safe {
     super(manager, connection, "Code:14");
   }
 

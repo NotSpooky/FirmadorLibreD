@@ -51,7 +51,7 @@ struct HttpResponse {
   string[string] headers;
 
   /// Cuerpo como texto UTF-8.
-  string text() const @safe {
+  string text() const pure @safe {
     import std.utf : validate;
     string value = cast(string) body.idup;
     validate(value);

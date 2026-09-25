@@ -61,7 +61,7 @@ struct CardChoice {
  * coincidencias, `firstOfMany` toma la primera (-dargs) y si no, la elección es ambigua
  * (-dshell, que no puede preguntar y no debe gastar un intento de PIN en otra tarjeta).
  */
-CardChoice chooseCard(const CardSignInfo[] cards, string identifier, bool firstOfMany) @safe {
+CardChoice chooseCard(const CardSignInfo[] cards, string identifier, bool firstOfMany) pure @safe {
   import std.string : strip;
   bool anyCard = identifier.strip.length == 0;
   CardChoice choice;

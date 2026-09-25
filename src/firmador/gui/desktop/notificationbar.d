@@ -151,7 +151,7 @@ final class NotificationOverlay : WidgetGroup {
     bar.onDraw(buf);
   }
 
-  private static int barWidthLimit(int width) {
+  private static int barWidthLimit(int width) pure {
     return width == SIZE_UNSPECIFIED ? width : cast(int) (width * maxWidthFraction);
   }
 }

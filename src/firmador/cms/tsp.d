@@ -78,7 +78,7 @@ class TimeStampException : Exception {
  * TimeStampReq v1 con el resumen dado, el nonce y certReq verdadero (el servicio incluye
  * su certificado, que hace falta para validar el sello).
  */
-TimeStampRequest buildTimeStampRequest(DigestAlgorithm digest, const(ubyte)[] imprint, BigInt nonce) @safe {
+TimeStampRequest buildTimeStampRequest(DigestAlgorithm digest, const(ubyte)[] imprint, BigInt nonce) pure @safe {
   enforce(imprint.length == digestLength(digest), "El resumen no tiene la longitud de su algoritmo");
   TimeStampRequest request;
   request.nonce = nonce;
@@ -94,7 +94,7 @@ TimeStampRequest buildTimeStampRequest(DigestAlgorithm digest, const(ubyte)[] im
  *
  * Throws: Asn1Exception si la estructura no es la de un sello.
  */
-TimeStampToken parseTimeStampToken(const(ubyte)[] der) @safe {
+TimeStampToken parseTimeStampToken(const(ubyte)[] der) pure @safe {
   TimeStampToken token;
   token.der = der.idup;
   token.signedData = parseSignedData(der);
@@ -106,7 +106,7 @@ TimeStampToken parseTimeStampToken(const(ubyte)[] der) @safe {
 }
 
 /// Interpreta el TSTInfo.
-TstInfo parseTstInfo(const(ubyte)[] der) @safe {
+TstInfo parseTstInfo(const(ubyte)[] der) pure @safe {
   TstInfo info;
   auto reader = parseDer(der).reader();
   reader.next("la versión del TSTInfo");
@@ -134,7 +134,7 @@ TstInfo parseTstInfo(const(ubyte)[] der) @safe {
  * Throws: TimeStampException con el estado y el texto del servicio si lo rechazó, o si la
  * respuesta no corresponde a la solicitud.
  */
-TimeStampToken parseTimeStampResponse(const(ubyte)[] der, const TimeStampRequest request) @safe {
+TimeStampToken parseTimeStampResponse(const(ubyte)[] der, const TimeStampRequest request) pure @safe {
   auto reader = parseDer(der).reader();
   auto status = reader.next("el estado del sello").reader();
   long code = status.next("el código de estado").smallIntegerValue;

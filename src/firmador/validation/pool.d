@@ -42,26 +42,26 @@ final class CertificatePool {
   }
 
   /// Añade una raíz de confianza.
-  void addTrusted(Certificate certificate) @safe {
+  void addTrusted(Certificate certificate) pure @safe {
     if (!containsCertificate(trusted, certificate)) trusted ~= certificate;
     add(certificate);
   }
 
   /// Añade un certificado conocido (no de confianza por sí mismo).
-  void add(Certificate certificate) @safe {
+  void add(Certificate certificate) pure @safe {
     if (!containsCertificate(known, certificate)) known ~= certificate;
   }
 
-  void addAll(const(Certificate)[] certificates) @trusted {
+  void addAll(const(Certificate)[] certificates) pure @trusted {
     foreach (certificate; certificates) add(cast(Certificate) certificate);
   }
 
-  bool isTrusted(const Certificate certificate) const @safe {
+  bool isTrusted(const Certificate certificate) const pure @safe {
     return containsCertificate(trusted, certificate);
   }
 
   /// Candidatos a emisor: mismo nombre y, si ambos lo declaran, mismo identificador de clave.
-  Certificate[] issuerCandidates(const Certificate certificate) @safe {
+  Certificate[] issuerCandidates(const Certificate certificate) pure @safe {
     Certificate[] candidates;
     foreach (candidate; known) {
       if (!candidate.subject.matches(certificate.issuer)) continue;
@@ -73,7 +73,7 @@ final class CertificatePool {
   }
 
   /// Todos los certificados conocidos.
-  const(Certificate)[] all() const @safe {
+  const(Certificate)[] all() const pure @safe {
     return known;
   }
 }

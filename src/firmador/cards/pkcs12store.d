@@ -74,12 +74,12 @@ struct Pkcs12CardMetadata {
 }
 
 /// Ruta absoluta normalizada, la llave de las entradas del almacén.
-string normalizeStorePath(string path) @safe {
+string normalizeStorePath(string path) pure @safe {
   return buildNormalizedPath(absolutePath(path));
 }
 
 /// JSON de una entrada, sin los campos nulos (@JsonInclude(NON_NULL) en Java).
-JSONValue metadataToJson(const Pkcs12CardMetadata meta) @safe {
+JSONValue metadataToJson(const Pkcs12CardMetadata meta) pure @safe {
   JSONValue json = JSONValue(string[string].init);
   void put(string key, string value) {
     if (value !is null) json[key] = value;
@@ -100,7 +100,7 @@ JSONValue metadataToJson(const Pkcs12CardMetadata meta) @safe {
 }
 
 /// Entrada a partir de su JSON; los campos desconocidos se ignoran (@JsonIgnoreProperties).
-Pkcs12CardMetadata metadataFromJson(const JSONValue json) @safe {
+Pkcs12CardMetadata metadataFromJson(const JSONValue json) pure @safe {
   enum string what = "Una entrada de pkcs12cards.json";
   enforce(isObject(json), what ~ " no es un objeto");
   Pkcs12CardMetadata meta;
@@ -140,7 +140,7 @@ string storeToJsonText(const Pkcs12CardMetadata[] cards) @safe {
  *
  * Throws: Exception si el texto no es el JSON esperado.
  */
-Pkcs12CardMetadata[] storeFromJsonText(string text) @safe {
+Pkcs12CardMetadata[] storeFromJsonText(string text) pure @safe {
   auto root = parseJsonText(text, "pkcs12cards.json");
   enforce(isObject(root), "pkcs12cards.json no es un objeto JSON");
   Pkcs12CardMetadata[] cards;

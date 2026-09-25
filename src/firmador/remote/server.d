@@ -107,12 +107,12 @@ final class RemoteServer {
   }
 
   /// Está atendiendo su puerto.
-  bool isRunning() @safe {
+  bool isRunning() pure @safe {
     return server !is null && server.isRunning();
   }
 
   /// Documento enviado con ese nombre, o null.
-  RemoteDocumentSlot findDocument(string name) @trusted {
+  RemoteDocumentSlot findDocument(string name) pure @trusted {
     synchronized (slotsLock) {
       if (auto slot = name in slots) return *slot;
       return null;

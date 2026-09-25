@@ -73,7 +73,7 @@ struct ExternalNegotiation {
  *
  * Throws: JsonShapeException si falta un campo.
  */
-ExternalNegotiation parseExternalNegotiation(const JSONValue json) @safe {
+ExternalNegotiation parseExternalNegotiation(const JSONValue json) pure @safe {
   enum what = "La negociación con el servicio";
   enforce!JsonShapeException(isObject(json), what ~ " debe ser un objeto JSON");
   ExternalNegotiation negotiation;
@@ -95,7 +95,7 @@ struct ExternalSession {
  *
  * Throws: JsonShapeException si falta un campo.
  */
-ExternalSession parseExternalSession(const JSONValue json) @safe {
+ExternalSession parseExternalSession(const JSONValue json) pure @safe {
   enum what = "El alta en el servicio";
   enforce!JsonShapeException(isObject(json), what ~ " debe ser un objeto JSON");
   ExternalSession session;
@@ -238,7 +238,7 @@ private VirtualDocumentInfo parseVirtualDocument(const JSONValue json) @safe {
   return document;
 }
 
-private const(JSONValue) requiredMember(const JSONValue json, string key, string what) @safe {
+private const(JSONValue) requiredMember(const JSONValue json, string key, string what) pure @safe {
   auto found = member(json, key);
   enforce!JsonShapeException(found !is null && found.type != JSONType.null_, format("%s: falta «%s»", what, key));
   return *found;
@@ -308,7 +308,7 @@ bool cardMatchesDocumentSerial(string cardIdentification, string serial) pure no
 }
 
 /// URL de validación de un documento: su id antes de «get_validate_document/».
-string documentValidationUrl(string validateUrl, UUID documentId) @safe {
+string documentValidationUrl(string validateUrl, UUID documentId) pure @safe {
   return validateUrl.replace("get_validate_document/", documentId.toString ~ "/get_validate_document/");
 }
 
@@ -321,7 +321,7 @@ ConnectionWorker startExternal(ConnectionManager manager, Connection connection)
 
 /// Hilo de la conexión con un servicio externo.
 final class ExternalIntegration : IntegrationWorker {
-  this(ConnectionManager manager, Connection connection) @safe {
+  this(ConnectionManager manager, Connection connection) pure @safe {
     super(manager, connection, "Code:19");
   }
 
@@ -488,7 +488,7 @@ private ServiceTokens tokensFor(string identification, string service) @safe {
     tokenOf(entries, alias_, TokenType.firmadorId));
 }
 
-private string[string] sessionHeaders(const ServiceTokens tokens) @safe {
+private string[string] sessionHeaders(const ServiceTokens tokens) pure @safe {
   return ["Authorization": "Bearer " ~ tokens.access, "X-Refresh-Token": tokens.refresh];
 }
 
@@ -554,7 +554,7 @@ private T[][] groupInOrder(alias key, T)(T[] items) {
  * Lotes de documentos virtuales para requestHashesToSign: cada pedido va a un solo
  * servicio y se firma con la tarjeta de un solo titular.
  */
-Document[][] signingBatches(Document[] documents) @safe {
+Document[][] signingBatches(Document[] documents) pure @safe {
   import std.typecons : tuple;
   return groupInOrder!(document => tuple(document.service, document.serial))(documents);
 }

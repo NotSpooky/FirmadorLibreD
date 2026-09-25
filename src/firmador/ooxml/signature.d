@@ -90,7 +90,7 @@ private immutable string[] signedRelationshipTypes = [
 ];
 
 /// La relación apunta a una parte que se firma (isSignedRelationship de POI).
-bool isSignedRelationship(string relationshipType) @safe {
+bool isSignedRelationship(string relationshipType) pure @safe {
   string shortType = relationshipType.replaceFirst(ctRegex!`.*/relationships/`, "");
   return signedRelationshipTypes.canFind(shortType) || shortType.endsWith("customXml");
 }
@@ -178,7 +178,7 @@ private string poiIssuerName(const Certificate certificate) pure @safe {
   return certificate.issuer.toRfc2253().replace(",", ", ");
 }
 
-private string signatureFragment(const OoxmlParameters parameters, const PackageReference[] manifest) @safe {
+private string signatureFragment(const OoxmlParameters parameters, const PackageReference[] manifest) pure @safe {
   string sha256Uri = digestXmlUri(DigestAlgorithm.sha256);
   string digestMethod = format(`<DigestMethod Algorithm="%s"/>`, sha256Uri);
   string c14n = canonicalizationUri(ooxmlCanonicalization);
@@ -279,7 +279,7 @@ immutable(ubyte)[] completeOoxmlSignature(const PreparedOoxml prepared, const(ub
   return document.serialize();
 }
 
-private string certificateValues(const(Certificate)[] certificates) @safe {
+private string certificateValues(const(Certificate)[] certificates) pure @safe {
   string values = `<xd:CertificateValues>`;
   foreach (certificate; certificates) {
     values ~= format(`<xd:EncapsulatedX509Certificate>%s</xd:EncapsulatedX509Certificate>`, certificate.base64);
@@ -287,7 +287,7 @@ private string certificateValues(const(Certificate)[] certificates) @safe {
   return values ~ `</xd:CertificateValues>`;
 }
 
-private string revocationValues(const ValidationData data) @safe {
+private string revocationValues(const ValidationData data) pure @safe {
   string values = `<xd:RevocationValues>`;
   if (data.crls.length) {
     values ~= `<xd:CRLValues>`;
@@ -302,20 +302,20 @@ private string revocationValues(const ValidationData data) @safe {
   return values ~ `</xd:RevocationValues>`;
 }
 
-private string timestampElement(string name, const TimeStampToken token) @safe {
+private string timestampElement(string name, const TimeStampToken token) pure @safe {
   return format(`<xd:%s><CanonicalizationMethod xmlns="%s" Algorithm="%s"/><xd:EncapsulatedTimeStamp>%s`
     ~ `</xd:EncapsulatedTimeStamp></xd:%s>`, name, xmldsigNamespace, canonicalizationUri(ooxmlTimestampCanonicalization),
     encodeBase64(token.der), name);
 }
 
-private string digestAlgAndValue(const(ubyte)[] data) @safe {
+private string digestAlgAndValue(const(ubyte)[] data) pure @safe {
   return format(`<xd:DigestAlgAndValue><DigestMethod xmlns="%s" Algorithm="%s"/><DigestValue xmlns="%s">%s</DigestValue>`
     ~ `</xd:DigestAlgAndValue>`, xmldsigNamespace, digestXmlUri(DigestAlgorithm.sha256), xmldsigNamespace,
     encodeBase64(digestOf(DigestAlgorithm.sha256, data)));
 }
 
 /// CompleteRevocationRefs (addRevocationCRL y addRevocationOCSP de POI).
-private string completeRevocationRefs(const ValidationData data) @safe {
+private string completeRevocationRefs(const ValidationData data) pure @safe {
   string refs = `<xd:CompleteRevocationRefs>`;
   if (data.crls.length) {
     refs ~= `<xd:CRLRefs>`;
@@ -343,7 +343,7 @@ private string completeRevocationRefs(const ValidationData data) @safe {
 }
 
 /// CompleteCertificateRefs de la cadena sin el firmante (setCertID sin invertir el emisor).
-private string completeCertificateRefs(const(Certificate)[] chain) @safe {
+private string completeCertificateRefs(const(Certificate)[] chain) pure @safe {
   string refs = `<xd:CompleteCertificateRefs><xd:CertRefs>`;
   foreach (certificate; chain) {
     refs ~= format(`<xd:Cert><xd:CertDigest><DigestMethod xmlns="%s" Algorithm="%s"/><DigestValue xmlns="%s">%s`
@@ -413,7 +413,7 @@ private size_t indexOfFirstTagEnd(string fragment) pure @safe {
   throw new XmlException("Fragmento XML sin etiqueta de apertura");
 }
 
-private string nextRelationshipId(const OpcRelationship[] relationships) @safe {
+private string nextRelationshipId(const OpcRelationship[] relationships) pure @safe {
   int number = 1;
   while (relationships.canFind!(relationship => relationship.id == format("rId%d", number))) number++;
   return format("rId%d", number);
@@ -497,7 +497,7 @@ ZipEntry[] addSignaturePart(const ZipEntry[] entries, immutable(ubyte)[] signatu
 }
 
 /// Resuelve las referencias de una firma OOXML («/parte?ContentType=…») a las partes del paquete.
-ExternalResolver packageResolver(const ZipEntry[] entries) @safe {
+ExternalResolver packageResolver(const ZipEntry[] entries) pure @safe {
   auto copy = entries.dup;
   return (string uri) @safe {
     import std.string : indexOf;
@@ -545,7 +545,7 @@ version (unittest) {
   import std.datetime.systime : Clock;
 
   /// Paquete mínimo de Word para las pruebas.
-  ZipEntry[] testPackage() @safe {
+  ZipEntry[] testPackage() pure @safe {
     enum contentTypes = `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="` ~ contentTypesNamespace ~ `">`
       ~ `<Default Extension="rels" ContentType="` ~ relationshipsContentType ~ `"/>`
       ~ `<Default Extension="xml" ContentType="application/xml"/>`

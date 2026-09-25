@@ -36,23 +36,23 @@ final class RemoteDocumentSlot {
   private RemoteStatus status_;
   private immutable(ubyte)[] signed_;
 
-  this(string name, immutable(ubyte)[] content, RemoteStatus status) @safe {
+  this(string name, immutable(ubyte)[] content, RemoteStatus status) pure @safe {
     this.name = name;
     this.content = content;
     status_ = status;
   }
 
-  RemoteStatus status() @trusted {
+  RemoteStatus status() pure @trusted {
     synchronized (this) return status_;
   }
 
   /// Documento firmado que se devuelve a la página (vacío hasta firmarlo).
-  immutable(ubyte)[] signed() @trusted {
+  immutable(ubyte)[] signed() pure @trusted {
     synchronized (this) return signed_;
   }
 
   /// La interfaz firmó el documento: la página lo recibe con 200.
-  void complete(immutable(ubyte)[] signedContent) @trusted {
+  void complete(immutable(ubyte)[] signedContent) pure @trusted {
     synchronized (this) {
       signed_ = signedContent;
       status_ = RemoteStatus.ok;
@@ -60,7 +60,7 @@ final class RemoteDocumentSlot {
   }
 
   /// El usuario lo rechazó o falló: la página recibe 406 y puede volver a enviarlo.
-  void reject() @trusted {
+  void reject() pure @trusted {
     synchronized (this) status_ = RemoteStatus.notAcceptable;
   }
 }

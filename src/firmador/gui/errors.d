@@ -62,7 +62,7 @@ UserError userErrorFor(Throwable failure) @safe {
  *   failure = lo que se informó con GuiInterface.showError.
  * Returns: true si es un WrongPasswordException o un Pkcs11Exception de PIN.
  */
-bool isAuthenticationFailure(Throwable failure) @safe {
+bool isAuthenticationFailure(Throwable failure) pure @safe {
   for (auto current = failure; current !is null; current = current.next) {
     if (cast(WrongPasswordException) current) return true;
     if (auto pkcs11 = cast(Pkcs11Exception) current) {

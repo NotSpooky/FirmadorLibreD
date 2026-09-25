@@ -84,7 +84,7 @@ string signatureMethodUri(bool rsa, DigestAlgorithm digest) pure nothrow @safe @
  *
  * Throws: XmlException si el algoritmo no se admite.
  */
-SignatureAlgorithm signatureAlgorithmFromXmlUri(string uri, out bool ecdsa) @safe {
+SignatureAlgorithm signatureAlgorithmFromXmlUri(string uri, out bool ecdsa) pure @safe {
   static immutable string[DigestAlgorithm] pssNames;
   SignatureAlgorithm algorithm;
   foreach (digest; [DigestAlgorithm.sha1, DigestAlgorithm.sha224, DigestAlgorithm.sha256, DigestAlgorithm.sha384,
@@ -153,7 +153,7 @@ struct DsSignature {
 }
 
 /// Bytes decodificados de un base64 que puede traer espacios y saltos de línea.
-immutable(ubyte)[] decodeXmlBase64(string text) @safe {
+immutable(ubyte)[] decodeXmlBase64(string text) pure @safe {
   import std.array : appender;
   auto cleaned = appender!string;
   foreach (char character; text) {

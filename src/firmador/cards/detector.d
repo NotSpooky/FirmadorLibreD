@@ -440,7 +440,7 @@ final class SmartCardDetector {
 }
 
 /// Credencial de reserva «sólo PIN»: PKCS#11 con la primera ranura disponible.
-CardSignInfo createPinOnlyCard(SecretPin pin) @safe {
+CardSignInfo createPinOnlyCard(SecretPin pin) pure @safe {
   return new CardSignInfo(pin);
 }
 

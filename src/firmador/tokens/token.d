@@ -43,26 +43,26 @@ final class SecretPin {
   private char[] value;
   private bool destroyed;
 
-  this(const(char)[] pin) @safe {
+  this(const(char)[] pin) pure @safe {
     value = pin.dup;
   }
 
   /// El PIN; falla si ya se destruyó.
-  const(char)[] get() const @safe {
+  const(char)[] get() const pure @safe {
     enforce(!destroyed, "El PIN ya fue destruido");
     return value;
   }
 
-  bool isEmpty() const @safe {
+  bool isEmpty() const pure @safe {
     return destroyed || value.length == 0;
   }
 
-  bool isDestroyed() const @safe {
+  bool isDestroyed() const pure @safe {
     return destroyed;
   }
 
   /// Sobrescribe el PIN con ceros.
-  void destroy() @safe {
+  void destroy() pure @safe {
     value[] = '\0';
     value = null;
     destroyed = true;
@@ -101,7 +101,7 @@ interface SignatureToken {
  * Primera clave de no repudio, el criterio de CRSigner.getPrivateKey: las tarjetas de firma
  * digital de Costa Rica traen una sola. Null si ninguna tiene ese uso.
  */
-Nullable!TokenKey selectNonRepudiationKey(TokenKey[] keys) @safe {
+Nullable!TokenKey selectNonRepudiationKey(TokenKey[] keys) pure @safe {
   foreach (key; keys) {
     if (key.certificate.hasKeyUsage(KeyUsageBit.nonRepudiation)) return Nullable!TokenKey(key);
   }
@@ -161,7 +161,7 @@ final class Pkcs11SignatureToken : SignatureToken {
     }
   }
 
-  TokenKey[] keys() @safe {
+  TokenKey[] keys() pure @safe {
     return available.dup;
   }
 
@@ -200,7 +200,7 @@ final class Pkcs12SignatureToken : SignatureToken {
     key.index = 0;
   }
 
-  TokenKey[] keys() @safe {
+  TokenKey[] keys() pure @safe {
     return [key];
   }
 

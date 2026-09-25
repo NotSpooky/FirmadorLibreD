@@ -71,7 +71,7 @@ struct XadesPolicy {
 }
 
 /// Política de Hacienda (configuration.haciendaPolicyId).
-XadesPolicy haciendaPolicy() @safe {
+XadesPolicy haciendaPolicy() pure @safe {
   return XadesPolicy(haciendaPolicyId, DigestAlgorithm.sha256, Base64.decode(haciendaPolicyDigestBase64).idup);
 }
 
@@ -161,7 +161,7 @@ private struct ReferenceLine {
   string mimeType;
 }
 
-private ReferenceLine[] referenceLines(const XadesParameters parameters) @safe {
+private ReferenceLine[] referenceLines(const XadesParameters parameters) pure @safe {
   if (parameters.packaging != XadesPackaging.container) return [ReferenceLine("", true, parameters.mimeType)];
   ReferenceLine[] lines;
   foreach (file; parameters.files) lines ~= ReferenceLine(encodeReferenceUri(file.name), false, file.mimeType);
@@ -169,7 +169,7 @@ private ReferenceLine[] referenceLines(const XadesParameters parameters) @safe {
 }
 
 /// Fragmento ds:Signature sin resúmenes ni valor, con sangría relativa de cuatro espacios.
-private string signatureFragment(const XadesParameters parameters, string id) @safe {
+private string signatureFragment(const XadesParameters parameters, string id) pure @safe {
   auto output = appender!string;
   void line(size_t depth, string text) {
     if (output[].length) output ~= "\n";
@@ -348,7 +348,7 @@ XmlNode signatureById(XmlDocument document, string signatureId) @safe {
 }
 
 /// Firmas XMLDSig del documento que no están dentro de otra firma, en orden de documento.
-XmlNode[] topLevelSignatures(XmlDocument document) @safe {
+XmlNode[] topLevelSignatures(XmlDocument document) pure @safe {
   XmlNode[] result;
   foreach (signature; document.elements(xmldsigNamespace, "Signature")) {
     bool nested = false;
@@ -361,7 +361,7 @@ XmlNode[] topLevelSignatures(XmlDocument document) @safe {
 }
 
 /// xades:QualifyingProperties de la firma, o un nodo nulo si no es XAdES.
-XmlNode qualifyingProperties(XmlNode signature) @safe {
+XmlNode qualifyingProperties(XmlNode signature) pure @safe {
   foreach (object; signature.childrenNamed(xmldsigNamespace, "Object")) {
     auto properties = object.child(xadesNamespace, "QualifyingProperties");
     if (!properties.isNull) return properties;
@@ -370,7 +370,7 @@ XmlNode qualifyingProperties(XmlNode signature) @safe {
 }
 
 /// xades:UnsignedSignatureProperties de la firma, o un nodo nulo.
-XmlNode unsignedSignatureProperties(XmlNode signature) @safe {
+XmlNode unsignedSignatureProperties(XmlNode signature) pure @safe {
   auto properties = qualifyingProperties(signature);
   if (properties.isNull) return XmlNode.init;
   auto unsigned = properties.child(xadesNamespace, "UnsignedProperties");
@@ -448,7 +448,7 @@ private bool referenceOutputsNodeSet(const DsReference reference) pure @safe {
   return nodeSet;
 }
 
-private string timestampFragment(string elementName, string elementNamespace, const TimeStampToken token) @safe {
+private string timestampFragment(string elementName, string elementNamespace, const TimeStampToken token) pure @safe {
   string id = "ts-" ~ toHexString!(LetterCase.lower)(md5Of(token.der)).idup;
   string prefix = elementNamespace == xades141Namespace ? "xades141" : "xades";
   string xadesDeclaration = prefix == "xades" ? "" : format(` xmlns:xades="%s"`, xadesNamespace);
@@ -602,7 +602,7 @@ SigningCertificateReference[] signingCertificateReferences(XmlNode signatureElem
 
 /// Primer certificado candidato cuyo resumen coincide con la primera referencia, o null.
 Certificate matchSigningCertificate(const SigningCertificateReference[] references, const(Certificate)[] candidates)
-    @trusted {
+    pure @trusted {
   if (references.length == 0) return null;
   foreach (candidate; candidates) {
     // Los certificados no se modifican después de leerlos.
@@ -638,7 +638,7 @@ ValidationData xadesSigningMaterial(XmlNode signatureElement, CertificatePool po
 }
 
 /// La firma ya tiene un sello de archivo.
-bool hasArchiveTimestamp(XmlNode signatureElement) @safe {
+bool hasArchiveTimestamp(XmlNode signatureElement) pure @safe {
   auto unsigned = unsignedSignatureProperties(signatureElement);
   if (unsigned.isNull) return false;
   return !unsigned.child(xades141Namespace, "ArchiveTimeStamp").isNull
@@ -646,7 +646,8 @@ bool hasArchiveTimestamp(XmlNode signatureElement) @safe {
 }
 
 /// Bloques xades:CertificateValues y xades:RevocationValues (los que tengan algo), con sangría relativa.
-private string[] valuesBlocks(const(Certificate)[] certificates, const(ubyte[])[] crls, const(ubyte[])[] ocsps) @safe {
+private string[] valuesBlocks(const(Certificate)[] certificates, const(ubyte[])[] crls, const(ubyte[])[] ocsps)
+    pure @safe {
   string[] blocks;
   if (certificates.length) {
     string block = format(`<xades:CertificateValues xmlns:xades="%s">`, xadesNamespace);

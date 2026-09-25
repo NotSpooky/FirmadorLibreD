@@ -83,22 +83,22 @@ final class Certificate {
   /// Extensiones críticas que la aplicación no interpreta.
   string[] unknownCriticalExtensions;
 
-  override bool opEquals(Object other) const @safe {
+  override bool opEquals(Object other) const pure @safe {
     auto certificate = cast(const Certificate) other;
     return certificate !is null && certificate.der == der;
   }
 
-  override size_t toHash() const nothrow @trusted {
+  override size_t toHash() const pure nothrow @trusted {
     return hashOf(der);
   }
 
   /// Serial en decimal (BigInteger.toString() en Java), como lo publica la API remota.
-  string serialDecimal() const @safe {
+  string serialDecimal() const pure @safe {
     return toDecimalString(serialNumber);
   }
 
   /// Serial en hexadecimal sin ceros a la izquierda (BigInteger.toString(16)).
-  string serialHex() const @safe {
+  string serialHex() const pure @safe {
     return toHexString(serialNumber);
   }
 
@@ -113,22 +113,22 @@ final class Certificate {
   }
 
   /// Vigente en el instante dado.
-  bool isValidAt(SysTime time) const @safe {
+  bool isValidAt(SysTime time) const pure @safe {
     return time >= notBefore && time <= notAfter;
   }
 
   /// Resumen del DER completo con el algoritmo pedido.
-  ubyte[] digest(DigestAlgorithm algorithm) const @safe {
+  ubyte[] digest(DigestAlgorithm algorithm) const pure @safe {
     return digestOf(algorithm, der);
   }
 
   /// DER en base64, como getB464Certificate de la versión Java.
-  string base64() const @safe {
+  string base64() const pure @safe {
     return Base64.encode(der);
   }
 
   /// Nombre legible del titular para mensajes.
-  override string toString() const @safe {
+  override string toString() const pure @safe {
     return format("%s (serial %s)", subject.readableName, serialHex);
   }
 }
@@ -167,7 +167,7 @@ bool containsCertificate(const(Certificate)[] list, const Certificate certificat
  *
  * Throws: Asn1Exception con el campo que falla si la estructura no es la de RFC 5280.
  */
-Certificate parseCertificate(const(ubyte)[] der) @safe {
+Certificate parseCertificate(const(ubyte)[] der) pure @safe {
   auto root = parseDer(der);
   enforce!Asn1Exception(root.isSequence, "El certificado no es un SEQUENCE");
   auto certificateReader = root.reader();
@@ -227,7 +227,7 @@ Certificate parseCertificate(const(ubyte)[] der) @safe {
   return certificate;
 }
 
-private void applyExtension(Certificate certificate, const Extension extension) @safe {
+private void applyExtension(Certificate certificate, const Extension extension) pure @safe {
   auto value = parseDer(extension.value);
   switch (extension.oid) {
     case oidKeyUsage:
@@ -298,7 +298,7 @@ private void applyExtension(Certificate certificate, const Extension extension) 
  *
  * Throws: Exception si no hay ningún certificado o alguno está mal codificado.
  */
-Certificate[] parseCertificates(const(ubyte)[] data) @safe {
+Certificate[] parseCertificates(const(ubyte)[] data) pure @safe {
   enum string beginMarker = "-----BEGIN CERTIFICATE-----";
   enum string endMarker = "-----END CERTIFICATE-----";
   string text = cast(string) data.idup;

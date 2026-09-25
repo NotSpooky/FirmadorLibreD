@@ -70,7 +70,7 @@ class PdfPreviewer : Previewer {
   private PdfDocument document;
   private float scale;
 
-  this(float scale) @safe {
+  this(float scale) pure @safe {
     this.scale = scale;
   }
 
@@ -113,7 +113,7 @@ class PdfPreviewer : Previewer {
 final class SofficePreviewer : PdfPreviewer {
   private string sofficePath;
 
-  this(float scale, string sofficePath) @safe {
+  this(float scale, string sofficePath) pure @safe {
     super(scale);
     this.sofficePath = sofficePath;
   }
@@ -143,14 +143,14 @@ final class SofficePreviewer : PdfPreviewer {
     super.load(cast(immutable(ubyte)[]) read(converted[0].name), name);
   }
 
-  override bool showsSignaturePosition() const @safe {
+  override bool showsSignaturePosition() const pure @safe {
     return false;
   }
 }
 
 /// Vista previa genérica: la página de resources/nonPreview.pdf.
 final class NonPreviewer : PdfPreviewer {
-  this(float scale) @safe {
+  this(float scale) pure @safe {
     super(scale);
   }
 
@@ -158,7 +158,7 @@ final class NonPreviewer : PdfPreviewer {
     super.load(cast(immutable(ubyte)[]) import("nonPreview.pdf"), name);
   }
 
-  override bool showsSignaturePosition() const @safe {
+  override bool showsSignaturePosition() const pure @safe {
     return false;
   }
 }

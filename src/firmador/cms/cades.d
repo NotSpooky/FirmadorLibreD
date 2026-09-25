@@ -41,7 +41,7 @@ import firmador.x509.certificate;
 
 /// Atributos firmados CAdES-B sobre el resumen SHA-256 del contenido.
 ubyte[] cadesSignedAttributes(const(ubyte)[] contentDigest, const Certificate signingCertificate, SysTime signingTime)
-    @safe {
+    pure @safe {
   SignedAttributesInput input = {
     contentDigest: contentDigest,
     signingCertificate: signingCertificate,
@@ -53,7 +53,7 @@ ubyte[] cadesSignedAttributes(const(ubyte)[] contentDigest, const Certificate si
 
 /// SignedData separado (sin contenido encapsulado) con la firma y los certificados.
 ubyte[] cadesCms(const(ubyte)[] signedAttributes, const(ubyte)[] signatureValue, bool rsa,
-    const Certificate signingCertificate, const(Certificate)[] chain) @safe {
+    const Certificate signingCertificate, const(Certificate)[] chain) pure @safe {
   SignedDataInput input = {
     rsa: rsa,
     signingCertificate: signingCertificate,
@@ -64,7 +64,7 @@ ubyte[] cadesCms(const(ubyte)[] signedAttributes, const(ubyte)[] signatureValue,
   return buildSignedData(input);
 }
 
-private const(SignerInfo) onlySigner(const SignedData data) @safe {
+private const(SignerInfo) onlySigner(const SignedData data) pure @safe {
   enforce!Asn1Exception(data.signerInfos.length == 1,
     "La firma CAdES debe tener exactamente un firmante para extenderla");
   return data.signerInfos[0];
@@ -106,7 +106,7 @@ immutable(ubyte)[] addCadesSignatureTimestamp(const(ubyte)[] cms, scope Timestam
 }
 
 /// Añade al SignedData los certificados y revocaciones que todavía no tiene (nivel LT).
-immutable(ubyte)[] addCadesValidationData(const(ubyte)[] cms, const ValidationData data) @safe {
+immutable(ubyte)[] addCadesValidationData(const(ubyte)[] cms, const ValidationData data) pure @safe {
   const(ubyte[])[] certificates;
   foreach (certificate; data.certificates) certificates ~= certificate.der;
   return extendSignedData(cms, null, certificates, data.crls, data.ocspResponses).idup;
@@ -127,7 +127,7 @@ private ubyte[] signerFieldsForArchive(const SignerInfo signer) pure @safe {
  * cada certificado y revocación del SignedData y de cada valor de atributo no firmado.
  * Incluye el AlgorithmIdentifier aunque sea SHA-256, como DSS.
  */
-ubyte[] atsHashIndexV3(const SignedData data, const SignerInfo signer, DigestAlgorithm digest) @safe {
+ubyte[] atsHashIndexV3(const SignedData data, const SignerInfo signer, DigestAlgorithm digest) pure @safe {
   ubyte[][] certificates;
   foreach (raw; data.certificatesRaw) certificates ~= derOctetString(digestOf(digest, raw));
   ubyte[][] revocations;
@@ -149,7 +149,7 @@ ubyte[] atsHashIndexV3(const SignedData data, const SignerInfo signer, DigestAlg
  * resumen del contenido firmado, campos firmados del firmante y el índice de resúmenes.
  */
 ubyte[] archiveTimestampV3Data(const SignedData data, const SignerInfo signer, const(ubyte)[] contentDigest,
-    const(ubyte)[] hashIndex) @safe {
+    const(ubyte)[] hashIndex) pure @safe {
   return derOid(data.eContentType) ~ contentDigest ~ signerFieldsForArchive(signer) ~ hashIndex;
 }
 
@@ -190,7 +190,8 @@ struct HashIndexCheck {
  *
  * Throws: Asn1Exception si el sello no tiene el índice o está mal formado.
  */
-HashIndexCheck checkAtsHashIndex(const SignedData data, const SignerInfo signer, const TimeStampToken token) @safe {
+HashIndexCheck checkAtsHashIndex(const SignedData data, const SignerInfo signer, const TimeStampToken token)
+    pure @safe {
   auto tokenSigner = token.signedData.signerInfos[0];
   auto attributes = tokenSigner.unsignedAttributesOf(oidAtsHashIndexV3);
   enforce!Asn1Exception(attributes.length == 1 && attributes[0].values.length == 1,

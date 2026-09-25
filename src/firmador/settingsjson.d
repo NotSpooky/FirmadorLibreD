@@ -73,7 +73,7 @@ private string[] jsonFieldNames() pure @safe {
 }
 
 /// Ajustes en JSON, sin los campos locales ni la contraseña del almacén.
-JSONValue settingsToJson(const Settings settings) @trusted {
+JSONValue settingsToJson(const Settings settings) pure @trusted {
   JSONValue json = JSONValue(string[string].init);
   static foreach (index, field; Settings.tupleof) {{
     enum name = __traits(identifier, field);
@@ -98,7 +98,7 @@ JSONValue settingsToJson(const Settings settings) @trusted {
  * Throws: JsonShapeException con el campo y lo esperado si algún valor no tiene el tipo del
  * campo o si trae un nombre desconocido.
  */
-Settings settingsFromJson(const JSONValue json, const Settings base) @trusted {
+Settings settingsFromJson(const JSONValue json, const Settings base) pure @trusted {
   enum what = "Los ajustes";
   auto settings = new Settings(base);
   // El constructor de copia no copia todo: los campos que viajan se copian aquí.

@@ -111,7 +111,7 @@ SignaturePreview renderSignaturePreview(VisibleSignature visible, const PageGeom
   visible.originY = 0;
   PageGeometry blankGeometry = geometry;
   blankGeometry.cropBox = geometry.mediaBox;
-  auto layout = computeLayout(layoutInput(visible, blankGeometry), encoderFor(visible.font));
+  auto layout = computeLayout(layoutInput(visible, blankGeometry), encoderFor(visible));
   auto box = visualRect(layout.annotationRect, geometry.mediaBox, geometry.rotation);
 
   PadesSignatureParameters parameters;

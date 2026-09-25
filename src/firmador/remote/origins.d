@@ -45,7 +45,7 @@ string normalizeOrigin(string origin) pure @safe {
 }
 
 /// El origen está entre los autorizados (permanentes o de esta sesión).
-bool isOriginAllowed(const Settings settings, string origin) @trusted {
+bool isOriginAllowed(const Settings settings, string origin) pure @trusted {
   string normalized = normalizeOrigin(origin);
   if (normalized.length == 0) return false;
   synchronized (cast(Settings) settings) {

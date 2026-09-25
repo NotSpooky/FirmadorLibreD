@@ -65,9 +65,9 @@ import firmador.pdf.engine : PageGeometry;
 import firmador.pdf.sigpreview : renderSignaturePreview;
 import firmador.settings : Settings;
 import firmador.settingsmanager : currentSettings;
-import firmador.signers.asic : AsicSigner;
 import firmador.signers.cades : CadesSigner;
 import firmador.signers.common : signatureTextFor;
+import firmador.signers.documentsigner : DocumentSigner;
 import firmador.signers.jades : JadesSigner;
 import firmador.signers.pades : visibleSignatureFor;
 import firmador.signers.resources : loadSignatureImage;
@@ -102,7 +102,7 @@ float steppedSignatureScale(float current, int direction) pure nothrow @safe @no
 }
 
 /// Nivel de firma de los ajustes que corresponde al tipo de documento (PAdES, XAdES, JAdES o CAdES).
-private ref string levelFor(Settings settings, SupportedMimeType mimeType) @safe {
+private ref string levelFor(Settings settings, SupportedMimeType mimeType) pure @safe {
   if (isPdf(mimeType)) return settings.pAdESLevel;
   if (isXml(mimeType)) return settings.xAdESLevel;
   if (isJson(mimeType)) return settings.jAdESLevel;
@@ -110,13 +110,13 @@ private ref string levelFor(Settings settings, SupportedMimeType mimeType) @safe
 }
 
 /// La credencial puede anunciar un titular: una tarjeta, o un PKCS#12 registrado con su certificado.
-bool hasIdentity(const CardSignInfo card) @safe {
+bool hasIdentity(const CardSignInfo card) pure @safe {
   return card !is null && (card.cardType == CardType.pkcs11 || (card.cardType == CardType.pkcs12
     && card.certificate !is null));
 }
 
 /// Identidad estable de una credencial entre escaneos: el serial del certificado o la identificación.
-string identityKey(const CardSignInfo card) @safe {
+string identityKey(const CardSignInfo card) pure @safe {
   if (card is null) return null;
   return card.certificate !is null ? card.certificate.serialDecimal : card.identification;
 }
@@ -125,13 +125,82 @@ string identityKey(const CardSignInfo card) @safe {
  * Credencial que se anuncia en el recuadro (previewCard): la única que tenga titular, o
  * la elegida si hay varias; ninguna si hay varias sin elegir o la elegida ya no está.
  */
-const(CardSignInfo) previewCard(const(CardSignInfo)[] cards, string preferredKey) @safe {
+const(CardSignInfo) previewCard(const(CardSignInfo)[] cards, string preferredKey) pure @safe {
   const(CardSignInfo)[] identities;
   foreach (card; cards) if (hasIdentity(card)) identities ~= card;
   if (identities.length == 1) return identities[0];
   if (identities.length < 2 || preferredKey is null) return null;
   foreach (card; identities) if (identityKey(card) == preferredKey) return card;
   return null;
+}
+
+/// Firmador del documento, que decide los formatos que se ofrecen (Document.signer).
+enum SignerKind { cades, xades, jades, other }
+
+/// Formato marcado de los que se ofrecen a documentos que no son PDF ni de oficina.
+enum FormatChoice { cades, xades, jades, asic }
+
+/// Controles de la pestaña de firma para un documento: los que se ven y el estado de los formatos.
+struct SignControls {
+  bool topBar, sizeGroup, withoutVisible, fields, formatGroup, validate, advanced, save, collapse, cancel;
+  /// Formatos que se ofrecen además de CAdES y ASiC-E.
+  bool xades, jades;
+  FormatChoice checkedFormat;
+  bool signEnabled;
+}
+
+/**
+ * Controles que corresponden a un documento. Los PDF muestran la vista previa con el
+ * recuadro, sus campos y el tamaño; los de oficina, la vista previa; los demás, los
+ * formatos de firma. SignControls.init oculta todo (sin documento).
+ *
+ * Params:
+ *   mime = tipo del documento.
+ *   simplified = modo simplificado: sin «Ver firmas» ni «Guardar configuración del documento»
+ *     (salvo en los de oficina).
+ *   remote = llegó por Firmador Remoto: se puede cancelar.
+ *   virtual = lo trae un servicio externo, que lo firma sin recibir la escala.
+ *   signer = firmador del documento; elige el formato marcado.
+ * Returns: los controles visibles y el formato marcado.
+ */
+SignControls controlsFor(SupportedMimeType mime, bool simplified, bool remote, bool virtual, SignerKind signer)
+    pure nothrow @safe @nogc {
+  SignControls controls;
+  controls.signEnabled = true;
+  controls.advanced = true;
+  controls.collapse = true;
+  controls.validate = !simplified;
+  controls.cancel = remote && !virtual;
+  if (isPdf(mime)) {
+    controls.topBar = true;
+    controls.sizeGroup = !virtual;
+    controls.withoutVisible = true;
+    controls.fields = true;
+    controls.save = !simplified;
+  } else if (isOpenXml(mime) || isOpenDocument(mime)) {
+    controls.topBar = true;
+    controls.save = true;
+  } else {
+    controls.formatGroup = true;
+    controls.save = !simplified;
+    controls.xades = signer == SignerKind.xades;
+    controls.jades = signer == SignerKind.jades;
+    final switch (signer) {
+      case SignerKind.cades: controls.checkedFormat = FormatChoice.cades; break;
+      case SignerKind.xades: controls.checkedFormat = FormatChoice.xades; break;
+      case SignerKind.jades: controls.checkedFormat = FormatChoice.jades; break;
+      case SignerKind.other: controls.checkedFormat = FormatChoice.asic; break;
+    }
+  }
+  return controls;
+}
+
+/// Tipo de firmador de un documento, para controlsFor.
+SignerKind signerKindOf(DocumentSigner signer) pure nothrow @safe @nogc {
+  if (cast(CadesSigner) signer) return SignerKind.cades;
+  if (cast(XadesSigner) signer) return SignerKind.xades;
+  if (cast(JadesSigner) signer) return SignerKind.jades;
+  return SignerKind.other;
 }
 
 /// Pestaña de firma.
@@ -331,7 +400,7 @@ final class SignPanel : VerticalLayout {
     foreach (field; [reasonField, locationField, contactField]) {
       field.contentChange = (EditableContent content) { scheduleSignaturePreview(); };
     }
-    hideControls();
+    applyControls(SignControls.init);
   }
 
   private EditLine addField(string id, string labelKey, string tooltipKey, string value) {
@@ -345,62 +414,42 @@ final class SignPanel : VerticalLayout {
   }
 
   /// Documento que se está mostrando (null si ninguno).
-  Document document() @safe {
+  Document document() pure @safe {
     return current;
   }
 
   /// La vista de páginas, para detener su hilo al cerrar.
-  PageView pageView() @safe {
+  PageView pageView() pure @safe {
     return pages;
   }
 
   // Visibilidad de los controles ---------------------------------------------
 
-  private void hideControls() {
-    signButton.enabled = false;
-    foreach (widget; [cast(Widget) topBar, sizeGroup, fieldsColumn, withoutVisible, formatGroup, validateButton,
-        advancedButton, saveButton, collapseButton, cancelButton]) {
-      widget.visibility = Visibility.Gone;
+  /// Muestra los controles (controlsFor) y oculta los demás.
+  private void applyControls(const SignControls controls) {
+    static Visibility shownIf(bool shown) {
+      return shown ? Visibility.Visible : Visibility.Gone;
     }
-  }
-
-  private void showPreviewControls() {
-    topBar.visibility = Visibility.Visible;
-    advancedButton.visibility = Visibility.Visible;
-    collapseButton.visibility = Visibility.Visible;
-    bool simplified = currentSettings().isSimplifiedMode();
-    validateButton.visibility = simplified ? Visibility.Gone : Visibility.Visible;
-    refreshSignatureCount();
-  }
-
-  private void showPdfControls() {
-    showPreviewControls();
-    // Los documentos virtuales los firma su servicio, que no recibe la escala.
-    sizeGroup.visibility = current.isVirtual ? Visibility.Gone : Visibility.Visible;
-    withoutVisible.visibility = Visibility.Visible;
-    fieldsColumn.visibility = Visibility.Visible;
-    saveButton.visibility = currentSettings().isSimplifiedMode() ? Visibility.Gone : Visibility.Visible;
-    signButton.enabled = true;
-  }
-
-  private void showOtherFormatControls() {
-    bool simplified = currentSettings().isSimplifiedMode();
-    formatGroup.visibility = Visibility.Visible;
-    advancedButton.visibility = Visibility.Visible;
-    collapseButton.visibility = Visibility.Visible;
-    saveButton.visibility = simplified ? Visibility.Gone : Visibility.Visible;
-    validateButton.visibility = simplified ? Visibility.Gone : Visibility.Visible;
-    signButton.enabled = true;
-    auto signer = current.signer;
-    cadesButton.visibility = Visibility.Visible;
-    xadesButton.visibility = cast(XadesSigner) signer ? Visibility.Visible : Visibility.Gone;
-    jadesButton.visibility = cast(JadesSigner) signer ? Visibility.Visible : Visibility.Gone;
-    asicButton.visibility = Visibility.Visible;
-    if (cast(CadesSigner) signer) cadesButton.checked = true;
-    else if (cast(XadesSigner) signer) xadesButton.checked = true;
-    else if (cast(JadesSigner) signer) jadesButton.checked = true;
-    else asicButton.checked = true;
-    refreshSignatureCount();
+    signButton.enabled = controls.signEnabled;
+    topBar.visibility = shownIf(controls.topBar);
+    sizeGroup.visibility = shownIf(controls.sizeGroup);
+    fieldsColumn.visibility = shownIf(controls.fields);
+    withoutVisible.visibility = shownIf(controls.withoutVisible);
+    formatGroup.visibility = shownIf(controls.formatGroup);
+    validateButton.visibility = shownIf(controls.validate);
+    advancedButton.visibility = shownIf(controls.advanced);
+    saveButton.visibility = shownIf(controls.save);
+    collapseButton.visibility = shownIf(controls.collapse);
+    cancelButton.visibility = shownIf(controls.cancel);
+    if (!controls.formatGroup) return;
+    xadesButton.visibility = shownIf(controls.xades);
+    jadesButton.visibility = shownIf(controls.jades);
+    final switch (controls.checkedFormat) {
+      case FormatChoice.cades: cadesButton.checked = true; break;
+      case FormatChoice.xades: xadesButton.checked = true; break;
+      case FormatChoice.jades: jadesButton.checked = true; break;
+      case FormatChoice.asic: asicButton.checked = true; break;
+    }
   }
 
   private void applyFooterState(bool collapsed) {
@@ -430,7 +479,7 @@ final class SignPanel : VerticalLayout {
   void setDocument(Document document) @trusted {
     current = document;
     levelOverride = null;
-    hideControls();
+    applyControls(SignControls.init);
     PageSource source;
     if (document.isVirtual) {
       source = new ImageSource(document.pages, (int page) @safe => host.virtualPage(document, page));
@@ -443,16 +492,9 @@ final class SignPanel : VerticalLayout {
     int pageCount = pages.pageCount;
     pageSelector.setPages(pageCount);
     placeConfiguredSignature(currentSettings());
-    if (isPdf(document.mimeType)) {
-      showPdfControls();
-    } else if (isOpenXml(document.mimeType) || isOpenDocument(document.mimeType)) {
-      showPreviewControls();
-      signButton.enabled = true;
-      saveButton.visibility = Visibility.Visible;
-    } else {
-      showOtherFormatControls();
-    }
-    cancelButton.visibility = document.isRemote && !document.isVirtual ? Visibility.Visible : Visibility.Gone;
+    applyControls(controlsFor(document.mimeType, currentSettings().isSimplifiedMode(), document.isRemote,
+      document.isVirtual, signerKindOf(document.signer)));
+    refreshSignatureCount();
     applyFooterState(footerCollapsed);
     pages.showSignature(!withoutVisible.checked);
     scheduleSignaturePreview();
@@ -465,7 +507,7 @@ final class SignPanel : VerticalLayout {
     previewGeneration++;
     pages.setSource(null);
     pages.setSignatureImage(null, 0, 0);
-    hideControls();
+    applyControls(SignControls.init);
   }
 
   /// Vuelve a leer la configuración (updateConfig).
@@ -628,7 +670,7 @@ final class SignPanel : VerticalLayout {
     if (identityText(previewCard(cards, preferredCardKey)) != before) scheduleSignaturePreview();
   }
 
-  private static string identityText(const CardSignInfo card) @safe {
+  private static string identityText(const CardSignInfo card) pure @safe {
     return card is null ? "" : card.commonName ~ "|" ~ card.organization ~ "|" ~ card.identification;
   }
 
@@ -720,4 +762,20 @@ unittest {
   assert(previewCard([first, second], null) is null);
   assert(previewCard([first, second], "CPF-02") is second);
   assert(previewCard([first, second], "CPF-09") is null);
+}
+
+@("should offer the preview for PDF and office documents and the formats for the rest when choosing controls")
+unittest {
+  auto pdf = controlsFor(SupportedMimeType.PDF, false, false, false, SignerKind.other);
+  assert(pdf.topBar && pdf.sizeGroup && pdf.fields && pdf.withoutVisible && pdf.save && !pdf.formatGroup);
+  // Un PDF virtual lo firma su servicio sin la escala; en modo simplificado no se guarda la configuración.
+  auto virtualPdf = controlsFor(SupportedMimeType.PDF, true, true, true, SignerKind.other);
+  assert(!virtualPdf.sizeGroup && !virtualPdf.save && !virtualPdf.validate && !virtualPdf.cancel);
+  auto office = controlsFor(SupportedMimeType.DOCX, true, true, false, SignerKind.other);
+  assert(office.topBar && !office.fields && office.save && !office.validate && office.cancel);
+  auto xml = controlsFor(SupportedMimeType.XML, false, false, false, SignerKind.xades);
+  assert(!xml.topBar && xml.formatGroup && xml.xades && !xml.jades && xml.checkedFormat == FormatChoice.xades);
+  auto binary = controlsFor(SupportedMimeType.BINARY, false, false, false, SignerKind.other);
+  assert(!binary.xades && !binary.jades && binary.checkedFormat == FormatChoice.asic && binary.signEnabled);
+  assert(!SignControls.init.signEnabled && !SignControls.init.topBar);
 }

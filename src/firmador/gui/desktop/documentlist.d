@@ -326,21 +326,21 @@ final class DocumentListPanel : HorizontalLayout {
   // Documentos -------------------------------------------------------------------
 
   /// Documentos de la vista actual (locales o virtuales).
-  Document[] visibleDocuments() @safe {
+  Document[] visibleDocuments() pure @safe {
     return allDocuments.filter!(document => document.isVirtual == onlyVirtual).array;
   }
 
   /// Todos los documentos de la lista, locales y virtuales.
-  Document[] allOpenDocuments() @safe {
+  Document[] allOpenDocuments() pure @safe {
     return allDocuments.dup;
   }
 
   /// Documentos locales, en el orden de la lista.
-  Document[] documents() @safe {
+  Document[] documents() pure @safe {
     return allDocuments.filter!(document => !document.isVirtual).array;
   }
 
-  private Document[] selectedVisible() {
+  private Document[] selectedVisible() pure {
     return selected.filter!(document => document.isVirtual == onlyVirtual).array;
   }
 
@@ -359,7 +359,7 @@ final class DocumentListPanel : HorizontalLayout {
     reloadView();
   }
 
-  Document findVirtual(UUID id) @safe {
+  Document findVirtual(UUID id) pure @safe {
     foreach (document; allDocuments) if (document.isVirtual && document.id == id) return document;
     return null;
   }

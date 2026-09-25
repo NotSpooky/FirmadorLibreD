@@ -38,8 +38,35 @@ import std.string : rightJustify;
 import firmador.configuration : costaRicaUtcOffsetHours;
 
 /// Zona horaria de Costa Rica (UTC-6 fijo, sin horario de verano desde 1992).
-immutable(SimpleTimeZone) costaRicaTimeZone() @safe {
-  return new immutable SimpleTimeZone(dur!"hours"(costaRicaUtcOffsetHours), "CST");
+immutable(SimpleTimeZone) costaRicaTimeZone() pure @safe {
+  return new immutable SimpleTimeZone(costaRicaOffset, "CST");
+}
+
+/// Desplazamiento de Costa Rica respecto de UTC.
+private enum Duration costaRicaOffset = dur!"hours"(costaRicaUtcOffsetHours);
+
+/// Origen de SysTime.stdTime (1 de enero del año 1, en UTC).
+private enum DateTime stdTimeEpoch = DateTime(1, 1, 1);
+
+/**
+ * Instante de una fecha y hora en UTC. Equivale a `SysTime(utc, UTC())`, que no es `pure`
+ * porque convierte por medio de TimeZone.
+ */
+SysTime utcTime(DateTime utc) pure nothrow @safe {
+  return SysTime((utc - stdTimeEpoch).total!"hnsecs", UTC());
+}
+
+/**
+ * Fecha y hora en UTC de un instante, sin fracciones de segundo. Equivale a
+ * `cast(DateTime) time.toUTC`, que no es `pure` porque convierte por medio de TimeZone.
+ */
+DateTime utcDateTime(SysTime time) pure nothrow @safe {
+  return stdTimeEpoch + dur!"seconds"(time.stdTime / dur!"seconds"(1).total!"hnsecs");
+}
+
+/// Fecha y hora de un instante en la zona de Costa Rica, sin fracciones de segundo.
+private DateTime costaRicaDateTime(SysTime time) pure nothrow @safe {
+  return utcDateTime(time) + costaRicaOffset;
 }
 
 /// Idioma de los nombres de mes, día y a. m./p. m. en fechas con formato.
@@ -115,7 +142,7 @@ string formatJavaDate(string pattern, SysTime time, DateLanguage language) @safe
 }
 
 private string formatField(char letter, size_t count, DateTime local, long milliseconds, Duration offset,
-    DateLanguage language, string pattern) @safe {
+    DateLanguage language, string pattern) pure @safe {
   bool spanish = language == DateLanguage.spanish;
   int hour = local.hour;
   switch (letter) {
@@ -183,37 +210,35 @@ private string offsetText(Duration offset, bool withColon, bool withMinutes) pur
 }
 
 private string offsetName(Duration offset) pure @safe {
-  if (offset == dur!"hours"(costaRicaUtcOffsetHours)) return "CST";
+  if (offset == costaRicaOffset) return "CST";
   if (offset == Duration.zero) return "UTC";
   return "GMT" ~ offsetText(offset, true, true);
 }
 
 /// Fecha en UTC como en RFC 3339 con zona «Z» (xsd:dateTime), sin fracciones de segundo.
-string toRfc3339Utc(SysTime time) @safe {
-  DateTime utc = cast(DateTime) time.toUTC;
+string toRfc3339Utc(SysTime time) pure @safe {
+  DateTime utc = utcDateTime(time);
   return format("%04d-%02d-%02dT%02d:%02d:%02dZ", utc.year, cast(int) utc.month, utc.day, utc.hour, utc.minute,
     utc.second);
 }
 
 /// Día (yyyy-MM-dd) en que cae `time` en la zona de Costa Rica, como se muestran los vencimientos.
-string costaRicaDay(SysTime time) @safe {
-  auto local = cast(DateTime) time.toOtherTZ(costaRicaTimeZone());
+string costaRicaDay(SysTime time) pure @safe {
+  DateTime local = costaRicaDateTime(time);
   return format("%04d-%02d-%02d", local.year, cast(int) local.month, local.day);
 }
 
 /// Fecha en la zona de Costa Rica con su desplazamiento, como en RFC 3339 (-06:00).
-string toRfc3339CostaRica(SysTime time) @safe {
-  SysTime local = time.toOtherTZ(costaRicaTimeZone());
-  DateTime fields = cast(DateTime) local;
+string toRfc3339CostaRica(SysTime time) pure @safe {
+  DateTime fields = costaRicaDateTime(time);
   return format("%04d-%02d-%02dT%02d:%02d:%02d%s", fields.year, cast(int) fields.month, fields.day, fields.hour,
-    fields.minute, fields.second, offsetText(local.utcOffset, true, true));
+    fields.minute, fields.second, offsetText(costaRicaOffset, true, true));
 }
 
 /// Fecha de un diccionario PDF («D:AAAAMMDDHHmmSS+HH'mm'»), en la zona de Costa Rica.
-string toPdfDate(SysTime time) @safe {
-  SysTime local = time.toOtherTZ(costaRicaTimeZone());
-  DateTime fields = cast(DateTime) local;
-  long totalMinutes = local.utcOffset.total!"minutes";
+string toPdfDate(SysTime time) pure @safe {
+  DateTime fields = costaRicaDateTime(time);
+  long totalMinutes = costaRicaOffset.total!"minutes";
   char sign = totalMinutes < 0 ? '-' : '+';
   if (totalMinutes < 0) totalMinutes = -totalMinutes;
   return format("D:%04d%02d%02d%02d%02d%02d%s%02d'%02d'", fields.year, cast(int) fields.month, fields.day,
@@ -263,8 +288,8 @@ SysTime parsePdfDate(string text) @safe {
 }
 
 /// Fecha ASN.1 GeneralizedTime en UTC (AAAAMMDDHHmmSSZ) de DER.
-string toGeneralizedTime(SysTime time) @safe {
-  DateTime utc = cast(DateTime) time.toUTC;
+string toGeneralizedTime(SysTime time) pure @safe {
+  DateTime utc = utcDateTime(time);
   return format("%04d%02d%02d%02d%02d%02dZ", utc.year, cast(int) utc.month, utc.day, utc.hour, utc.minute, utc.second);
 }
 
@@ -309,4 +334,13 @@ unittest {
   import std.datetime.timezone : UTC;
   assert(costaRicaDay(SysTime(DateTime(2027, 1, 1, 3, 0, 0), UTC())) == "2026-12-31");
   assert(costaRicaDay(SysTime(DateTime(2027, 1, 1, 6, 0, 0), UTC())) == "2027-01-01");
+}
+
+@("should match the TimeZone conversions of Phobos when converting between UTC fields and instants")
+unittest {
+  auto fields = DateTime(2026, 9, 22, 20, 4, 5);
+  assert(utcTime(fields) == SysTime(fields, UTC()));
+  auto withFraction = SysTime(fields, dur!"msecs"(900), costaRicaTimeZone());
+  assert(utcDateTime(withFraction) == cast(DateTime) withFraction.toUTC);
+  assert(utcDateTime(utcTime(DateTime(1950, 1, 1, 0, 0, 0))) == DateTime(1950, 1, 1, 0, 0, 0));
 }

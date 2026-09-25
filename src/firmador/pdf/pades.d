@@ -93,14 +93,19 @@ FontMetrics metricsFor(const SignatureFont font) @trusted {
   return metrics;
 }
 
-/// Codificador de texto para la fuente (WinAnsi para las estándar, Latin-1 para las propias).
-ubyte[] delegate(string) @safe encoderFor(const SignatureFont font) @safe {
-  bool custom = font.trueType.length > 0;
-  return (string line) @safe {
+/**
+ * Codificador de las líneas del texto para la fuente de la firma (WinAnsi para las
+ * estándar, Latin-1 para las propias). Avisa en la bitácora si el texto tiene caracteres
+ * que la fuente no tiene, que se dibujan como «?».
+ */
+ubyte[] delegate(string) pure @safe encoderFor(const VisibleSignature visible) @safe {
+  auto encodeLine = visible.font.trueType.length ? &encodeLatin1 : &encodeWinAnsi;
+  size_t missing;
+  foreach (line; javaLines(visible.text)) encodeLine(line, missing);
+  if (missing) warning(format("La fuente de la firma no tiene %d caracteres del texto; se cambiaron por «?»", missing));
+  return (string line) pure @safe {
     size_t replaced;
-    auto encoded = custom ? encodeLatin1(line, replaced) : encodeWinAnsi(line, replaced);
-    if (replaced) warning(format("La fuente de la firma no tiene %d caracteres del texto; se cambiaron por «?»", replaced));
-    return encoded;
+    return encodeLine(line, replaced);
   };
 }
 
@@ -201,7 +206,7 @@ private FieldPlan fieldPlan(PdfDocument document, int pageIndex, bool visible, c
   field.rect = PdfRect(0, 0, 0, 0);
   if (!visible) return field;
   auto input = layoutInput(appearance, document.pageGeometry(pageIndex));
-  auto encode = encoderFor(appearance.font);
+  auto encode = encoderFor(appearance);
   auto layout = computeLayout(input, encode);
   auto content = appearanceContent(layout, input, encode, "F1", "Img1");
   field.visible = true;
@@ -220,13 +225,13 @@ private FieldPlan fieldPlan(PdfDocument document, int pageIndex, bool visible, c
 }
 
 /// Resumen SHA-256 de los tramos del documento preparado que cubre la firma.
-ubyte[] preparedDigest(const PreparedSignature prepared) @safe {
+ubyte[] preparedDigest(const PreparedSignature prepared) pure @safe {
   auto finalRange = withByteRange(prepared);
   return digestOfParts(DigestAlgorithm.sha256, signedRanges(finalRange, byteRangeFor(prepared)));
 }
 
 /// Atributos firmados de la firma PAdES (sin signing-time: la fecha va en /M).
-ubyte[] padesSignedAttributes(const(ubyte)[] documentDigest, const Certificate signingCertificate) @safe {
+ubyte[] padesSignedAttributes(const(ubyte)[] documentDigest, const Certificate signingCertificate) pure @safe {
   SignedAttributesInput input = {
     contentDigest: documentDigest,
     signingCertificate: signingCertificate,
@@ -237,7 +242,7 @@ ubyte[] padesSignedAttributes(const(ubyte)[] documentDigest, const Certificate s
 
 /// CMS de la firma, con el sello de la firma si se pasa (nivel T).
 ubyte[] padesCms(const(ubyte)[] signedAttributes, const(ubyte)[] signatureValue, bool rsa,
-    const Certificate signingCertificate, const(Certificate)[] chain, const(ubyte)[] signatureTimestamp) @safe {
+    const Certificate signingCertificate, const(Certificate)[] chain, const(ubyte)[] signatureTimestamp) pure @safe {
   const(Certificate)[] certificates = [signingCertificate];
   foreach (certificate; chain) {
     if (!certificate.isSelfIssued && !containsCertificate(certificates, certificate)) certificates ~= certificate;
@@ -254,7 +259,7 @@ ubyte[] padesCms(const(ubyte)[] signedAttributes, const(ubyte)[] signatureValue,
 }
 
 /// PDF con la firma escrita en su /Contents.
-immutable(ubyte)[] completePadesSignature(const PreparedSignature prepared, const(ubyte)[] cms) @safe {
+immutable(ubyte)[] completePadesSignature(const PreparedSignature prepared, const(ubyte)[] cms) pure @safe {
   return withContents(withByteRange(prepared), prepared, cms);
 }
 
@@ -303,7 +308,7 @@ ValidationData padesSigningMaterial(immutable(ubyte)[] pdf, CertificatePool pool
 }
 
 /// Contenido de /Contents sin el relleno de ceros del final.
-const(ubyte)[] trimContents(const(ubyte)[] contents) @safe {
+const(ubyte)[] trimContents(const(ubyte)[] contents) pure @safe {
   import firmador.asn1.der : parseDerElement;
   size_t consumed;
   parseDerElement(contents, consumed);

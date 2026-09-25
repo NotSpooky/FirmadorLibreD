@@ -233,7 +233,7 @@ struct Jws {
   JwsSignature[] signatures;
 }
 
-private EtsiUComponent parseEtsiUItem(const JSONValue item) @trusted {
+private EtsiUComponent parseEtsiUItem(const JSONValue item) pure @trusted {
   EtsiUComponent component;
   component.item = cast(JSONValue) item;
   JSONValue container;
@@ -252,7 +252,7 @@ private EtsiUComponent parseEtsiUItem(const JSONValue item) @trusted {
 }
 
 private JwsSignature parseSignatureObject(string protectedHeader, string signatureValue, const(JSONValue)* unprotected)
-    @trusted {
+    pure @trusted {
   JwsSignature signature;
   signature.protectedHeader = protectedHeader;
   signature.signature = signatureValue;
@@ -284,7 +284,7 @@ private JwsSignature parseSignatureObject(string protectedHeader, string signatu
  *
  * Throws: JwsException o JsonShapeException con el motivo si no es un JWS.
  */
-Jws parseJws(const(ubyte)[] bytes) @trusted {
+Jws parseJws(const(ubyte)[] bytes) pure @trusted {
   string text = cast(string) bytes.idup;
   try {
     validate(text);
@@ -341,7 +341,7 @@ immutable(ubyte)[] serializeJws(const Jws jws) @trusted {
 }
 
 /// El contenido va sin codificar (RFC 7797, b64 = false).
-bool unencodedPayload(const JwsSignature signature) @safe {
+bool unencodedPayload(const JwsSignature signature) pure @safe {
   return optionalBool(signature.header, "b64", true, "La cabecera protegida") == false;
 }
 
@@ -349,7 +349,7 @@ bool unencodedPayload(const JwsSignature signature) @safe {
  * Contenido como entra en la firma y en los sellos: el del documento o, si es separado
  * (payload vacío), el archivo dado codificado igual.
  */
-string effectivePayload(const Jws jws, const JwsSignature signature, const(ubyte)[] detachedContent) @safe {
+string effectivePayload(const Jws jws, const JwsSignature signature, const(ubyte)[] detachedContent) pure @safe {
   if (jws.payload.length || detachedContent is null) return jws.payload;
   return unencodedPayload(signature) ? cast(string) detachedContent.idup : base64Url(detachedContent);
 }
@@ -370,7 +370,7 @@ immutable(ubyte)[] signatureTimestampData(const JwsSignature signature) pure @sa
  *
  * Throws: JwsException si algún componente anterior no está codificado en base64url.
  */
-immutable(ubyte)[] archiveTimestampData(const JwsSignature signature, string payload, size_t until) @trusted {
+immutable(ubyte)[] archiveTimestampData(const JwsSignature signature, string payload, size_t until) pure @trusted {
   auto output = appender!(immutable(ubyte)[]);
   output ~= cast(immutable(ubyte)[]) (payload ~ "." ~ signature.protectedHeader ~ "." ~ signature.signature ~ ".");
   foreach (index, component; signature.etsiU) {
@@ -384,7 +384,7 @@ immutable(ubyte)[] archiveTimestampData(const JwsSignature signature, string pay
 }
 
 /// Tokens de un tstContainer ({"tstTokens":[{"val":…}]}).
-immutable(ubyte)[][] tstContainerTokens(const JSONValue container) @safe {
+immutable(ubyte)[][] tstContainerTokens(const JSONValue container) pure @safe {
   immutable(ubyte)[][] tokens;
   auto list = member(container, "tstTokens");
   enforce!JwsException(list !is null, "Contenedor de sellos sin tstTokens");
@@ -392,7 +392,7 @@ immutable(ubyte)[][] tstContainerTokens(const JSONValue container) @safe {
   return tokens;
 }
 
-private EtsiUComponent newComponent(string name, string valueJson) @trusted {
+private EtsiUComponent newComponent(string name, string valueJson) pure @trusted {
   EtsiUComponent component;
   component.name = name;
   string container = "{" ~ jsonQuoted(name) ~ ":" ~ valueJson ~ "}";
@@ -402,7 +402,7 @@ private EtsiUComponent newComponent(string name, string valueJson) @trusted {
   return component;
 }
 
-private string tstContainerJson(const TimeStampToken token) @safe {
+private string tstContainerJson(const TimeStampToken token) pure @safe {
   return `{"tstTokens":[{"val":` ~ jsonQuoted(encodeBase64(token.der)) ~ "}]}";
 }
 
@@ -421,7 +421,7 @@ immutable(ubyte)[] addJadesSignatureTimestamp(const(ubyte)[] document, size_t in
  * Certificados y revocaciones que ya lleva la firma (x5c, xVals, rVals y tstVD); ignora
  * los que no se pueden leer.
  */
-ValidationData jadesEmbeddedData(const JwsSignature signature) @trusted {
+ValidationData jadesEmbeddedData(const JwsSignature signature) pure @trusted {
   ValidationData data;
   void addCertificate(const(ubyte)[] der) {
     try {
@@ -464,7 +464,7 @@ ValidationData jadesEmbeddedData(const JwsSignature signature) @trusted {
   return data;
 }
 
-private string valuesJson(const(Certificate)[] certificates) @safe {
+private string valuesJson(const(Certificate)[] certificates) pure @safe {
   string list = "[";
   foreach (index, certificate; certificates) {
     if (index) list ~= ",";
@@ -473,7 +473,7 @@ private string valuesJson(const(Certificate)[] certificates) @safe {
   return list ~ "]";
 }
 
-private string revocationJson(const(ubyte[])[] crls, const(ubyte[])[] ocsps) @safe {
+private string revocationJson(const(ubyte[])[] crls, const(ubyte[])[] ocsps) pure @safe {
   string[] members;
   string listOf(const(ubyte[])[] items) {
     string list = "[";

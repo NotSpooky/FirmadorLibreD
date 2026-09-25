@@ -53,7 +53,7 @@ struct DocumentValidation {
 }
 
 /// El ZIP es un contenedor ASiC (con mimetype ASiC o META-INF/signature*.p7s o signatures*.xml).
-private bool isAsicContainer(const ZipEntry[] entries) @safe {
+private bool isAsicContainer(const ZipEntry[] entries) pure @safe {
   auto content = classifyContainer(entries);
   if (content.mimeType.startsWith("application/vnd.etsi.asic")) return true;
   return classifyContainer(entries, true).signatureDocuments.length > 0 || content.signatureDocuments.length > 0;

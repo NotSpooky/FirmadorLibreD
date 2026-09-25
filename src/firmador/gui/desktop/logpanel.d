@@ -67,12 +67,12 @@ final class LogBuffer {
   }
 
   /// Líneas conservadas, una por renglón.
-  string text() @trusted {
+  string text() pure @trusted {
     synchronized (lock) return lines.join("\n") ~ (lines.length ? "\n" : "");
   }
 
   /// Vacía el búfer.
-  void clear() @trusted {
+  void clear() pure @trusted {
     synchronized (lock) lines = null;
   }
 
@@ -80,11 +80,11 @@ final class LogBuffer {
     if (panel !is null) panel.append(line);
   }
 
-  private void attach(LogPanel shown) {
+  private void attach(LogPanel shown) pure {
     panel = shown;
   }
 
-  private void detach(LogPanel shown) {
+  private void detach(LogPanel shown) pure {
     if (panel is shown) panel = null;
   }
 }

@@ -64,7 +64,7 @@ interface ValidationDataSource {
   Certificate[] issuers(const Certificate certificate) @safe;
 }
 
-private HttpOptions serviceOptions() @safe {
+private HttpOptions serviceOptions() pure @safe {
   HttpOptions options;
   import core.time : dur;
   options.connectTimeout = dur!"seconds"(validationServiceTimeoutSeconds);
@@ -145,7 +145,7 @@ final class OnlineValidationSource : ValidationDataSource {
 }
 
 /// Cuerpo de la respuesta de un servicio de validación, si respondió 200.
-private const(ubyte)[] serviceBody(string service, string url, HttpResponse response) @safe {
+private const(ubyte)[] serviceBody(string service, string url, HttpResponse response) pure @safe {
   enforce(response.status == 200, format("%s %s respondió %d", service, url, response.status));
   return response.body;
 }
@@ -172,22 +172,22 @@ private bool fromFirstUrl(T)(const string[] urls, scope T delegate(string url) @
 
 /// Sin servicios en línea (firma nivel B sin Internet, validación sin conexión).
 final class OfflineValidationSource : ValidationDataSource {
-  TimeStampToken timestamp(DigestAlgorithm digest, const(ubyte)[] imprint) @safe {
+  TimeStampToken timestamp(DigestAlgorithm digest, const(ubyte)[] imprint) pure @safe {
     throw new TimeStampException("No hay conexión con el servicio de sellado");
   }
 
   bool ocsp(const Certificate certificate, const Certificate issuer, out OcspResponse response, out string failure)
-      @safe {
+      pure @safe {
     failure = "Validación sin conexión";
     return false;
   }
 
-  bool crl(const Certificate certificate, out CertificateRevocationList list, out string failure) @safe {
+  bool crl(const Certificate certificate, out CertificateRevocationList list, out string failure) pure @safe {
     failure = "Validación sin conexión";
     return false;
   }
 
-  Certificate[] issuers(const Certificate certificate) @safe {
+  Certificate[] issuers(const Certificate certificate) pure @safe {
     return [];
   }
 }
@@ -199,7 +199,7 @@ final class OfflineValidationSource : ValidationDataSource {
  * Throws: Exception si el contenido no es ninguno de esos formatos, con el motivo de cada
  * intento.
  */
-Certificate[] certificatesFromAia(const(ubyte)[] content) @safe {
+Certificate[] certificatesFromAia(const(ubyte)[] content) pure @safe {
   try {
     return parseCertificates(content);
   } catch (Exception asCertificate) {

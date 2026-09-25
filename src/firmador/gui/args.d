@@ -70,7 +70,7 @@ struct ArgsOptions {
 }
 
 /// Ruta local de un argumento (los lanzadores .desktop con %U entregan URI file://).
-string localPathArgument(string argument) @safe {
+string localPathArgument(string argument) pure @safe {
   import std.string : strip;
   string value = argument.strip;
   return value.startsWith("file:") ? pathFromFileUri(value) : value;
@@ -80,7 +80,7 @@ string localPathArgument(string argument) @safe {
  * Interpreta los argumentos (setArgs): los que empiezan con «-» son opciones, el resto
  * entrada, salida y almacén en ese orden.
  */
-ArgsOptions parseArgsOptions(const string[] arguments) @safe {
+ArgsOptions parseArgsOptions(const string[] arguments) pure @safe {
   ArgsOptions options;
   string[] positional;
   foreach (argument; arguments) {
@@ -119,7 +119,7 @@ final class ArgsInterface : ConsoleInterface {
   private ArgsOptions options;
   private bool hadError;
 
-  this(SmartCardDetector detector, ArgsOptions options) @safe {
+  this(SmartCardDetector detector, ArgsOptions options) pure @safe {
     this.detector = detector;
     this.options = options;
   }
@@ -186,7 +186,7 @@ final class ArgsInterface : ConsoleInterface {
   }
 
   /// Hubo errores informados durante la operación.
-  bool failed() const @safe {
+  bool failed() const pure @safe {
     return hadError;
   }
 }

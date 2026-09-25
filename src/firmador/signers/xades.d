@@ -56,11 +56,11 @@ final class XadesSigner : ServicedSigner {
     this.xmlContent = xmlContent;
   }
 
-  string formatName() const @safe {
+  string formatName() const pure @safe {
     return "XAdES";
   }
 
-  string signedExtension(string originalName) const @safe {
+  string signedExtension(string originalName) const pure @safe {
     return ".xml";
   }
 

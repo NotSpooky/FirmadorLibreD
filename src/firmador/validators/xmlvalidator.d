@@ -48,7 +48,7 @@ import firmador.xml.xades;
 import firmador.xml.xmldsig;
 
 /// Busca el archivo por nombre exacto o, si no hay, por nombre base.
-ExternalResolver detachedResolver(const DetachedContent[] contents) @safe {
+ExternalResolver detachedResolver(const DetachedContent[] contents) pure @safe {
   return (string uri) @safe {
     foreach (item; contents) if (item.name == uri) return item.content;
     foreach (item; contents) if (baseName(item.name) == baseName(uri)) return item.content;

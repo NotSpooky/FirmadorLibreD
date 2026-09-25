@@ -198,7 +198,7 @@ final class Settings {
    * campos salvo los de notCopiedFields (oyentes, orígenes, posición exacta…); las listas
    * se copian para no compartirlas.
    */
-  this(const Settings other) @safe {
+  this(const Settings other) pure @safe {
     static foreach (index, field; Settings.tupleof) {{
       static if (!notCopiedFields.canFind(__traits(identifier, field))) {
         static if (is(typeof(field) == string[])) this.tupleof[index] = other.tupleof[index].dup;
@@ -213,7 +213,7 @@ final class Settings {
    * cambiar una copia completa y aplicarla después de guardarla
    * (firmador.gui.desktop.configpanel).
    */
-  void assign(const Settings other) @safe {
+  void assign(const Settings other) pure @safe {
     static foreach (index, field; Settings.tupleof) {{
       static if (__traits(identifier, field) != "listeners") {
         static if (is(typeof(field) == string[])) this.tupleof[index] = other.tupleof[index].dup;
@@ -273,7 +273,7 @@ final class Settings {
   }
 
   /// Registra un oyente de cambios de configuración.
-  void addListener(ConfigListener listener) @safe {
+  void addListener(ConfigListener listener) pure @safe {
     listeners ~= listener;
   }
 
@@ -573,9 +573,11 @@ enum KeyPasswordSource { secureStore, settingsFile, generated }
  * por omisión que SettingsManager.getSettings de la versión Java. La contraseña del
  * almacén de tokens no se toca aquí (ver firmador.settingsmanager).
  *
+ * Returns: el texto de «pdfimgscalefactor» si no es un decimal válido (se usa 1), para que
+ *   quien llama lo registre; null si es válido.
  * Throws: ConvException si un número entero no se puede leer, como parseInt en Java.
  */
-void applyProperties(Settings conf, const string[string] props) @safe {
+string applyProperties(Settings conf, const string[string] props) pure @safe {
   string get(string key, string fallback) {
     if (auto value = key in props) return *value;
     return fallback;
@@ -607,7 +609,6 @@ void applyProperties(Settings conf, const string[string] props) @safe {
   bool validScale;
   string scaleText = get("pdfimgscalefactor", "1.00");
   conf.pDFImgScaleFactor = floatFromProperty(scaleText, validScale);
-  if (!validScale) error(format("Valor decimal inválido en la configuración: «%s», se usa 1", scaleText));
   if (auto simplified = "simplifiedMode" in props) {
     // La versión Java guardaba "null" antes de que se eligiera el modo.
     if (*simplified == "null") conf.simplified_mode.nullify();
@@ -615,6 +616,7 @@ void applyProperties(Settings conf, const string[string] props) @safe {
   } else {
     conf.simplified_mode.nullify();
   }
+  return validScale ? null : scaleText;
 }
 
 /**
@@ -623,7 +625,7 @@ void applyProperties(Settings conf, const string[string] props) @safe {
  * almacén ya ofuscada, o null si vive en el llavero del sistema.
  */
 string[string] settingsToProperties(const Settings conf, const string[string] existing, string obfuscatedKeyPassword)
-    @safe {
+    pure @safe {
   string[string] props;
   foreach (key, value; existing) props[key] = value;
   string boolText(bool value) { return value ? "true" : "false"; }
@@ -667,7 +669,7 @@ immutable string[] documentSettingsFields = [
 private immutable string[] retiredDocumentFields = ["signWidth", "signHeight"];
 
 /// Entradas de la configuración de un documento, con los nombres de campo como claves.
-string[string] documentSettingsToProperties(const Settings settings) @safe {
+string[string] documentSettingsToProperties(const Settings settings) pure @safe {
   string[string] props;
   static foreach (field; documentSettingsFields) {{
     auto value = __traits(getMember, settings, field);
@@ -689,7 +691,7 @@ string[string] documentSettingsToProperties(const Settings settings) @safe {
  *
  * Throws: Exception con la clave si hay un campo desconocido o un valor que no es del tipo esperado.
  */
-void applyDocumentProperties(Settings settings, const string[string] props) @safe {
+void applyDocumentProperties(Settings settings, const string[string] props) pure @safe {
   foreach (key, value; props) {
     bool known = retiredDocumentFields.canFind(key);
     static foreach (field; documentSettingsFields) {
@@ -739,9 +741,9 @@ unittest {
 @("should read every stored value when the Java version wrote config.properties")
 unittest {
   auto conf = new Settings();
-  applyProperties(conf, ["singx": "10", "singy": "20", "advancedlogs": "true", "plugins": "",
+  assert(applyProperties(conf, ["singx": "10", "singy": "20", "advancedlogs": "true", "plugins": "",
     "pkcs12file": "/a.p12|/b.p12", "pdfimgscalefactor": "1,50", "simplifiedMode": "false", "image": "/firma.png",
-    "fontalignment": "ONLY IMAGE"]);
+    "fontalignment": "ONLY IMAGE"]) is null);
   assert(conf.signX == 10 && conf.signY == 20);
   assert(conf.advancedLogs == "ALL");
   assert(conf.activePlugins.length == 0);
@@ -749,6 +751,9 @@ unittest {
   assert(conf.pDFImgScaleFactor == 1.5f);
   assert(!conf.simplified_mode.isNull && !conf.simplified_mode.get);
   assert(conf.image == "/firma.png" && conf.isOnlyImageAlignment);
+  auto invalidScale = new Settings();
+  assert(applyProperties(invalidScale, ["pdfimgscalefactor": "grande"]) == "grande");
+  assert(invalidScale.pDFImgScaleFactor == 1);
 }
 
 @("should reproduce the settings when writing and reading config.properties again")

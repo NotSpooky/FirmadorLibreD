@@ -85,7 +85,7 @@ bool isOtherVersion(string publishedVersion, string localVersion) pure @safe {
  * La suma publicada (formato de sha256sum: «<hex>  <archivo>», o sólo el hex) es la del
  * contenido.
  */
-bool checksumMatches(string publishedChecksum, const(ubyte)[] content) @safe {
+bool checksumMatches(string publishedChecksum, const(ubyte)[] content) pure @safe {
   auto words = publishedChecksum.strip.split;
   if (words.length == 0) return false;
   return words[0].toUpper == toHexString!(LetterCase.upper)(sha256Of(content)).idup;
@@ -106,11 +106,11 @@ string macBundleEntryPath(string entryName) pure @safe {
 final class CheckUpdatePlugin : Plugin {
   private GuiInterface gui;
 
-  this(GuiInterface gui) @safe {
+  this(GuiInterface gui) pure @safe {
     this.gui = gui;
   }
 
-  override string name() const @safe { return checkUpdatePluginName; }
+  override string name() const pure @safe { return checkUpdatePluginName; }
 
   override void start() @trusted {
     if (!releaseCheckEnabled) {

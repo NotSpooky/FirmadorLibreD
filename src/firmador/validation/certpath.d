@@ -30,10 +30,12 @@ import std.algorithm : canFind;
 import std.datetime.systime : SysTime;
 import std.format : format;
 import std.logger : info, trace, warning;
+import std.typecons : Nullable;
 
 import firmador.asn1.oids;
 import firmador.cms.ocsp;
 import firmador.crypto.openssl : isSignedBy;
+import firmador.util.datetime : toRfc3339Utc;
 import firmador.validation.model;
 import firmador.validation.pool;
 import firmador.validation.revocation;
@@ -66,7 +68,7 @@ struct PathContext {
  * (firmador.validation.conclusion.concludeSignature).
  */
 PathContext pathContext(ValidationDataSource source, bool allowOnline, SysTime validationTime,
-    CertificatePool pool = CertificatePool.withNationalHierarchy()) @safe {
+    CertificatePool pool = CertificatePool.withNationalHierarchy()) pure @safe {
   PathContext context;
   context.pool = pool;
   context.source = source;
@@ -77,7 +79,7 @@ PathContext pathContext(ValidationDataSource source, bool allowOnline, SysTime v
 }
 
 /// Usa lo que trae la firma: suma sus certificados al conjunto y toma sus revocaciones.
-void includeEmbedded(ref PathContext context, const ValidationData embedded) @safe {
+void includeEmbedded(ref PathContext context, const ValidationData embedded) pure @safe {
   context.pool.addAll(embedded.certificates);
   context.embeddedOcsp = embedded.ocspResponses;
   context.embeddedCrls = embedded.crls;
@@ -139,60 +141,74 @@ private Certificate findVerifiedIssuer(Certificate certificate, Certificate[] ca
 }
 
 /**
- * Valida la cadena del certificado: confianza, restricciones, vigencia y revocación.
- * Nunca da por buena una cadena sin firmas verificadas hasta una raíz de confianza y sin
- * prueba de no revocación de cada certificado intermedio y final.
+ * Valida la cadena del certificado: confianza, restricciones y vigencia
+ * (chainConstraintsVerdict) y revocación (checkRevocation). Nunca da por buena una cadena
+ * sin firmas verificadas hasta una raíz de confianza y sin prueba de no revocación de cada
+ * certificado intermedio y final.
  */
 PathValidation validatePath(Certificate leaf, PathContext context) @safe {
   PathValidation result;
   result.path = buildPath(leaf, context.pool, context.source, context.allowOnline, result.trusted);
-  string suffix = roleSuffix(context.role);
   if (!result.trusted) {
     result.verdict.degrade(Indication.indeterminate, SubIndication.noCertificateChainFound,
-      message(ValidationMessage.Level.error, "BBB_XCV_CCCBB" ~ suffix ~ "_ANS"));
+      message(ValidationMessage.Level.error, "BBB_XCV_CCCBB" ~ roleSuffix(context.role) ~ "_ANS"));
     return result;
   }
-
-  foreach (index, certificate; result.path) {
-    bool isAnchor = index == result.path.length - 1;
-    if (!isAnchor) {
-      auto issuer = result.path[index + 1];
-      if (!issuer.isCa || (issuer.keyUsage !is null && !issuer.hasKeyUsage(KeyUsageBit.keyCertSign))) {
-        result.verdict.degrade(Indication.indeterminate, SubIndication.chainConstraintsFailure,
-          message(ValidationMessage.Level.error, "BBB_XCV_ICAC_ANS", issuer.subject.readableName));
-      }
-      if (issuer.pathLengthConstraint >= 0 && index > 0 && index - 1 > issuer.pathLengthConstraint) {
-        result.verdict.degrade(Indication.indeterminate, SubIndication.chainConstraintsFailure,
-          message(ValidationMessage.Level.error, "BBB_XCV_ICPDV_ANS"));
-      }
-    }
-    if (certificate.unknownCriticalExtensions.length) {
-      import std.array : join;
-      result.verdict.degrade(Indication.indeterminate, SubIndication.chainConstraintsFailure,
-        message(ValidationMessage.Level.error, "BBB_XCV_DCCUCE_ANS", certificate.unknownCriticalExtensions.join(", ")));
-    }
-    checkValidity(certificate, index == 0, context, result.verdict);
-  }
-
+  result.verdict = chainConstraintsVerdict(result.path, context.validationTime, context.bestSignatureTime);
   foreach (index; 0 .. result.path.length - 1) {
-    auto certificate = result.path[index];
-    auto issuer = result.path[index + 1];
-    checkRevocation(certificate, issuer, index == 0, context, result);
+    checkRevocation(result.path[index], result.path[index + 1], index == 0, context, result);
   }
   return result;
 }
 
-private void checkValidity(const Certificate certificate, bool isLeaf, ref PathContext context, ref Verdict verdict)
-    @safe {
-  if (certificate.isValidAt(context.validationTime)) return;
-  bool validWhenSigned = certificate.isValidAt(context.bestSignatureTime);
-  if (validWhenSigned && context.bestSignatureTime < context.validationTime) {
+/**
+ * Reglas de una cadena ya armada, certificado por certificado: su emisor es una CA que
+ * puede firmar certificados y respeta su pathLen, no tiene extensiones críticas
+ * desconocidas y está vigente (checkValidity).
+ *
+ * Params:
+ *   path = del certificado validado a la raíz (buildPath).
+ *   validationTime = hora de la validación.
+ *   bestSignatureTime = fecha mínima probada de la firma; un certificado vencido hoy pero
+ *     vigente entonces sólo da una advertencia.
+ * Returns: el veredicto, con un mensaje por regla que no se cumple.
+ */
+Verdict chainConstraintsVerdict(const(Certificate)[] path, SysTime validationTime, SysTime bestSignatureTime)
+    pure @safe {
+  import std.array : join;
+  Verdict verdict;
+  foreach (index, certificate; path) {
+    if (index + 1 < path.length) {
+      auto issuer = path[index + 1];
+      if (!issuer.isCa || (issuer.keyUsage !is null && !issuer.hasKeyUsage(KeyUsageBit.keyCertSign))) {
+        verdict.degrade(Indication.indeterminate, SubIndication.chainConstraintsFailure,
+          message(ValidationMessage.Level.error, "BBB_XCV_ICAC_ANS", issuer.subject.readableName));
+      }
+      if (issuer.pathLengthConstraint >= 0 && index > 0 && index - 1 > issuer.pathLengthConstraint) {
+        verdict.degrade(Indication.indeterminate, SubIndication.chainConstraintsFailure,
+          message(ValidationMessage.Level.error, "BBB_XCV_ICPDV_ANS"));
+      }
+    }
+    if (certificate.unknownCriticalExtensions.length) {
+      verdict.degrade(Indication.indeterminate, SubIndication.chainConstraintsFailure,
+        message(ValidationMessage.Level.error, "BBB_XCV_DCCUCE_ANS", certificate.unknownCriticalExtensions.join(", ")));
+    }
+    checkValidity(certificate, index == 0, validationTime, bestSignatureTime, verdict);
+  }
+  return verdict;
+}
+
+private void checkValidity(const Certificate certificate, bool isLeaf, SysTime validationTime,
+    SysTime bestSignatureTime, ref Verdict verdict) pure @safe {
+  if (certificate.isValidAt(validationTime)) return;
+  bool validWhenSigned = certificate.isValidAt(bestSignatureTime);
+  if (validWhenSigned && bestSignatureTime < validationTime) {
     // Vencido hoy pero vigente cuando se probó la existencia de la firma (sello de tiempo).
     verdict.warn(message(ValidationMessage.Level.warning, isLeaf ? "BBB_XCV_ICTIVRSC_ANS" : "BBB_XCV_SUB_ANS",
       certificate.subject.readableName));
     return;
   }
-  if (context.validationTime < certificate.notBefore) {
+  if (validationTime < certificate.notBefore) {
     verdict.degrade(Indication.indeterminate, SubIndication.notYetValid,
       message(ValidationMessage.Level.error, "BBB_XCV_ICTIVRSC_ANS", certificate.subject.readableName));
   } else {
@@ -271,43 +287,65 @@ private void checkRevocation(const Certificate certificate, const Certificate is
     }
   }
   auto chosen = latest(acceptable);
+  if (chosen.isNull) info("Sin información de revocación aceptable para ", certificate.toString, ": ", failure);
+  else result.revocations ~= chosen.get;
+  result.verdict.absorb(revocationVerdict(chosen, certificate, issuer, isLeaf, context.role,
+    context.bestSignatureTime, context.validationTime));
+}
+
+/**
+ * Veredicto del estado de revocación de un certificado de la cadena. Una revocación
+ * posterior a la fecha probada de la firma sólo da una advertencia; antes, invalida la
+ * firma si es el certificado final y la deja indeterminada si es una CA.
+ *
+ * Params:
+ *   chosen = la revocación aceptable más reciente (latest), o nula si no hubo ninguna.
+ *   certificate = el certificado revisado.
+ *   issuer = su emisor, que puede firmar la revocación sin id-pkix-ocsp-nocheck.
+ *   isLeaf = `certificate` es el certificado final de la cadena.
+ *   role = papel de la cadena; sólo la del firmante da TOTAL_FAILED si está revocado.
+ *   bestSignatureTime = fecha mínima probada de la firma.
+ *   validationTime = hora de la validación.
+ * Returns: el veredicto, aprobado si el estado es bueno.
+ */
+Verdict revocationVerdict(Nullable!RevocationInfo chosen, const Certificate certificate, const Certificate issuer,
+    bool isLeaf, CertificateRole role, SysTime bestSignatureTime, SysTime validationTime) pure @safe {
+  Verdict verdict;
+  string name = certificate.subject.readableName;
   if (chosen.isNull) {
-    info("Sin información de revocación aceptable para ", certificate.toString, ": ", failure);
-    result.verdict.degrade(Indication.indeterminate, SubIndication.tryLater,
-      message(ValidationMessage.Level.error, isLeaf ? "BBB_XCV_IRDPFC_ANS" : "BBB_XCV_IARDPFC_ANS",
-        certificate.subject.readableName));
-    return;
+    verdict.degrade(Indication.indeterminate, SubIndication.tryLater,
+      message(ValidationMessage.Level.error, isLeaf ? "BBB_XCV_IRDPFC_ANS" : "BBB_XCV_IARDPFC_ANS", name));
+    return verdict;
   }
   auto revocation = chosen.get;
-  result.revocations ~= revocation;
   final switch (revocation.status) {
     case CertificateStatus.good:
       break;
     case CertificateStatus.unknown:
-      result.verdict.degrade(Indication.indeterminate, SubIndication.tryLater,
-        message(ValidationMessage.Level.error, "BBB_XCV_ISCUKN_ANS", certificate.subject.readableName));
+      verdict.degrade(Indication.indeterminate, SubIndication.tryLater,
+        message(ValidationMessage.Level.error, "BBB_XCV_ISCUKN_ANS", name));
       break;
     case CertificateStatus.revoked:
-      bool revokedBeforeSigning = revocation.revocationTime <= context.bestSignatureTime;
-      if (!revokedBeforeSigning && context.bestSignatureTime < context.validationTime) {
+      bool revokedBeforeSigning = revocation.revocationTime <= bestSignatureTime;
+      if (!revokedBeforeSigning && bestSignatureTime < validationTime) {
         // Revocado después de la fecha probada de la firma: no la invalida.
-        result.verdict.warn(message(ValidationMessage.Level.warning, "BBB_XCV_ISCR_ANS",
-          format("%s (%s)", certificate.subject.readableName, revocation.revocationTime.toISOExtString)));
+        verdict.warn(message(ValidationMessage.Level.warning, "BBB_XCV_ISCR_ANS",
+          format("%s (%s)", name, toRfc3339Utc(revocation.revocationTime))));
         break;
       }
       if (isLeaf) {
-        result.verdict.degrade(context.role == CertificateRole.signature ? Indication.totalFailed : Indication.failed,
-          SubIndication.revoked, message(ValidationMessage.Level.error, "BBB_XCV_ISCR_ANS",
-          certificate.subject.readableName));
+        verdict.degrade(role == CertificateRole.signature ? Indication.totalFailed : Indication.failed,
+          SubIndication.revoked, message(ValidationMessage.Level.error, "BBB_XCV_ISCR_ANS", name));
       } else {
-        result.verdict.degrade(Indication.indeterminate, SubIndication.revokedCaNoPoe,
-          message(ValidationMessage.Level.error, "BBB_XCV_ISCR_ANS", certificate.subject.readableName));
+        verdict.degrade(Indication.indeterminate, SubIndication.revokedCaNoPoe,
+          message(ValidationMessage.Level.error, "BBB_XCV_ISCR_ANS", name));
       }
       break;
   }
   if (revocation.signer !is null && !sameCertificate(revocation.signer, issuer) && !revocation.signer.ocspNoCheck) {
-    result.verdict.warn(message(ValidationMessage.Level.info, "BBB_XCV_OCSP_NO_CHECK_ANS"));
+    verdict.warn(message(ValidationMessage.Level.info, "BBB_XCV_OCSP_NO_CHECK_ANS"));
   }
+  return verdict;
 }
 
 /// Datos de validación de nivel LT: certificados y revocaciones de una o varias cadenas.
@@ -317,7 +355,7 @@ struct ValidationData {
   immutable(ubyte)[][] crls;
 
   /// Añade lo que usó una validación de cadena, sin repetir.
-  void addPath(const PathValidation validation) @trusted {
+  void addPath(const PathValidation validation) pure @trusted {
     foreach (certificate; validation.path) addCertificate(certificate);
     foreach (revocation; validation.revocations) {
       if (revocation.kind == RevocationInfo.Kind.ocsp) {
@@ -330,7 +368,7 @@ struct ValidationData {
     }
   }
 
-  void addCertificate(const Certificate certificate) @trusted {
+  void addCertificate(const Certificate certificate) pure @trusted {
     if (!containsCertificate(certificates, certificate)) certificates ~= cast(Certificate) certificate;
   }
 
@@ -340,7 +378,7 @@ struct ValidationData {
   }
 
   /// Une otros datos de validación a estos.
-  void merge(const ValidationData other) @trusted {
+  void merge(const ValidationData other) pure @trusted {
     foreach (certificate; other.certificates) addCertificate(certificate);
     foreach (der; other.ocspResponses) if (!ocspResponses.canFind(der)) ocspResponses ~= der;
     foreach (der; other.crls) if (!crls.canFind(der)) crls ~= der;
@@ -351,7 +389,7 @@ struct ValidationData {
  * Lo de `wanted` que no está en `present`: lo que falta añadir a una firma que ya lleva
  * datos de validación (nivel LT de XAdES y JAdES).
  */
-ValidationData missingFrom(const ValidationData wanted, const ValidationData present) @safe {
+ValidationData missingFrom(const ValidationData wanted, const ValidationData present) pure @safe {
   ValidationData missing;
   foreach (certificate; wanted.certificates) {
     if (!containsCertificate(present.certificates, certificate)) missing.addCertificate(certificate);
@@ -449,4 +487,82 @@ unittest {
   auto result = validatePath(foreign, context);
   assert(!result.trusted);
   assert(result.verdict.subIndication == SubIndication.noCertificateChainFound);
+}
+
+@("should warn instead of failing when an expired certificate was valid at the proven signing time")
+unittest {
+  import core.time : dur;
+  bool trusted;
+  auto path = buildPath(bundledCertificate!"certs/TSA SINPE v4.crt"(), CertificatePool.withNationalHierarchy(),
+    new OfflineValidationSource, false, trusted);
+  auto tsa = path[0];
+  SysTime during = tsa.notBefore + dur!"days"(1);
+  SysTime after = tsa.notAfter + dur!"days"(1);
+  auto current = chainConstraintsVerdict(path, during, during);
+  assert(current.isPassed && current.messages.length == 0);
+  auto provenBefore = chainConstraintsVerdict(path, after, during);
+  assert(provenBefore.isPassed && provenBefore.messages.length == 1
+    && provenBefore.messages[0].level == ValidationMessage.Level.warning);
+  assert(chainConstraintsVerdict(path, after, after).subIndication == SubIndication.outOfBoundsNoPoe);
+  SysTime early = tsa.notBefore - dur!"days"(1);
+  assert(chainConstraintsVerdict(path, early, early).subIndication == SubIndication.notYetValid);
+}
+
+@("should reject a chain when the issuer is not a certification authority")
+unittest {
+  import core.time : dur;
+  bool trusted;
+  auto path = buildPath(bundledCertificate!"certs/TSA SINPE v4.crt"(), CertificatePool.withNationalHierarchy(),
+    new OfflineValidationSource, false, trusted);
+  SysTime during = path[0].notBefore + dur!"days"(1);
+  auto issuedByLeaf = chainConstraintsVerdict([path[1], path[0]], during, during);
+  assert(issuedByLeaf.subIndication == SubIndication.chainConstraintsFailure);
+  assert(issuedByLeaf.messages[0].key == "BBB_XCV_ICAC_ANS");
+}
+
+@("should fail a revoked certificate only when it was revoked before the proven signing time")
+unittest {
+  import core.time : dur;
+  import std.typecons : nullable;
+  bool trusted;
+  auto path = buildPath(bundledCertificate!"certs/TSA SINPE v4.crt"(), CertificatePool.withNationalHierarchy(),
+    new OfflineValidationSource, false, trusted);
+  auto leaf = path[0], issuer = path[1];
+  RevocationInfo revoked;
+  revoked.status = CertificateStatus.revoked;
+  revoked.revocationTime = leaf.notBefore + dur!"days"(10);
+  revoked.signer = issuer;
+  SysTime afterRevocation = revoked.revocationTime + dur!"days"(1);
+  SysTime validation = revoked.revocationTime + dur!"days"(2);
+  auto signer = revocationVerdict(nullable(revoked), leaf, issuer, true, CertificateRole.signature, afterRevocation,
+    validation);
+  assert(signer.indication == Indication.totalFailed && signer.subIndication == SubIndication.revoked);
+  assert(revocationVerdict(nullable(revoked), leaf, issuer, true, CertificateRole.timestamp, afterRevocation,
+    validation).indication == Indication.failed);
+  assert(revocationVerdict(nullable(revoked), leaf, issuer, false, CertificateRole.signature, afterRevocation,
+    validation).subIndication == SubIndication.revokedCaNoPoe);
+  auto provenBefore = revocationVerdict(nullable(revoked), leaf, issuer, true, CertificateRole.signature,
+    revoked.revocationTime - dur!"days"(1), validation);
+  assert(provenBefore.isPassed && provenBefore.messages[0].level == ValidationMessage.Level.warning);
+}
+
+@("should ask to retry when there is no acceptable revocation and note a delegated responder without nocheck")
+unittest {
+  import core.time : dur;
+  import std.typecons : Nullable, nullable;
+  bool trusted;
+  auto path = buildPath(bundledCertificate!"certs/TSA SINPE v4.crt"(), CertificatePool.withNationalHierarchy(),
+    new OfflineValidationSource, false, trusted);
+  auto leaf = path[0], issuer = path[1];
+  SysTime during = leaf.notBefore + dur!"days"(1);
+  auto missingLeaf = revocationVerdict(Nullable!RevocationInfo.init, leaf, issuer, true, CertificateRole.signature,
+    during, during);
+  assert(missingLeaf.subIndication == SubIndication.tryLater && missingLeaf.messages[0].key == "BBB_XCV_IRDPFC_ANS");
+  assert(revocationVerdict(Nullable!RevocationInfo.init, issuer, path[2], false, CertificateRole.signature, during,
+    during).messages[0].key == "BBB_XCV_IARDPFC_ANS");
+  RevocationInfo delegated;
+  delegated.status = CertificateStatus.good;
+  delegated.signer = leaf;
+  auto good = revocationVerdict(nullable(delegated), leaf, issuer, true, CertificateRole.signature, during, during);
+  assert(good.isPassed && good.messages.length == 1 && good.messages[0].key == "BBB_XCV_OCSP_NO_CHECK_ANS");
 }

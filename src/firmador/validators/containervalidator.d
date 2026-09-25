@@ -83,7 +83,7 @@ AsicManifest parseAsicManifest(immutable(ubyte)[] xml) @trusted {
 }
 
 /// Comprueba cada archivo que referencia el manifiesto contra el contenedor.
-Verdict checkManifestReferences(const AsicManifest manifest, const ZipEntry[] entries) @safe {
+Verdict checkManifestReferences(const AsicManifest manifest, const ZipEntry[] entries) pure @safe {
   Verdict verdict;
   foreach (reference; manifest.references) {
     auto content = entryContent(entries, reference.uri);
@@ -98,7 +98,7 @@ Verdict checkManifestReferences(const AsicManifest manifest, const ZipEntry[] en
   return verdict;
 }
 
-private SignatureResult withVerdict(SignatureResult signature, const Verdict extra) @safe {
+private SignatureResult withVerdict(SignatureResult signature, const Verdict extra) pure @safe {
   if (extra.messages.length == 0) return signature;
   Verdict verdict;
   verdict.indication = signature.indication == Indication.totalPassed ? Indication.passed : signature.indication;

@@ -63,11 +63,11 @@ final class AsicSigner : ServicedSigner {
     super(gui);
   }
 
-  string formatName() const @safe {
+  string formatName() const pure @safe {
     return "ASiC-E";
   }
 
-  string signedExtension(string originalName) const @safe {
+  string signedExtension(string originalName) const pure @safe {
     return ".asice";
   }
 
@@ -111,11 +111,11 @@ final class OpenDocumentSigner : ServicedSigner {
     super(gui);
   }
 
-  string formatName() const @safe {
+  string formatName() const pure @safe {
     return "OpenDocument";
   }
 
-  string signedExtension(string originalName) const @safe {
+  string signedExtension(string originalName) const pure @safe {
     return extension(originalName);
   }
 

@@ -47,7 +47,7 @@ struct OcspCertId {
   BigInt serialNumber;
 
   /// Identifica a `certificate` emitido por `issuer`.
-  bool matches(const Certificate certificate, const Certificate issuer) const @safe {
+  bool matches(const Certificate certificate, const Certificate issuer) const pure @safe {
     return serialNumber == certificate.serialNumber
       && issuerNameHash == digestOf(digest, certificate.issuer.der)
       && issuerKeyHash == digestOf(digest, issuer.publicKeyBits);
@@ -81,7 +81,7 @@ struct OcspResponse {
   Certificate[] certificates;
 
   /// Respuesta que corresponde a `certificate` emitido por `issuer`, o null.
-  const(OcspSingleResponse)* responseFor(const Certificate certificate, const Certificate issuer) const @safe {
+  const(OcspSingleResponse)* responseFor(const Certificate certificate, const Certificate issuer) const pure @safe {
     foreach (index; 0 .. responses.length) {
       if (responses[index].certId.matches(certificate, issuer)) return &responses[index];
     }
@@ -89,7 +89,7 @@ struct OcspResponse {
   }
 
   /// El certificado es el que firma la respuesta según ResponderID.
-  bool isResponder(const Certificate candidate) const @safe {
+  bool isResponder(const Certificate candidate) const pure @safe {
     if (responderByKey) return digestOf(DigestAlgorithm.sha1, candidate.publicKeyBits) == responderKeyHash;
     return candidate.subject.matches(responderName);
   }
@@ -104,7 +104,7 @@ class OcspException : Exception {
 
 /// OCSPRequest sin firmar ni nonce (como OnlineOCSPSource de DSS) para un certificado.
 ubyte[] buildOcspRequest(const Certificate certificate, const Certificate issuer,
-    DigestAlgorithm digest = DigestAlgorithm.sha1) @safe {
+    DigestAlgorithm digest = DigestAlgorithm.sha1) pure @safe {
   auto certId = derSequence(derAlgorithm(digestOid(digest), true), derOctetString(digestOf(digest, certificate.issuer.der)),
     derOctetString(digestOf(digest, issuer.publicKeyBits)), certificate.serialNumberDer);
   auto tbsRequest = derSequence(derSequence(derSequence(certId)));
@@ -120,7 +120,7 @@ private immutable string[] responseStatusNames = ["successful", "malformedReques
  * Throws: OcspException si el estado no es successful o la respuesta no es básica;
  * Asn1Exception si la estructura está mal formada.
  */
-OcspResponse parseOcspResponse(const(ubyte)[] der) @safe {
+OcspResponse parseOcspResponse(const(ubyte)[] der) pure @safe {
   auto root = parseDer(der);
   auto children = root.children();
   enforce!Asn1Exception(children.length >= 1, "Respuesta OCSP vacía");
@@ -173,7 +173,7 @@ OcspResponse parseOcspResponse(const(ubyte)[] der) @safe {
   return response;
 }
 
-private OcspSingleResponse parseSingleResponse(const DerElement element) @safe {
+private OcspSingleResponse parseSingleResponse(const DerElement element) pure @safe {
   OcspSingleResponse single;
   auto reader = element.reader();
   auto certId = reader.next("el identificador del certificado").reader();

@@ -54,7 +54,7 @@ string interfaceName(const string[] arguments) pure @safe {
 }
 
 /// Documentos pasados a la ventana: los argumentos que no son opciones (getFileArgs).
-string[] windowFileArguments(const string[] arguments) @safe {
+string[] windowFileArguments(const string[] arguments) pure @safe {
   string[] files;
   foreach (argument; arguments) if (!argument.startsWith("-")) files ~= localPathArgument(argument);
   return files;
@@ -119,7 +119,7 @@ private final class PluginConsole : ConsoleInterface {
     error(title, ": ", message);
   }
 
-  CardSignInfo getPin() @safe {
+  CardSignInfo getPin() pure @safe {
     return null;
   }
 }

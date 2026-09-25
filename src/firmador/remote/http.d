@@ -139,7 +139,7 @@ struct RequestHead {
  *
  * Throws: HttpProtocolException con el estado que corresponde si no son válidas.
  */
-RequestHead parseRequestHead(const(char)[] head) @safe {
+RequestHead parseRequestHead(const(char)[] head) pure @safe {
   auto lines = head.split("\r\n");
   enforce(lines.length > 0 && lines[0].length, new HttpProtocolException(400, "Petición vacía"));
   auto parts = lines[0].split(" ");
@@ -189,7 +189,7 @@ RequestHead parseRequestHead(const(char)[] head) @safe {
  *
  * Throws: HttpProtocolException si la codificación no es válida o pasa el límite.
  */
-bool decodeChunked(const(ubyte)[] data, out immutable(ubyte)[] body, out size_t consumed) @safe {
+bool decodeChunked(const(ubyte)[] data, out immutable(ubyte)[] body, out size_t consumed) pure @safe {
   auto output = appender!(immutable(ubyte)[]);
   size_t position = 0;
   while (true) {
@@ -311,7 +311,7 @@ final class HttpServer {
   }
 
   /// Sigue aceptando conexiones (no se detuvo ni se cerró el puerto).
-  bool isRunning() const @safe {
+  bool isRunning() const pure @safe {
     import core.atomic : atomicLoad;
     return atomicLoad(accepting);
   }

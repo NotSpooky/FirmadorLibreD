@@ -49,7 +49,7 @@ private enum c_ulong flagSerialSession = 1UL << 2;
 class Pkcs11Exception : Exception {
   c_ulong code;
 
-  this(c_ulong code, string operation, string file = __FILE__, size_t line = __LINE__) @safe {
+  this(c_ulong code, string operation, string file = __FILE__, size_t line = __LINE__) pure @safe {
     this.code = code;
     super(pkcs11ErrorName(code), file, line);
     this.operation = operation;
@@ -165,7 +165,7 @@ final class Pkcs11Module {
   private void* handle;
   private CK_FUNCTION_LIST* functions;
 
-  private this(string libraryPath) @safe {
+  private this(string libraryPath) pure @safe {
     this.libraryPath = libraryPath;
   }
 
@@ -220,7 +220,7 @@ final class Pkcs11Module {
     info("Interfaz PKCS#11: ", fixedText(libraryInfo.libraryDescription), " de ", fixedText(libraryInfo.manufacturerID));
   }
 
-  private static void check(c_ulong result, string operation) @safe {
+  private static void check(c_ulong result, string operation) pure @safe {
     if (result != CKR_OK) throw new Pkcs11Exception(result, operation);
   }
 
@@ -307,7 +307,7 @@ final class Pkcs11Session {
   private CK_SESSION_HANDLE handle;
   private bool open;
 
-  private this(Pkcs11Module owner, CK_SLOT_ID slot, CK_SESSION_HANDLE handle) @safe {
+  private this(Pkcs11Module owner, CK_SLOT_ID slot, CK_SESSION_HANDLE handle) pure @safe {
     this.owner = owner;
     this.slot = slot;
     this.handle = handle;
@@ -378,7 +378,7 @@ final class Pkcs11Session {
     return value.idup;
   }
 
-  private CK_ATTRIBUTE classTemplate(ref c_ulong objectClass) @trusted {
+  private CK_ATTRIBUTE classTemplate(ref c_ulong objectClass) pure @trusted {
     return CK_ATTRIBUTE(CKA_CLASS, &objectClass, c_ulong.sizeof);
   }
 
@@ -435,33 +435,16 @@ final class Pkcs11Session {
   }
 
   /**
-   * Firma `data` con la clave: RSA PKCS#1 v1.5 (con CKM_SHA256_RSA_PKCS y similares si la
-   * tarjeta los tiene, o CKM_RSA_PKCS con el DigestInfo calculado aquí) o ECDSA, cuya firma
-   * se devuelve como r||s. `pin` se vuelve a presentar si la clave exige autenticarse en
-   * cada uso (CKA_ALWAYS_AUTHENTICATE).
+   * Firma `data` con la clave, con el mecanismo que elige signRequest; la firma ECDSA se
+   * devuelve como r||s. `pin` se vuelve a presentar si la clave exige autenticarse en cada
+   * uso (CKA_ALWAYS_AUTHENTICATE).
    *
    * Throws: Pkcs11Exception si la tarjeta no firma.
    */
   ubyte[] sign(CK_OBJECT_HANDLE key, DigestAlgorithm digest, const(ubyte)[] data, const(char)[] pin) @trusted {
-    bool rsa = isRsaKey(key);
-    c_ulong[] available = owner.mechanisms(slot);
+    auto request = signRequest(isRsaKey(key), digest, data, owner.mechanisms(slot));
     return withPkcs11Lock!(ubyte[])(() {
-      c_ulong mechanismType;
-      ubyte[] input;
-      if (rsa) {
-        c_ulong combined = combinedRsaMechanism(digest);
-        if (combined != 0 && available.canFind(combined)) {
-          mechanismType = combined;
-          input = data.dup;
-        } else {
-          mechanismType = CKM_RSA_PKCS;
-          input = digestInfoPrefix(digest).dup ~ digestOf(digest, data);
-        }
-      } else {
-        mechanismType = CKM_ECDSA;
-        input = digestOf(digest, data);
-      }
-      CK_MECHANISM mechanism = CK_MECHANISM(mechanismType, null, 0);
+      CK_MECHANISM mechanism = CK_MECHANISM(request.mechanism, null, 0);
       Pkcs11Module.check(owner.functions.C_SignInit(handle, &mechanism, key), "C_SignInit");
       auto alwaysAuthenticate = attribute(key, CKA_ALWAYS_AUTHENTICATE);
       if (alwaysAuthenticate.length && alwaysAuthenticate[0] != 0) {
@@ -469,12 +452,40 @@ final class Pkcs11Session {
           "C_Login (CKU_CONTEXT_SPECIFIC)");
       }
       c_ulong length;
-      Pkcs11Module.check(owner.functions.C_Sign(handle, input.ptr, input.length, null, &length), "C_Sign");
+      Pkcs11Module.check(owner.functions.C_Sign(handle, request.input.ptr, request.input.length, null, &length),
+        "C_Sign");
       auto signature = new ubyte[length];
-      Pkcs11Module.check(owner.functions.C_Sign(handle, input.ptr, input.length, signature.ptr, &length), "C_Sign");
+      Pkcs11Module.check(owner.functions.C_Sign(handle, request.input.ptr, request.input.length, signature.ptr,
+        &length), "C_Sign");
       return signature[0 .. length];
     });
   }
+}
+
+/// Mecanismo PKCS#11 y datos que recibe C_Sign.
+struct SignRequest {
+  c_ulong mechanism;
+  ubyte[] input;
+}
+
+/**
+ * Mecanismo y datos con que la tarjeta firma `data`: con RSA PKCS#1 v1.5, el mecanismo que
+ * resume y firma (CKM_SHA256_RSA_PKCS y similares) si la tarjeta lo ofrece y si no
+ * CKM_RSA_PKCS con el DigestInfo calculado aquí; con EC, CKM_ECDSA con el resumen.
+ *
+ * Params:
+ *   rsa = la clave es RSA (Pkcs11Session.isRsaKey); si no, es EC.
+ *   digest = algoritmo de resumen de la firma.
+ *   data = lo que se firma, sin resumir.
+ *   available = mecanismos de la tarjeta (C_GetMechanismList).
+ * Returns: el mecanismo y los datos para C_SignInit y C_Sign.
+ */
+SignRequest signRequest(bool rsa, DigestAlgorithm digest, const(ubyte)[] data, const(c_ulong)[] available)
+    pure @safe {
+  if (!rsa) return SignRequest(CKM_ECDSA, digestOf(digest, data));
+  c_ulong combined = combinedRsaMechanism(digest);
+  if (combined != 0 && available.canFind(combined)) return SignRequest(combined, data.dup);
+  return SignRequest(CKM_RSA_PKCS, digestInfoPrefix(digest).dup ~ digestOf(digest, data));
 }
 
 private c_ulong combinedRsaMechanism(DigestAlgorithm digest) pure nothrow @safe @nogc {
@@ -493,4 +504,19 @@ unittest {
   assert(pkcs11ErrorName(0xE1) == "CKR_TOKEN_NOT_RECOGNIZED");
   assert(pkcs11ErrorName(0x80000066) == "0x80000066");
   assert(combinedRsaMechanism(DigestAlgorithm.sha256) == CKM_SHA256_RSA_PKCS);
+}
+
+@("should wrap the digest in a DigestInfo only when the card lacks the combined RSA mechanism")
+unittest {
+  auto data = cast(const(ubyte)[]) "documento";
+  auto combined = signRequest(true, DigestAlgorithm.sha256, data, [CKM_RSA_PKCS, CKM_SHA256_RSA_PKCS]);
+  assert(combined.mechanism == CKM_SHA256_RSA_PKCS && combined.input == data);
+  // DigestInfo de SHA-256 (RFC 8017 §9.2): SEQUENCE { sha256, NULL } y OCTET STRING de 32 bytes.
+  auto raw = signRequest(true, DigestAlgorithm.sha256, data, [CKM_RSA_PKCS]);
+  immutable ubyte[] sha256DigestInfo = [0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03,
+    0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20];
+  assert(raw.mechanism == CKM_RSA_PKCS && raw.input.length == 51 && raw.input[0 .. 19] == sha256DigestInfo);
+  assert(raw.input[19 .. $] == digestOf(DigestAlgorithm.sha256, data));
+  auto ec = signRequest(false, DigestAlgorithm.sha384, data, [CKM_SHA384_RSA_PKCS]);
+  assert(ec.mechanism == CKM_ECDSA && ec.input == digestOf(DigestAlgorithm.sha384, data));
 }

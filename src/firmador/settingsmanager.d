@@ -222,7 +222,8 @@ Settings readSettings() @trusted {
   string path = configFilePath();
   auto props = loadProperties(path);
   if (props !is null) {
-    applyProperties(conf, props);
+    string invalidScale = applyProperties(conf, props);
+    if (invalidScale !is null) error("Valor decimal inválido en la configuración: «", invalidScale, "», se usa 1");
     setLogLevel(conf.advancedLogs);
     managerLock.lock();
     currentProperties = props;

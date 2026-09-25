@@ -85,7 +85,7 @@ SignatureResult finishSignature(SignatureResult signature, Verdict verdict, stri
 }
 
 /// Archivo de firmas que no se pudo leer: falla por formato con el detalle.
-SignatureResult unreadableSignature(string filename, string format_, string detail) @safe {
+SignatureResult unreadableSignature(string filename, string format_, string detail) pure @safe {
   SignatureResult unreadable;
   unreadable.filename = filename;
   Verdict verdict;
@@ -117,7 +117,7 @@ TimestampResult readTimestamp(TimestampResult.Kind kind, string owner, scope Tim
 }
 
 /// Sello que no se pudo leer: falla por formato con el detalle.
-TimestampResult unreadableTimestamp(TimestampResult.Kind kind, string detail) @safe {
+TimestampResult unreadableTimestamp(TimestampResult.Kind kind, string detail) pure @safe {
   TimestampResult failed;
   failed.kind = kind;
   failed.indication = Indication.failed;

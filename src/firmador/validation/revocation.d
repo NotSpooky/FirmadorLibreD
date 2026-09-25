@@ -138,7 +138,7 @@ enum Duration ocspFreshnessWithoutNextUpdate = dur!"hours"(24);
  * La información es fresca en `validationTime` (EN 319 102-1 §5.2.5.4): emitida después
  * de validationTime menos su propio intervalo de actualización.
  */
-bool isFresh(const RevocationInfo info, SysTime validationTime) @safe {
+bool isFresh(const RevocationInfo info, SysTime validationTime) pure @safe {
   if (info.thisUpdate > validationTime + dur!"minutes"(5)) return false;
   Duration window = info.nextUpdate.isNull ? ocspFreshnessWithoutNextUpdate : info.nextUpdate.get - info.thisUpdate;
   return info.productionTime >= validationTime - window;
@@ -148,12 +148,12 @@ bool isFresh(const RevocationInfo info, SysTime validationTime) @safe {
  * La información sirve como prueba de no revocación para una firma que existía en
  * `bestSignatureTime`: emitida después de esa fecha, o fresca ahora.
  */
-bool isAcceptable(const RevocationInfo info, SysTime bestSignatureTime, SysTime validationTime) @safe {
+bool isAcceptable(const RevocationInfo info, SysTime bestSignatureTime, SysTime validationTime) pure @safe {
   return info.productionTime >= bestSignatureTime || isFresh(info, validationTime);
 }
 
 /// La más reciente de varias informaciones (la de mayor fecha de producción).
-Nullable!RevocationInfo latest(const(RevocationInfo)[] infos) @trusted {
+Nullable!RevocationInfo latest(const(RevocationInfo)[] infos) pure @trusted {
   Nullable!RevocationInfo best;
   foreach (info; infos) {
     if (best.isNull || info.productionTime > best.get.productionTime) best = cast(RevocationInfo) info;

@@ -98,28 +98,28 @@ struct XmlNode {
   }
 
   /// Es un elemento.
-  bool isElement() const @trusted {
+  bool isElement() const pure @trusted {
     return node !is null && node.type == xmlElementType.XML_ELEMENT_NODE;
   }
 
   /// Nombre local del elemento o atributo.
-  string localName() const @trusted {
+  string localName() const pure @trusted {
     return node is null || node.name is null ? null : fromStringz(cast(const(char)*) node.name).idup;
   }
 
   /// Espacio de nombres del elemento.
-  string namespaceUri() const @trusted {
+  string namespaceUri() const pure @trusted {
     if (node is null || node.ns is null || node.ns.href is null) return null;
     return fromStringz(cast(const(char)*) node.ns.href).idup;
   }
 
   /// Es el elemento `name` del espacio de nombres `uri`.
-  bool isElement(string uri, string name) const @safe {
+  bool isElement(string uri, string name) const pure @safe {
     return isElement() && localName == name && namespaceUri == uri;
   }
 
   /// Hijos que son elementos.
-  XmlNode[] children() const @trusted {
+  XmlNode[] children() const pure @trusted {
     XmlNode[] result;
     if (node is null) return result;
     for (xmlNode* child = cast(xmlNode*) node.children; child !is null; child = child.next) {
@@ -129,26 +129,26 @@ struct XmlNode {
   }
 
   /// Primer hijo elemento con ese nombre y espacio de nombres, o un nodo nulo.
-  XmlNode child(string uri, string name) const @safe {
+  XmlNode child(string uri, string name) const pure @safe {
     foreach (candidate; children()) if (candidate.isElement(uri, name)) return candidate;
     return XmlNode.init;
   }
 
   /// Hijos elemento con ese nombre y espacio de nombres.
-  XmlNode[] childrenNamed(string uri, string name) const @safe {
+  XmlNode[] childrenNamed(string uri, string name) const pure @safe {
     XmlNode[] result;
     foreach (candidate; children()) if (candidate.isElement(uri, name)) result ~= candidate;
     return result;
   }
 
   /// Primer hijo obligatorio.
-  XmlNode requiredChild(string uri, string name) const @safe {
+  XmlNode requiredChild(string uri, string name) const pure @safe {
     auto found = child(uri, name);
     enforce!XmlException(!found.isNull, format("Falta el elemento %s dentro de %s", name, localName));
     return found;
   }
 
-  XmlNode parent() const @trusted {
+  XmlNode parent() const pure @trusted {
     return node is null || node.parent is null || node.parent.type != xmlElementType.XML_ELEMENT_NODE
       ? XmlNode.init : XmlNode(cast(xmlNode*) node.parent);
   }
@@ -231,7 +231,7 @@ private extern (C) void silenceErrors(void* context, const(xmlError)* error) not
 final class XmlDocument {
   package xmlDoc* document;
 
-  private this(xmlDoc* document) @safe {
+  private this(xmlDoc* document) pure @safe {
     this.document = document;
   }
 
@@ -314,7 +314,7 @@ final class XmlDocument {
   }
 
   /// Todos los elementos con ese nombre y espacio de nombres, en orden de documento.
-  XmlNode[] elements(string uri, string name) @trusted {
+  XmlNode[] elements(string uri, string name) pure @trusted {
     XmlNode[] result;
     void walk(xmlNode* current) {
       for (; current !is null; current = current.next) {
@@ -491,7 +491,7 @@ private extern (C) int isVisible(void* userData, xmlNode* node, xmlNode* parent)
   }
 }
 
-private bool isInSubtree(xmlNode* node, xmlNode* parent, xmlNode* subject) @system {
+private bool isInSubtree(xmlNode* node, xmlNode* parent, xmlNode* subject) pure @system {
   xmlNode* start = node.type == xmlElementType.XML_ELEMENT_NODE || node.type == xmlElementType.XML_TEXT_NODE
     || node.type == xmlElementType.XML_COMMENT_NODE || node.type == xmlElementType.XML_PI_NODE
     || node.type == xmlElementType.XML_CDATA_SECTION_NODE ? node : parent;

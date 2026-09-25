@@ -40,11 +40,11 @@ final class JadesSigner : ServicedSigner {
     super(gui);
   }
 
-  string formatName() const @safe {
+  string formatName() const pure @safe {
     return "JAdES";
   }
 
-  string signedExtension(string originalName) const @safe {
+  string signedExtension(string originalName) const pure @safe {
     return ".json";
   }
 

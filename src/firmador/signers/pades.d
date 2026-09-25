@@ -52,7 +52,7 @@ import firmador.x509.certificate;
 enum int configuredImageDpi = 21;
 
 /// Tamaño en píxeles de la imagen configurada: el natural, o el pedido en ajustes pasado a 96 ppp.
-ImageSize configuredImageSize(immutable(ubyte)[] image, int configuredWidth, int configuredHeight) @safe {
+ImageSize configuredImageSize(immutable(ubyte)[] image, int configuredWidth, int configuredHeight) pure @safe {
   auto natural = readImageSize(image);
   if (configuredWidth == 0 || configuredHeight == 0) return natural;
   // La versión Java reescalaba la imagen a este tamaño y la guardaba como PNG sin
@@ -99,7 +99,7 @@ VisibleSignature visibleSignatureFor(const Settings appSettings, const Settings 
   int degrees = angleForRotation(documentSettings.signRotation);
   if (degrees != 0) {
     // naturalBoxSize mide la caja sin rotar, sea cual sea la rotación pedida.
-    auto natural = naturalBoxSize(layoutInput(visible, pageGeometry), encoderFor(visible.font));
+    auto natural = naturalBoxSize(layoutInput(visible, pageGeometry), encoderFor(visible));
     auto corrected = correctedOrigin(originX, originY, degrees, natural, pageGeometry.mediaBox.width,
       pageGeometry.mediaBox.height);
     info(format("Firma rotada %d grados: origen corregido a %s, %s (caja natural %s x %s)", degrees, corrected[0],
@@ -118,11 +118,11 @@ final class PadesSigner : ServicedSigner {
     super(gui);
   }
 
-  string formatName() const @safe {
+  string formatName() const pure @safe {
     return "PAdES";
   }
 
-  string signedExtension(string originalName) const @safe {
+  string signedExtension(string originalName) const pure @safe {
     return ".pdf";
   }
 

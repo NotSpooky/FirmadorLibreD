@@ -58,7 +58,7 @@ struct RevokedEntry {
  *
  * Throws: Asn1Exception si la estructura no es la de una CRL.
  */
-CertificateRevocationList parseCrl(const(ubyte)[] der) @safe {
+CertificateRevocationList parseCrl(const(ubyte)[] der) pure @safe {
   CertificateRevocationList crl;
   crl.der = der.idup;
   auto reader = parseDer(der).reader();
@@ -97,7 +97,7 @@ CertificateRevocationList parseCrl(const(ubyte)[] der) @safe {
 }
 
 /// Busca el serial entre los revocados.
-bool findRevocation(const CertificateRevocationList crl, BigInt serial, out RevokedEntry entry) @safe {
+bool findRevocation(const CertificateRevocationList crl, BigInt serial, out RevokedEntry entry) pure @safe {
   size_t position = 0;
   const(ubyte)[] content = crl.revokedContent;
   while (position < content.length) {

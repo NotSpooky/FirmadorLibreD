@@ -105,7 +105,7 @@ struct PreviewRequest {
 }
 
 /// Rechaza los campos que el comando no conoce (como Jackson con FAIL_ON_UNKNOWN_PROPERTIES).
-private void requireKnownFields(const JSONValue json, const string[] known, string what) @safe {
+private void requireKnownFields(const JSONValue json, const string[] known, string what) pure @safe {
   foreach (key; objectKeys(json, what)) {
     enforce!JsonShapeException(known.canFind(key), format("%s: campo desconocido «%s»", what, key));
   }
@@ -194,7 +194,7 @@ ShellBatch!ValidateItem parseValidateBatch(const JSONValue json) @safe {
  *
  * Throws: JsonShapeException si falta la ruta y el documento, o un campo no es válido.
  */
-PreviewRequest parsePreviewRequest(const JSONValue json) @safe {
+PreviewRequest parsePreviewRequest(const JSONValue json) pure @safe {
   enum what = "El comando preview";
   enforce!JsonShapeException(isObject(json), what ~ " debe ser un objeto JSON");
   requireKnownFields(json, ["filePath", "fileOutput", "base64Document"], what);
@@ -209,7 +209,7 @@ PreviewRequest parsePreviewRequest(const JSONValue json) @safe {
 }
 
 /// Resultado de un elemento: los campos propios más «externalId», «status» y «errorMessage».
-JSONValue itemResult(string externalId, JSONValue fields, string errorMessage) @safe {
+JSONValue itemResult(string externalId, JSONValue fields, string errorMessage) pure @safe {
   JSONValue result = fields.type == JSONType.object ? fields : JSONValue(string[string].init);
   result["externalId"] = externalId is null ? JSONValue(null) : JSONValue(externalId);
   result["status"] = errorMessage is null ? statusSuccess : statusError;
@@ -233,7 +233,7 @@ final class ShellInterface : ConsoleInterface {
   /// Lo encienden showError y showMessage: aborta el lote para no bloquear la tarjeta.
   private bool authenticationFailed;
 
-  this(SmartCardDetector detector) @safe {
+  this(SmartCardDetector detector) pure @safe {
     this.detector = detector;
   }
 
@@ -257,7 +257,7 @@ final class ShellInterface : ConsoleInterface {
   }
 
   /// El PIN llega con cada comando: no hay a quién pedirlo.
-  CardSignInfo getPin() @safe {
+  CardSignInfo getPin() pure @safe {
     return null;
   }
 

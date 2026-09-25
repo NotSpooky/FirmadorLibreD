@@ -135,7 +135,7 @@ DocumentValidationResult validatePdf(immutable(ubyte)[] pdf, string documentName
  * Returns: aprobado, o totalFailed/formatFailure con un mensaje por cada problema.
  */
 private Verdict byteRangeVerdict(const PdfSignatureField field, size_t fileLength, const PdfSignatureField[] all)
-    @safe {
+    pure @safe {
   Verdict verdict;
   auto range = field.byteRange;
   if (range.length != 4 || range[0] != 0 || range[1] <= 0 || range[2] <= range[1] || range[3] < 0

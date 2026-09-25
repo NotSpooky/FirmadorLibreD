@@ -50,7 +50,7 @@ struct CertificateSubject {
 }
 
 /// Datos del titular de un certificado (CertificateSubject.parse).
-CertificateSubject certificateSubject(const Certificate certificate) @safe {
+CertificateSubject certificateSubject(const Certificate certificate) pure @safe {
   CertificateSubject subject;
   subject.identification = certificate.subject.first(oidSerialNumber);
   subject.lastName = certificate.subject.first(oidSurname);
@@ -80,7 +80,7 @@ final class CardSignInfo {
 
   /// Tarjeta PKCS#11 detectada.
   this(CardType cardType, const CertificateSubject subject, string tokenSerialNumber, long slotID,
-      Certificate certificate) @safe {
+      Certificate certificate) pure @safe {
     this.cardType = cardType;
     identification = subject.identification;
     firstName = subject.firstName;
@@ -106,13 +106,13 @@ final class CardSignInfo {
   }
 
   /// Credencial «sólo PIN»: PKCS#11 con la primera ranura disponible.
-  this(SecretPin pin) @safe {
+  this(SecretPin pin) pure @safe {
     cardType = CardType.onlyPin;
     this.pin = pin;
   }
 
   /// Serial decimal del certificado; null si no tiene (lo que publica «tokenSerialNumber» en JSON).
-  string idToken() const @safe {
+  string idToken() const pure @safe {
     return certificate is null ? null : certificate.serialDecimal;
   }
 
@@ -128,17 +128,17 @@ final class CardSignInfo {
   }
 
   /// Destruye el PIN guardado.
-  void destroyPin() @safe {
+  void destroyPin() pure @safe {
     if (pin !is null) pin.destroy();
   }
 
   /// Tiene un PIN no vacío.
-  bool hasPin() const @safe {
+  bool hasPin() const pure @safe {
     return pin !is null && !pin.isEmpty;
   }
 
   /// JSON público de la credencial, con los mismos nombres que serializaba Jackson.
-  JSONValue toJson() const @safe {
+  JSONValue toJson() const pure @safe {
     JSONValue json;
     json["identification"] = jsonOrNull(identification);
     json["firstName"] = jsonOrNull(firstName);
@@ -151,7 +151,7 @@ final class CardSignInfo {
   }
 }
 
-private JSONValue jsonOrNull(string value) @safe {
+private JSONValue jsonOrNull(string value) pure @safe {
   return value is null ? JSONValue(null) : JSONValue(value);
 }
 
@@ -161,7 +161,7 @@ private JSONValue jsonOrNull(string value) @safe {
  * también el nombre o la ruta del almacén. No se compara la etiqueta de la clave, que en
  * las tarjetas es la misma para todas («LlaveDeFirma»).
  */
-bool matchesIdentifier(const CardSignInfo card, string identifier) @safe {
+bool matchesIdentifier(const CardSignInfo card, string identifier) pure @safe {
   import std.path : baseName;
   import std.uni : icmp;
   if (card is null || identifier is null) return false;
@@ -178,7 +178,7 @@ bool matchesIdentifier(const CardSignInfo card, string identifier) @safe {
 }
 
 /// Huella de una lista de credenciales, para saber si una nueva lectura cambió algo.
-string fingerprint(const CardSignInfo[] cards) @safe {
+string fingerprint(const CardSignInfo[] cards) pure @safe {
   string result;
   foreach (card; cards) {
     result ~= format("%d|%s|%s|%d|%s;", cast(int) card.cardType, card.identification, card.tokenSerialNumber,

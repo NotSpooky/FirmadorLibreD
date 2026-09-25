@@ -64,7 +64,7 @@ struct SigningKey {
   SignatureToken token;
   TokenKey key;
 
-  Certificate certificate() @safe {
+  Certificate certificate() pure @safe {
     return key.certificate;
   }
 
@@ -141,7 +141,7 @@ final class SigningServices {
 
 
 /// Excepción más interna de la cadena (getRootCause).
-Throwable rootCause(Throwable failure) @safe {
+Throwable rootCause(Throwable failure) pure @safe {
   Throwable current = failure;
   while (current.next !is null) current = current.next;
   return current;

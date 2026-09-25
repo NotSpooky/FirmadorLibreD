@@ -115,6 +115,59 @@ float effectiveScale(Zoom zoom, float widestPoints, float tallestPoints, int vie
   }
 }
 
+/// Páginas apiladas en la vista: el borde superior de cada una y el tamaño del contenido, en píxeles.
+struct PageStack {
+  int[] tops;
+  int contentWidth;
+  int contentHeight;
+}
+
+/**
+ * Apila las páginas de arriba abajo, separadas por pageGap y con pagePadding alrededor.
+ *
+ * Params:
+ *   pageSizes = ancho y alto de cada página, en puntos.
+ *   scale = píxeles por punto (effectiveScale).
+ * Returns: dónde empieza cada página y el tamaño que ocupan todas; sin páginas, todo en cero.
+ */
+PageStack stackPages(const float[2][] pageSizes, float scale) pure @safe {
+  PageStack stack;
+  int y = pagePadding;
+  foreach (size; pageSizes) {
+    stack.tops ~= y;
+    y += cast(int) round(size[1] * scale) + pageGap;
+    stack.contentWidth = max(stack.contentWidth, cast(int) round(size[0] * scale) + 2 * pagePadding);
+  }
+  stack.contentHeight = pageSizes.length ? y - pageGap + pagePadding : 0;
+  return stack;
+}
+
+/**
+ * Recuadro de `width` × `height` puntos con la esquina en (`x`, `y`) puntos de una página
+ * dibujada en `page`, en píxeles de la ventana.
+ */
+Rect scaledBox(Rect page, float x, float y, float width, float height, float scale) pure nothrow @safe @nogc {
+  // Se llenan los campos: el constructor Rect(left, top, right, bottom) de dlangui no es `pure`.
+  Rect box;
+  box.left = page.left + cast(int) round(x * scale);
+  box.top = page.top + cast(int) round(y * scale);
+  box.right = box.left + cast(int) round(width * scale);
+  box.bottom = box.top + cast(int) round(height * scale);
+  return box;
+}
+
+/**
+ * Desplazamiento dentro de lo posible: entre 0 y lo que el contenido excede a la vista.
+ *
+ * Params:
+ *   wanted = desplazamiento pedido, en píxeles.
+ *   contentSize = tamaño del contenido en ese eje.
+ *   viewportSize = tamaño visible en ese eje.
+ */
+int clampedScroll(int wanted, int contentSize, int viewportSize) pure nothrow @safe @nogc {
+  return max(0, min(wanted, max(0, contentSize - viewportSize)));
+}
+
 /**
  * Posición del recuadro limitada a la página: dentro de sus bordes con el margen de
  * seguridad. Devuelve [x, y] en puntos.
@@ -203,7 +256,7 @@ ColorDrawBuf drawBufFromRaster(const PageRaster raster) @trusted {
 final class PreviewerSource : PageSource {
   private Previewer previewer;
 
-  this(Previewer previewer) @safe {
+  this(Previewer previewer) pure @safe {
     this.previewer = previewer;
   }
 
@@ -230,16 +283,16 @@ final class ImageSource : PageSource {
   private immutable(ubyte)[] delegate(int page) @safe fetch;
 
   /// `fetch` trae la imagen de la página (desde 1) o null si no se pudo.
-  this(int pages, immutable(ubyte)[] delegate(int page) @safe fetch) @safe {
+  this(int pages, immutable(ubyte)[] delegate(int page) @safe fetch) pure @safe {
     this.pages = pages;
     this.fetch = fetch;
   }
 
-  int pageCount() @safe {
+  int pageCount() pure @safe {
     return pages;
   }
 
-  PageGeometry geometry(int index) @safe {
+  PageGeometry geometry(int index) pure @safe {
     return letterGeometry();
   }
 
@@ -262,7 +315,7 @@ final class ImageSource : PageSource {
     return scaled;
   }
 
-  bool placesSignature() @safe {
+  bool placesSignature() pure @safe {
     return false;
   }
 }
@@ -363,12 +416,12 @@ final class PageView : ScrollWidgetBase {
     requestLayout();
   }
 
-  int pageCount() const @safe {
+  int pageCount() const pure @safe {
     return cast(int) pageSizes.length;
   }
 
   /// Geometría de una página del documento.
-  PageGeometry pageGeometry(int page) const @safe {
+  PageGeometry pageGeometry(int page) const pure @safe {
     return page >= 0 && page < geometries.length ? geometries[page] : letterGeometry();
   }
 
@@ -379,7 +432,7 @@ final class PageView : ScrollWidgetBase {
   }
 
   /// Píxeles por punto con que se dibuja ahora.
-  float currentScale() const @safe {
+  float currentScale() const pure @safe {
     return scale;
   }
 
@@ -404,12 +457,12 @@ final class PageView : ScrollWidgetBase {
     invalidate();
   }
 
-  SignaturePlacement signaturePlacement() const @safe {
+  SignaturePlacement signaturePlacement() const pure @safe {
     return placement;
   }
 
   /// Offset del recorte visible dentro de la MediaBox (la firma se ubica respecto a la MediaBox).
-  float[2] cropOffset(int page) const @safe {
+  float[2] cropOffset(int page) const pure @safe {
     auto geometry = pageGeometry(page);
     auto crop = visualRect(geometry.cropBox, geometry.mediaBox, geometry.rotation);
     return [crop.left, crop.top];
@@ -438,12 +491,12 @@ final class PageView : ScrollWidgetBase {
   }
 
   /// Escala actual de la firma en el recuadro.
-  float currentSignatureScale() const @safe {
+  float currentSignatureScale() const pure @safe {
     return signatureScale;
   }
 
   /// Espacio desde la esquina superior izquierda del recuadro hasta los márgenes de su página.
-  private float[2] roomForSignature() const @safe {
+  private float[2] roomForSignature() const pure @safe {
     auto size = pageSizes[placement.page];
     return [size[0] - placement.x - edgeSafetyMarginPoints, size[1] - placement.y - edgeSafetyMarginPoints];
   }
@@ -470,9 +523,7 @@ final class PageView : ScrollWidgetBase {
   /// Desplaza la vista para mostrar la página.
   void scrollToPage(int page) @trusted {
     if (page < 0 || page >= pageTops.length) return;
-    int target = pageTops[page] - pagePadding;
-    int maxTop = max(0, contentHeight - _clientRect.height);
-    int top = max(0, min(target, maxTop));
+    int top = clampedScroll(pageTops[page] - pagePadding, contentHeight, _clientRect.height);
     _visibleScrollableArea.bottom += top - _visibleScrollableArea.top;
     _visibleScrollableArea.top = top;
     updateScrollBars();
@@ -496,15 +547,10 @@ final class PageView : ScrollWidgetBase {
       invalidate();
       if (onScaleChanged !is null) onScaleChanged(scale);
     }
-    pageTops = null;
-    int y = pagePadding;
-    contentWidth = 0;
-    foreach (size; pageSizes) {
-      pageTops ~= y;
-      y += cast(int) round(size[1] * scale) + pageGap;
-      contentWidth = max(contentWidth, cast(int) round(size[0] * scale) + 2 * pagePadding);
-    }
-    contentHeight = pageSizes.length ? y - pageGap + pagePadding : 0;
+    auto stack = stackPages(pageSizes, scale);
+    pageTops = stack.tops;
+    contentWidth = stack.contentWidth;
+    contentHeight = stack.contentHeight;
   }
 
   override Point fullContentSize() {
@@ -520,19 +566,15 @@ final class PageView : ScrollWidgetBase {
 
   override protected void updateScrollBars() {
     fullContentSize();
-    _visibleScrollableArea.right = _visibleScrollableArea.left + _clientRect.width;
-    _visibleScrollableArea.bottom = _visibleScrollableArea.top + _clientRect.height;
-    int extraX = max(0, min(_visibleScrollableArea.left, _visibleScrollableArea.right - _fullScrollableArea.right));
-    int extraY = max(0, min(_visibleScrollableArea.top, _visibleScrollableArea.bottom - _fullScrollableArea.bottom));
-    _visibleScrollableArea.offset(-extraX, -extraY);
+    int left = clampedScroll(_visibleScrollableArea.left, contentWidth, _clientRect.width);
+    int top = clampedScroll(_visibleScrollableArea.top, contentHeight, _clientRect.height);
+    _visibleScrollableArea = Rect(left, top, left + _clientRect.width, top + _clientRect.height);
     super.updateScrollBars();
   }
 
   private void scrollBy(int dx, int dy) {
-    int maxLeft = max(0, contentWidth - _clientRect.width);
-    int maxTop = max(0, contentHeight - _clientRect.height);
-    int left = max(0, min(_visibleScrollableArea.left + dx, maxLeft));
-    int top = max(0, min(_visibleScrollableArea.top + dy, maxTop));
+    int left = clampedScroll(_visibleScrollableArea.left + dx, contentWidth, _clientRect.width);
+    int top = clampedScroll(_visibleScrollableArea.top + dy, contentHeight, _clientRect.height);
     _visibleScrollableArea = Rect(left, top, left + _clientRect.width, top + _clientRect.height);
     updateScrollBars();
     invalidate();
@@ -605,12 +647,7 @@ final class PageView : ScrollWidgetBase {
     }
     if (wanted.length) requestRenders(wanted);
     if (signatureShown && placement.page < pageSizes.length) {
-      Rect page = pageRect(placement.page);
-      int left = page.left + cast(int) round(placement.x * scale);
-      int top = page.top + cast(int) round(placement.y * scale);
-      int width = cast(int) round(signatureWidth * scale);
-      int height = cast(int) round(signatureHeight * scale);
-      Rect box = Rect(left, top, left + width, top + height);
+      Rect box = signatureBox();
       buf.drawRescaled(box, signatureImage, Rect(0, 0, signatureImage.width, signatureImage.height));
       uint frameColor = focused ? 0x1A57B8 : 0x646464;
       buf.drawFrame(box, frameColor, Rect(1, 1, 1, 1), 0xFFFFFFFF);
@@ -631,10 +668,7 @@ final class PageView : ScrollWidgetBase {
 
   /// Recuadro de la firma en la ventana, en píxeles.
   private Rect signatureBox() {
-    Rect page = pageRect(placement.page);
-    int left = page.left + cast(int) round(placement.x * scale);
-    int top = page.top + cast(int) round(placement.y * scale);
-    return Rect(left, top, left + cast(int) round(signatureWidth * scale), top + cast(int) round(signatureHeight * scale));
+    return scaledBox(pageRect(placement.page), placement.x, placement.y, signatureWidth, signatureHeight, scale);
   }
 
   /// Cuadro de la esquina inferior derecha con que se cambia el tamaño.
@@ -878,4 +912,29 @@ unittest {
   assert(isClose(fittedSignatureScale(1.5, 1, 100, 20, 250, 100), 1.5));
   assert(fittedSignatureScale(0.01, 1, 100, 20, 250, 100) == minSignatureScale);
   assert(fittedSignatureScale(10, 1, 0, 0, 0, 0) == maxSignatureScale);
+}
+
+@("should stack pages with padding and gaps between them when laying out a document")
+unittest {
+  // Carta (612 × 792) y horizontal (792 × 612) a 1,5 píxeles por punto.
+  auto stack = stackPages([[612f, 792f], [792f, 612f]], 1.5f);
+  assert(stack.tops == [pagePadding, pagePadding + 1188 + pageGap]);
+  assert(stack.contentWidth == 1188 + 2 * pagePadding);
+  assert(stack.contentHeight == pagePadding + 1188 + pageGap + 918 + pagePadding);
+  auto empty = stackPages([], 1);
+  assert(empty.tops.length == 0 && empty.contentWidth == 0 && empty.contentHeight == 0);
+}
+
+@("should place the signature box in window pixels and keep the scroll inside the content")
+unittest {
+  Rect page;
+  page.left = 100;
+  page.top = 50;
+  auto box = scaledBox(page, 10, 20, 150.4f, 60, 2);
+  assert(box.left == 120 && box.top == 90 && box.right == 421 && box.bottom == 210);
+  assert(clampedScroll(-5, 1000, 400) == 0);
+  assert(clampedScroll(700, 1000, 400) == 600);
+  assert(clampedScroll(300, 1000, 400) == 300);
+  // Si el contenido cabe, no hay desplazamiento.
+  assert(clampedScroll(50, 300, 400) == 0);
 }

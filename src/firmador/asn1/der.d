@@ -30,10 +30,11 @@ import std.bigint : BigInt;
 import std.conv : to, ConvException;
 import std.datetime.date : DateTime;
 import std.datetime.systime : SysTime;
-import std.datetime.timezone : UTC;
 import std.exception : enforce;
 import std.format : format;
 import std.string : indexOf;
+
+import firmador.util.datetime : toGeneralizedTime, utcDateTime, utcTime;
 
 /// Error de estructura en datos ASN.1 recibidos.
 class Asn1Exception : Exception {
@@ -197,7 +198,7 @@ struct DerElement {
   }
 
   /// Fecha de un UTCTime o GeneralizedTime.
-  SysTime timeValue() const @safe {
+  SysTime timeValue() const pure @safe {
     if (isUniversal(UniversalTag.utcTime)) return parseUtcTime(cast(string) content.idup);
     if (isUniversal(UniversalTag.generalizedTime)) return parseGeneralizedTime(cast(string) content.idup);
     throw new Asn1Exception(format("Se esperaba una fecha y llegó %s", describe));
@@ -457,27 +458,27 @@ ubyte[] encodeOidContent(string dotted) pure @safe {
 }
 
 /// UTCTime (AAMMDDHHmm[SS]Z): los años 50-99 son del siglo XX, como indica RFC 5280.
-SysTime parseUtcTime(string text) @safe {
+SysTime parseUtcTime(string text) pure @safe {
   enforce!Asn1Exception((text.length == 13 || text.length == 11) && text[$ - 1] == 'Z',
     format("UTCTime no válido: «%s»", text));
   try {
     int year = text[0 .. 2].to!int;
     year += year < 50 ? 2000 : 1900;
     int second = text.length == 13 ? text[10 .. 12].to!int : 0;
-    return SysTime(DateTime(year, text[2 .. 4].to!int, text[4 .. 6].to!int, text[6 .. 8].to!int,
-      text[8 .. 10].to!int, second), UTC());
+    return utcTime(DateTime(year, text[2 .. 4].to!int, text[4 .. 6].to!int, text[6 .. 8].to!int,
+      text[8 .. 10].to!int, second));
   } catch (Exception exception) {
     throw new Asn1Exception(format("UTCTime no válido: «%s»", text));
   }
 }
 
 /// GeneralizedTime (AAAAMMDDHHmmSS[.fff]Z), la forma que exigen RFC 5280 y RFC 3161.
-SysTime parseGeneralizedTime(string text) @safe {
+SysTime parseGeneralizedTime(string text) pure @safe {
   import core.time : dur;
   enforce!Asn1Exception(text.length >= 15 && text[$ - 1] == 'Z', format("GeneralizedTime no válido: «%s»", text));
   try {
-    auto base = SysTime(DateTime(text[0 .. 4].to!int, text[4 .. 6].to!int, text[6 .. 8].to!int,
-      text[8 .. 10].to!int, text[10 .. 12].to!int, text[12 .. 14].to!int), UTC());
+    auto base = utcTime(DateTime(text[0 .. 4].to!int, text[4 .. 6].to!int, text[6 .. 8].to!int,
+      text[8 .. 10].to!int, text[10 .. 12].to!int, text[12 .. 14].to!int));
     if (text.length > 15) {
       enforce!Asn1Exception(text[14] == '.' && text.length > 16, format("GeneralizedTime no válido: «%s»", text));
       string fraction = text[15 .. $ - 1];
@@ -632,16 +633,13 @@ ubyte[] derIa5String(string text) pure @safe {
   return derTlv(0x16, cast(const(ubyte)[]) text);
 }
 
-ubyte[] derGeneralizedTime(SysTime time) @safe {
-  DateTime utc = cast(DateTime) time.toUTC;
-  string text = format("%04d%02d%02d%02d%02d%02dZ", utc.year, cast(int) utc.month, utc.day, utc.hour, utc.minute,
-    utc.second);
-  return derTlv(0x18, cast(const(ubyte)[]) text);
+ubyte[] derGeneralizedTime(SysTime time) pure @safe {
+  return derTlv(0x18, cast(const(ubyte)[]) toGeneralizedTime(time));
 }
 
 /// UTCTime para fechas entre 1950 y 2049, como exige RFC 5652 para signing-time.
-ubyte[] derUtcTime(SysTime time) @safe {
-  DateTime utc = cast(DateTime) time.toUTC;
+ubyte[] derUtcTime(SysTime time) pure @safe {
+  DateTime utc = utcDateTime(time);
   enforce!Asn1Exception(utc.year >= 1950 && utc.year < 2050, "UTCTime sólo representa años de 1950 a 2049");
   string text = format("%02d%02d%02d%02d%02d%02dZ", utc.year % 100, cast(int) utc.month, utc.day, utc.hour,
     utc.minute, utc.second);
@@ -649,8 +647,8 @@ ubyte[] derUtcTime(SysTime time) @safe {
 }
 
 /// Fecha en UTCTime hasta 2049 y en GeneralizedTime después (Time de RFC 5280).
-ubyte[] derTime(SysTime time) @safe {
-  DateTime utc = cast(DateTime) time.toUTC;
+ubyte[] derTime(SysTime time) pure @safe {
+  DateTime utc = utcDateTime(time);
   return utc.year >= 1950 && utc.year < 2050 ? derUtcTime(time) : derGeneralizedTime(time);
 }
 

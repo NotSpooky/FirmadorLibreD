@@ -53,7 +53,8 @@ struct CmsSignerVerification {
  * Certificado del firmante entre los del SignedData y los conocidos, o null.
  * El atributo signing-certificate(-v2), si está, debe coincidir con él.
  */
-Certificate findSignerCertificate(const SignedData signedData, const SignerInfo signer, CertificatePool pool) @trusted {
+Certificate findSignerCertificate(const SignedData signedData, const SignerInfo signer, CertificatePool pool)
+    pure @trusted {
   foreach (certificate; signedData.certificates) if (signer.identifies(certificate)) return cast(Certificate) certificate;
   foreach (certificate; pool.all) if (signer.identifies(certificate)) return cast(Certificate) certificate;
   return null;

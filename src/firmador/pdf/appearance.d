@@ -28,10 +28,10 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.pdf.appearance;
 
-import std.array : appender, split;
+import std.algorithm : map, splitter;
+import std.array : appender, array;
 import std.format : format;
 import std.math : abs;
-import std.regex : ctRegex, split;
 import std.string : indexOf;
 
 import firmador.pdf.engine : PdfRect;
@@ -104,8 +104,8 @@ int globalRotation(SignatureRotation rotation, int pageRotation) pure nothrow @s
 }
 
 /// Líneas del texto como String.split("\\r?\\n") de Java, que descarta las vacías del final.
-string[] javaLines(string text) @safe {
-  auto parts = split(text, ctRegex!`\r?\n`);
+string[] javaLines(string text) pure @safe {
+  auto parts = text.splitter('\n').map!(line => line.length && line[$ - 1] == '\r' ? line[0 .. $ - 1] : line).array;
   while (parts.length && parts[$ - 1].length == 0) parts = parts[0 .. $ - 1];
   return parts;
 }
@@ -126,7 +126,8 @@ float lineHeight(const FontMetrics metrics, float fontSize) pure nothrow @safe @
  * Diseño completo del campo (build de SignatureFieldDimensionAndPositionBuilder).
  * `encode` convierte cada línea a los códigos de la fuente.
  */
-SignatureLayout computeLayout(const VisibleSignatureInput input, scope ubyte[] delegate(string) @safe encode) @safe {
+SignatureLayout computeLayout(const VisibleSignatureInput input, scope ubyte[] delegate(string) pure @safe encode)
+    pure @safe {
   SignatureLayout layout;
   layout.globalRotation = globalRotation(input.rotation, input.pageRotation);
   bool swap = layout.globalRotation == 90 || layout.globalRotation == 270;
@@ -247,7 +248,8 @@ SignatureLayout computeLayout(const VisibleSignatureInput input, scope ubyte[] d
 }
 
 /// Tamaño natural (sin rotar) de la caja, en puntos (naturalBoxSizePt de la versión Java).
-float[2] naturalBoxSize(const VisibleSignatureInput input, scope ubyte[] delegate(string) @safe encode) @safe {
+float[2] naturalBoxSize(const VisibleSignatureInput input, scope ubyte[] delegate(string) pure @safe encode)
+    pure @safe {
   VisibleSignatureInput unrotated = input;
   unrotated.rotation = SignatureRotation.none;
   auto layout = computeLayout(unrotated, encode);
@@ -266,7 +268,7 @@ struct AppearanceContent {
  * rotación, fondo del texto, texto e imagen, en ese orden.
  */
 AppearanceContent appearanceContent(const SignatureLayout layout, const VisibleSignatureInput input,
-    scope ubyte[] delegate(string) @safe encode, string fontResource, string imageResource) @safe {
+    scope ubyte[] delegate(string) pure @safe encode, string fontResource, string imageResource) pure @safe {
   AppearanceContent result;
   auto output = appender!string;
   float rectWidth = layout.annotationRect.width;
@@ -525,14 +527,14 @@ ImageSize readImageSize(const(ubyte)[] bytes) pure @safe {
 }
 
 version (unittest) {
-  private FontMetrics helveticaLike() @safe {
+  private FontMetrics helveticaLike() pure @safe {
     FontMetrics metrics;
     metrics.widths[] = 500;
     metrics.boundingBoxHeight = 1156;
     return metrics;
   }
 
-  private ubyte[] encodeForTest(string line) @safe {
+  private ubyte[] encodeForTest(string line) pure @safe {
     size_t replaced;
     return encodeWinAnsi(line, replaced);
   }
@@ -610,4 +612,14 @@ unittest {
   auto jpegSize = readImageSize(jpeg);
   assert(jpegSize.width == 30 && jpegSize.height == 20 && jpegSize.dpiX == 72);
   assertThrown(readImageSize(cast(const(ubyte)[]) "GIF89a"));
+}
+
+@("should split lines like Java String.split with \\r?\\n when the text mixes line endings")
+unittest {
+  assert(javaLines("uno\r\ndos\ntres") == ["uno", "dos", "tres"]);
+  // Un \r suelto no separa, y un \r antes de \r\n queda en la línea.
+  assert(javaLines("a\rb\r\r\nc") == ["a\rb\r", "c"]);
+  // Las vacías del medio se conservan; las del final se descartan.
+  assert(javaLines("a\n\nb\n\n\r\n") == ["a", "", "b"]);
+  assert(javaLines("").length == 0 && javaLines("\n\n").length == 0);
 }

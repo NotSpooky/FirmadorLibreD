@@ -66,7 +66,7 @@ immutable string[] knownPluginNames = [dummyPluginName, checkUpdatePluginName, d
   installerPluginName];
 
 /// Crea un plugin por su nombre; null si no existe.
-Plugin createPlugin(string name, GuiInterface gui) @safe {
+Plugin createPlugin(string name, GuiInterface gui) pure @safe {
   switch (name) {
     case dummyPluginName: return new DummyPlugin;
     case checkUpdatePluginName: return new CheckUpdatePlugin(gui);
@@ -81,7 +81,7 @@ final class PluginManager {
   private GuiInterface gui;
   private Plugin[] plugins_;
 
-  this(GuiInterface gui) @safe {
+  this(GuiInterface gui) pure @safe {
     this.gui = gui;
   }
 
@@ -103,7 +103,7 @@ final class PluginManager {
   }
 
   /// Plugins cargados.
-  Plugin[] plugins() @trusted {
+  Plugin[] plugins() pure @trusted {
     synchronized (this) return plugins_.dup;
   }
 
@@ -135,7 +135,7 @@ final class PluginManager {
 
 /// Deja en la bitácora los datos del sistema y la versión (DummyPlugin).
 final class DummyPlugin : Plugin {
-  override string name() const @safe { return dummyPluginName; }
+  override string name() const pure @safe { return dummyPluginName; }
 
   override void start() @safe {
     info("Starting DummyPlugin");
@@ -165,7 +165,7 @@ string systemReport() @safe {
 
 /// Quita el propio plugin de la configuración tras la instalación (InstallerPlugin).
 final class InstallerPlugin : Plugin {
-  override string name() const @safe { return installerPluginName; }
+  override string name() const pure @safe { return installerPluginName; }
 
   override void start() @trusted {
     auto settings = currentSettings();
@@ -195,7 +195,7 @@ final class DocumentSignLogs : Plugin {
     fileLock = new Mutex;
   }
 
-  override string name() const @safe { return documentSignLogsPluginName; }
+  override string name() const pure @safe { return documentSignLogsPluginName; }
 
   override void documentSigned(Document document) @trusted {
     auto card = document.usedCard();

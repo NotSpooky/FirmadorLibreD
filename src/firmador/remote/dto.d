@@ -72,7 +72,7 @@ struct RemoteSignRequest {
  *
  * Throws: JsonShapeException con el campo si no tiene la forma esperada.
  */
-RemoteSignRequest parseRemoteSignRequest(const JSONValue json) @safe {
+RemoteSignRequest parseRemoteSignRequest(const JSONValue json) pure @safe {
   enum what = "La solicitud de firma";
   enforce!JsonShapeException(isObject(json), what ~ " debe ser un objeto JSON");
   RemoteSignRequest request;
@@ -101,7 +101,7 @@ RemoteSignRequest parseRemoteSignRequest(const JSONValue json) @safe {
 }
 
 /// Lista de peticiones (/multipleSign y las conexiones).
-RemoteSignRequest[] parseRemoteSignRequests(const JSONValue json) @safe {
+RemoteSignRequest[] parseRemoteSignRequests(const JSONValue json) pure @safe {
   RemoteSignRequest[] requests;
   foreach (item; arrayItems(json, "La lista de solicitudes de firma")) requests ~= parseRemoteSignRequest(item);
   return requests;
@@ -114,7 +114,7 @@ string requestHostname(const RemoteSignRequest request) @safe {
 }
 
 /// Bytes de la imagen de una petición (quita el prefijo de data URL), o null si no es base64.
-immutable(ubyte)[] requestImage(string b64image) @safe {
+immutable(ubyte)[] requestImage(string b64image) pure @safe {
   if (b64image.length == 0) return null;
   auto comma = b64image.indexOf(',');
   string encoded = comma >= 0 ? b64image[comma + 1 .. $] : b64image;
@@ -150,7 +150,7 @@ JSONValue[] signRemoteRequests(GuiInterface gui, CardSignInfo card, const Remote
  * documento y el certificado de la petición (o el de la credencial si no lo traía).
  */
 JSONValue remoteSignatureJson(const RemoteSignRequest request, const(ubyte)[] signatureValue, bool rsa,
-    const Certificate cardCertificate) @safe {
+    const Certificate cardCertificate) pure @safe {
   JSONValue signature;
   signature["algorithm"] = signatureAlgorithmName(rsa);
   signature["value"] = encodeBase64(signatureValue);
@@ -163,7 +163,7 @@ JSONValue remoteSignatureJson(const RemoteSignRequest request, const(ubyte)[] si
 }
 
 /// Documento firmado (RemoteDocument de DSS: bytes, digestAlgorithm y name).
-JSONValue remoteDocumentJson(const(ubyte)[] bytes, string name) @safe {
+JSONValue remoteDocumentJson(const(ubyte)[] bytes, string name) pure @safe {
   JSONValue json;
   json["bytes"] = encodeBase64(bytes);
   json["digestAlgorithm"] = JSONValue(null);
@@ -186,7 +186,7 @@ struct SignDocumentRequest {
  *
  * Throws: JsonShapeException con el campo si no tiene la forma esperada.
  */
-SignDocumentRequest parseSignDocumentRequest(const JSONValue json, const Settings base) @safe {
+SignDocumentRequest parseSignDocumentRequest(const JSONValue json, const Settings base) pure @safe {
   enum what = "La solicitud /signDocument";
   enforce!JsonShapeException(isObject(json), what ~ " debe ser un objeto JSON");
   SignDocumentRequest request;
@@ -218,7 +218,7 @@ struct AuthenticationRequest {
  *
  * Throws: JsonShapeException con el campo si no tiene la forma esperada.
  */
-AuthenticationRequest parseAuthenticationRequest(const JSONValue json) @safe {
+AuthenticationRequest parseAuthenticationRequest(const JSONValue json) pure @safe {
   enum what = "La solicitud de autenticación";
   enforce!JsonShapeException(isObject(json), what ~ " debe ser un objeto JSON");
   AuthenticationRequest request;

@@ -138,7 +138,7 @@ bool hasToken(const string[string] entries, string alias_, TokenType type) pure 
  *
  * Throws: TokenStoreException si no está (hay que volver a iniciar sesión).
  */
-string tokenOf(const string[string] entries, string alias_, TokenType type) @safe {
+string tokenOf(const string[string] entries, string alias_, TokenType type) pure @safe {
   auto found = entryKey(alias_, type) in entries;
   enforce!TokenStoreException(found !is null, format("No hay un token «%s» guardado para %s; inicie sesión de nuevo",
     cast(string) type, alias_));

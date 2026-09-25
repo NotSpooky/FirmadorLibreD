@@ -130,7 +130,7 @@ version (linux) {
   private final class LibsecretCredentialStore : CachedCredentialStore {
     private SecretSchema schema;
 
-    this() @trusted {
+    this() pure @trusted {
       schema.name = "cr.libre.firmador.KeystorePassword";
       schema.flags = SECRET_SCHEMA_NONE;
       schema.attributes[0].name = "service";

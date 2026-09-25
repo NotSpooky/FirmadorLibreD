@@ -221,7 +221,7 @@ final class ConfigPanel : VerticalLayout {
     return row(table, label, new ComboBox(null, items.dup));
   }
 
-  private static dstring[] plain(const string[] items) @trusted {
+  private static dstring[] plain(const string[] items) pure @trusted {
     return items.map!(item => item.toUTF32).array;
   }
 

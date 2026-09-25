@@ -233,7 +233,7 @@ ContainerContent withSignatureDocument(ContainerContent content, string name, im
 }
 
 /// Resuelve las referencias de una firma del contenedor a sus archivos (URI con escapes).
-ExternalResolver containerResolver(const ContainerContent content) @safe {
+ExternalResolver containerResolver(const ContainerContent content) pure @safe {
   auto entries = content.allEntries();
   return (string uri) @safe => entryContent(entries, uri);
 }

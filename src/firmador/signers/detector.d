@@ -84,7 +84,7 @@ DocumentSigner signerForFormat(GuiInterface gui, SignatureFormat format_) @safe 
 }
 
 /// Formato de un firmador, para marcarlo en el diálogo.
-SignatureFormat formatOf(const DocumentSigner signer) @safe {
+SignatureFormat formatOf(const DocumentSigner signer) pure @safe {
   if (cast(const PadesSigner) signer) return SignatureFormat.pades;
   if (cast(const XadesSigner) signer) return SignatureFormat.xades;
   if (cast(const CadesSigner) signer) return SignatureFormat.cades;

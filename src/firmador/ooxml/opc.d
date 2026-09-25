@@ -174,7 +174,7 @@ string resolveTarget(string sourcePart, string target) pure @safe {
 }
 
 /// Contenido de la parte (nombre con «/» inicial, con o sin escapes), o null si no existe.
-immutable(ubyte)[] partContent(const ZipEntry[] entries, string partName) @safe {
+immutable(ubyte)[] partContent(const ZipEntry[] entries, string partName) pure @safe {
   enforce!OpcException(partName.startsWith("/"), format("Nombre de parte no válido: «%s»", partName));
   auto found = entryContent(entries, partName[1 .. $]);
   if (found !is null) return found;

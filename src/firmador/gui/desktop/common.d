@@ -314,7 +314,7 @@ final class PageSelector : HorizontalLayout {
     set(value_, false);
   }
 
-  int value() const @safe {
+  int value() const pure @safe {
     return value_;
   }
 

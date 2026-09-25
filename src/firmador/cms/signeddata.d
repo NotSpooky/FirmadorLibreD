@@ -83,7 +83,7 @@ struct SignerInfo {
   }
 
   /// El certificado es el de este firmante.
-  bool identifies(const Certificate certificate) const @safe {
+  bool identifies(const Certificate certificate) const pure @safe {
     if (sidIsKeyIdentifier) return certificate.subjectKeyIdentifier == sidKeyIdentifier;
     return certificate.issuer.matches(sidIssuer) && certificate.serialNumber == sidSerial;
   }
@@ -112,7 +112,7 @@ struct SignedData {
  *
  * Throws: Asn1Exception con el campo que falla si no es un SignedData bien formado.
  */
-SignedData parseSignedData(const(ubyte)[] contentInfo) @safe {
+SignedData parseSignedData(const(ubyte)[] contentInfo) pure @safe {
   auto root = parseDer(contentInfo);
   auto rootReader = root.reader();
   enforce!Asn1Exception(rootReader.next("el tipo de contenido").oidValue == oidSignedData,
@@ -159,7 +159,7 @@ SignedData parseSignedData(const(ubyte)[] contentInfo) @safe {
   return data;
 }
 
-private CmsAttribute[] parseAttributes(const DerElement element) @safe {
+private CmsAttribute[] parseAttributes(const DerElement element) pure @safe {
   CmsAttribute[] attributes;
   foreach (attributeElement; parseDerSequenceContent(element.content)) {
     auto reader = attributeElement.reader();
@@ -174,7 +174,7 @@ private CmsAttribute[] parseAttributes(const DerElement element) @safe {
   return attributes;
 }
 
-private SignerInfo parseSignerInfo(const DerElement element) @safe {
+private SignerInfo parseSignerInfo(const DerElement element) pure @safe {
   SignerInfo signer;
   signer.raw = element.raw.idup;
   auto reader = element.reader();
@@ -205,7 +205,7 @@ private SignerInfo parseSignerInfo(const DerElement element) @safe {
 }
 
 /// Valor del atributo message-digest.
-immutable(ubyte)[] messageDigestOf(const SignerInfo signer) @safe {
+immutable(ubyte)[] messageDigestOf(const SignerInfo signer) pure @safe {
   auto attribute = signer.signedAttribute(oidMessageDigest);
   enforce!Asn1Exception(attribute !is null && attribute.values.length == 1,
     "La firma no tiene exactamente un atributo message-digest");
@@ -213,7 +213,7 @@ immutable(ubyte)[] messageDigestOf(const SignerInfo signer) @safe {
 }
 
 /// Fecha del atributo signing-time, si lo tiene.
-bool signingTimeOf(const SignerInfo signer, out SysTime time) @safe {
+bool signingTimeOf(const SignerInfo signer, out SysTime time) pure @safe {
   auto attribute = signer.signedAttribute(oidSigningTime);
   if (attribute is null || attribute.values.length == 0) return false;
   time = attribute.values[0].timeValue;
@@ -233,7 +233,7 @@ struct SigningCertificateReference {
  *
  * Throws: Asn1Exception si el atributo existe pero está mal formado.
  */
-SigningCertificateReference[] signingCertificateReferences(const SignerInfo signer) @safe {
+SigningCertificateReference[] signingCertificateReferences(const SignerInfo signer) pure @safe {
   SigningCertificateReference[] references;
   auto v2 = signer.signedAttribute(oidSigningCertificateV2);
   auto v1 = signer.signedAttribute(oidSigningCertificate);
@@ -277,7 +277,7 @@ ubyte[] cmsAttribute(string oid, const(ubyte)[] value) pure @safe {
 }
 
 /// signing-certificate-v2 con el resumen SHA-256 del certificado (EN 319 122-1 §5.2.2.3).
-ubyte[] signingCertificateV2Attribute(const Certificate certificate) @safe {
+ubyte[] signingCertificateV2Attribute(const Certificate certificate) pure @safe {
   // ESSCertIDv2 con SHA-256: el algoritmo es el valor por omisión y en DER se omite. El
   // issuerSerial se omite como recomienda la norma para el nivel baseline.
   auto essCertId = derSequence(derOctetString(certificate.digest(DigestAlgorithm.sha256)));
@@ -298,7 +298,7 @@ struct SignedAttributesInput {
 }
 
 /// Atributos firmados en DER como SET OF (lo que se firma).
-ubyte[] buildSignedAttributes(const SignedAttributesInput input) @safe {
+ubyte[] buildSignedAttributes(const SignedAttributesInput input) pure @safe {
   ubyte[][] attributes = [
     cmsAttribute(oidContentType, derOid(input.contentType)),
     cmsAttribute(oidMessageDigest, derOctetString(input.contentDigest)),
@@ -348,7 +348,7 @@ struct SignedDataInput {
 }
 
 /// ContentInfo DER con el SignedData de un firmante.
-ubyte[] buildSignedData(const SignedDataInput input) @safe {
+ubyte[] buildSignedData(const SignedDataInput input) pure @safe {
   auto digestAlgorithm = derAlgorithm(digestOid(input.digest), false);
   auto issuerAndSerial = derSequence(input.signingCertificate.issuer.der, input.signingCertificate.serialNumberDer);
   auto signedAttributesImplicit = derRetag(input.signedAttributes, TagClass.contextSpecific, 0);
@@ -387,7 +387,7 @@ ubyte[] buildSignedData(const SignedDataInput input) @safe {
  * Throws: Asn1Exception si el SignedData no tiene exactamente un firmante.
  */
 ubyte[] extendSignedData(const(ubyte)[] contentInfo, const(ubyte[])[] newUnsignedAttributes,
-    const(ubyte[])[] newCertificates, const(ubyte[])[] newCrls, const(ubyte[])[] newOcspResponses) @safe {
+    const(ubyte[])[] newCertificates, const(ubyte[])[] newCrls, const(ubyte[])[] newOcspResponses) pure @safe {
   auto root = parseDer(contentInfo);
   auto rootChildren = root.children();
   auto signedDataElement = parseDer(rootChildren[1].content);

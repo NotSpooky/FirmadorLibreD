@@ -52,7 +52,7 @@ struct ImageSource {
  *
  * Throws: Exception si es un «data:» mal formado.
  */
-ImageSource parseImageSource(string image) @safe {
+ImageSource parseImageSource(string image) pure @safe {
   ImageSource source;
   string value = image is null ? null : image.strip;
   if (value.length == 0) return source;
@@ -69,7 +69,7 @@ ImageSource parseImageSource(string image) @safe {
 }
 
 /// Ruta local de un URI file: (file:///C:/…, file:/home/…, file://localhost/…).
-string pathFromFileUri(string uri) @safe {
+string pathFromFileUri(string uri) pure @safe {
   string rest = uri["file:".length .. $];
   if (rest.startsWith("//")) {
     rest = rest[2 .. $];
@@ -133,7 +133,7 @@ SignatureFont resolveSignatureFont(string configured) @trusted {
 }
 
 /// Nombre y datos de «tipo:nombre:datos»; los datos pueden contener ':' (rutas de Windows).
-private string[2] splitFont(string configured) @safe {
+private string[2] splitFont(string configured) pure @safe {
   auto first = configured.indexOf(':');
   auto second = configured[first + 1 .. $].indexOf(':');
   enforce(second >= 0, format("La fuente «%s» no tiene el formato tipo:nombre:datos", configured[0 .. first]));

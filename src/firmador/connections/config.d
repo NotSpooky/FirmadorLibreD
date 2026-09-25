@@ -275,7 +275,7 @@ private string childText(XmlNode parent, string name) @safe {
  * Throws: JsonShapeException si falta un campo; ConnectionConfigException si una URL no
  * es válida.
  */
-ConnectionConfig connectionFromJson(const JSONValue json) @safe {
+ConnectionConfig connectionFromJson(const JSONValue json) pure @safe {
   enum what = "La conexión";
   enforce!JsonShapeException(isObject(json), what ~ " debe ser un objeto JSON");
   ConnectionConfig config;
@@ -336,7 +336,7 @@ struct ConnectionSignature {
  * la primera firma decide. La firma avala al firmante, no el JSON: la ventana debe
  * mostrar ambos para que el usuario decida.
  */
-ConnectionSignature summarizeConnectionSignature(const DocumentValidationResult result) @safe {
+ConnectionSignature summarizeConnectionSignature(const DocumentValidationResult result) pure @safe {
   ConnectionSignature summary = ConnectionSignature(false, "Desconocido", "UNKNOWN");
   if (result.signatures.length == 0) return summary;
   auto first = result.signatures[0];

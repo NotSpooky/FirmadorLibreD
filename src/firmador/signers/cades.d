@@ -43,11 +43,11 @@ final class CadesSigner : ServicedSigner {
     super(gui);
   }
 
-  string formatName() const @safe {
+  string formatName() const pure @safe {
     return "CAdES";
   }
 
-  string signedExtension(string originalName) const @safe {
+  string signedExtension(string originalName) const pure @safe {
     return ".p7s";
   }
 
