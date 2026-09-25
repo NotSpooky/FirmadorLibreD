@@ -188,7 +188,6 @@ final class SignPanel : VerticalLayout {
     zoomBox.selectedItemIndex = zoomIndexFor(settings.previewZoom);
     zoomBox.itemClick = (Widget source, int index) {
       pages.setZoom(zoomAt(index));
-      scheduleSignaturePreview();
       return true;
     };
     topBar.addChild(zoomBox);
@@ -241,6 +240,11 @@ final class SignPanel : VerticalLayout {
       signScale = scale;
       updateSizeLabel();
       // Una apariencia que se estaba dibujando con la escala anterior ya no sirve.
+      previewGeneration++;
+      scheduleSignaturePreview();
+    };
+    pages.onScaleChanged = (float scale) {
+      // La apariencia se dibuja a la escala de las páginas: estirada se ve pixelada.
       previewGeneration++;
       scheduleSignaturePreview();
     };

@@ -31,14 +31,14 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 module firmador.gui.desktop.dialogs;
 
 import core.time : dur;
-import std.algorithm : all, canFind, map;
+import std.algorithm : map;
 import std.array : array;
 import std.ascii : isDigit;
 import std.conv : to;
 import std.format : format;
 import std.logger : error, info, warning;
 import std.uni : toUpper;
-import std.utf : codeLength, encode, toUTF32, toUTF8;
+import std.utf : toUTF32, toUTF8;
 
 import dlangui.core.events;
 import dlangui.core.signals;
@@ -60,6 +60,7 @@ import firmador.cards.cardinfo : CardSignInfo;
 import firmador.cards.detector : SmartCardDetector, UnsupportedArchitectureException;
 import firmador.connections.connection : PinAndCode;
 import firmador.gui.desktop.richtext : RichText;
+import firmador.gui.desktop.secretfield : SecretField;
 import firmador.gui.guiinterface : HostAuthorization;
 import firmador.i18n : t;
 import firmador.signers.detector : formatLabel, SignatureFormat;
@@ -236,54 +237,16 @@ void showHostAuthorizationDialog(Window parent, string origin, void delegate(Hos
   });
 }
 
-/// Campo de PIN: oculta lo que se escribe.
-private EditLine pinField() @trusted {
-  auto field = new EditLine("pin");
-  field.passwordChar = '•';
+/// Campo de PIN: oculta lo que se escribe y lo guarda en un búfer que se borra.
+private SecretField pinField() @trusted {
+  auto field = new SecretField("pin");
   field.minWidth = 220;
   return field;
 }
 
-/**
- * Texto en UTF-8 en un arreglo nuevo y modificable, codificado carácter por carácter sin
- * pasar por una cadena inmutable, para que quien lo recibe pueda borrarlo.
- *
- * Params:
- *   text = texto a codificar.
- * Returns: el texto codificado, en un arreglo propio de quien llama.
- * Throws: UTFException si `text` tiene un carácter que no es válido en Unicode.
- */
-char[] wipeableUtf8(const(dchar)[] text) pure @safe {
-  size_t length;
-  foreach (dchar character; text) length += codeLength!char(character);
-  auto characters = new char[length];
-  size_t written;
-  foreach (dchar character; text) {
-    char[4] encoded;
-    size_t size = encode(encoded, character);
-    characters[written .. written + size] = encoded[0 .. size];
-    encoded[] = '\0';
-    written += size;
-  }
-  return characters;
-}
-
-/**
- * Texto de un campo secreto (PIN o contraseña) en UTF-8 (wipeableUtf8) y vacía el campo.
- * Quien llama debe borrar el arreglo (`characters[] = '\0'`) al terminar. Las copias que
- * guarda dlangui mientras se escribe quedan fuera de su alcance.
- *
- * Throws: UTFException si el campo tiene un carácter que no es válido en Unicode.
- */
-char[] takeSecretText(EditLine field) @trusted {
-  auto characters = wipeableUtf8(field.text);
-  field.text = ""d;
-  return characters;
-}
-
-/// Texto de un campo de PIN como SecretPin, vaciando el campo y borrando la copia intermedia.
-private SecretPin takePin(EditLine field) @trusted {
-  auto characters = takeSecretText(field);
+/// PIN de un campo como SecretPin, vaciando el campo y borrando la copia intermedia.
+private SecretPin takePin(SecretField field) @trusted {
+  auto characters = field.take();
   scope (exit) characters[] = '\0';
   return new SecretPin(characters);
 }
@@ -296,7 +259,7 @@ final class PinDialog : FirmadorDialog {
   private SmartCardDetector detector;
   private CardSignInfo[] cards;
   private ComboBox cardList;
-  private EditLine pin;
+  private SecretField pin;
   private TextWidget info;
 
   this(Window parent, SmartCardDetector detector) @trusted {
@@ -315,7 +278,7 @@ final class PinDialog : FirmadorDialog {
     table.addChild(refresh);
     table.addChild(new TextWidget(null, t("pin_dialog_requestpin").toUTF32));
     pin = pinField();
-    pin.enterKey = (EditWidgetBase source) { close(new Action(StandardAction.Ok)); return true; };
+    pin.onEnter = () { close(new Action(StandardAction.Ok)); };
     table.addChild(pin);
     table.addChild(new TextWidget(null, ""d));
     addChild(table);
@@ -351,7 +314,7 @@ final class PinDialog : FirmadorDialog {
 
   protected override bool accepts(const Action action) {
     if (action.id != StandardAction.Ok) return true;
-    if (pin.text.length > 0 && cardList.selectedItemIndex >= 0 && cardList.selectedItemIndex < cards.length) {
+    if (pin.length > 0 && cardList.selectedItemIndex >= 0 && cardList.selectedItemIndex < cards.length) {
       return true;
     }
     showMessageDialog(window, t("pin_dialog_error_context"), t("pin_dialog_error_title"));
@@ -363,7 +326,7 @@ final class PinDialog : FirmadorDialog {
     reloadCards();
     super.open((const Action result) {
       if (result is null || result.id != StandardAction.Ok) {
-        pin.text = ""d;
+        pin.clear();
         done(null);
         return;
       }
@@ -385,14 +348,14 @@ void showRemotePinDialog(Window parent, CardSignInfo card, string description, i
   dialog.open((const Action result) {
     bool accepted = result !is null && result.id == StandardAction.Ok;
     if (accepted) card.pin = takePin(dialog.pin);
-    else dialog.pin.text = ""d;
+    else dialog.pin.clear();
     done(accepted);
   });
   dialog.pin.setFocus();
 }
 
 private final class RemotePinDialog : FirmadorDialog {
-  EditLine pin;
+  SecretField pin;
 
   this(Window parent, CardSignInfo card, string description, immutable(ubyte)[] image) @trusted {
     super(t("pin_dialog_title"), parent);
@@ -405,7 +368,7 @@ private final class RemotePinDialog : FirmadorDialog {
     table.addChild(new TextWidget("certificado", card.displayInfo.toUTF32));
     table.addChild(new TextWidget(null, t("pin_dialog_requestpin").toUTF32));
     pin = pinField();
-    pin.enterKey = (EditWidgetBase source) { close(new Action(StandardAction.Ok)); return true; };
+    pin.onEnter = () { close(new Action(StandardAction.Ok)); };
     table.addChild(pin);
     column.addChild(table);
     import firmador.xml.dom : escapeXml;
@@ -420,15 +383,10 @@ private final class RemotePinDialog : FirmadorDialog {
   }
 
   protected override bool accepts(const Action action) {
-    if (action.id != StandardAction.Ok || pin.text.length > 0) return true;
+    if (action.id != StandardAction.Ok || pin.length > 0) return true;
     showMessageDialog(window, t("pin_dialog_error_context"), t("pin_dialog_error_title"));
     return false;
   }
-}
-
-/// El PIN sólo admite dígitos.
-bool isValidPinText(dstring text) pure nothrow @safe {
-  return text.all!(character => character >= '0' && character <= '9');
 }
 
 /// Segundos que da el BCCR para responder una solicitud (RequestPinAndCodeWindow).
@@ -450,7 +408,7 @@ void showPinAndCodeDialog(Window parent, immutable(ubyte)[] logo, string entityN
   dialog.open((const Action result) {
     dialog.stopTimer();
     if (result is null || result.id != StandardAction.Ok) {
-      dialog.pin.text = ""d;
+      dialog.pin.clear();
       if (dialog.expired) showMessageDialog(parent, t("pin_code_expired_title"), t("pin_code_expired"));
       done(PinAndCode(false, null, null));
       return;
@@ -462,7 +420,7 @@ void showPinAndCodeDialog(Window parent, immutable(ubyte)[] logo, string entityN
 }
 
 private final class PinAndCodeDialog : FirmadorDialog {
-  EditLine pin;
+  SecretField pin;
   EditLine code;
   bool expired;
   private TextWidget timerLabel;
@@ -481,14 +439,8 @@ private final class PinAndCodeDialog : FirmadorDialog {
     table.colCount = 2;
     table.addChild(new TextWidget(null, t("pin_code_pin_label").toUTF32));
     pin = pinField();
-    pin.contentChange = (EditableContent content) {
-      dstring value = pin.text;
-      if (!isValidPinText(value)) {
-        dstring digits;
-        foreach (character; value) if (character >= '0' && character <= '9') digits ~= character;
-        pin.text = digits;
-      }
-    };
+    // El PIN del BCCR sólo admite dígitos.
+    pin.accepts = (dchar character) @safe => character >= '0' && character <= '9';
     table.addChild(pin);
     table.addChild(new TextWidget(null, t("pin_code_code_label").toUTF32));
     code = new EditLine("codigo");
@@ -542,7 +494,7 @@ private final class PinAndCodeDialog : FirmadorDialog {
   }
 
   protected override bool accepts(const Action action) {
-    if (action.id != StandardAction.Ok || (pin.text.length > 0 && code.text.length > 0)) return true;
+    if (action.id != StandardAction.Ok || (pin.length > 0 && code.text.length > 0)) return true;
     showMessageDialog(window, t("pin_code_required_title"), t("pin_code_required"));
     return false;
   }
@@ -646,24 +598,11 @@ final class ProgressDialog : FirmadorDialog {
   }
 }
 
-@("should accept only digits in a PIN and format the remaining time like the BCCR window")
+@("should format the remaining time like the BCCR window when counting down")
 unittest {
   import firmador.i18n : setMessagesLocale;
   setMessagesLocale("es", "CR");
-  assert(isValidPinText("0123"d) && isValidPinText(""d));
-  assert(!isValidPinText("12a"d));
   assert(remainingTimeText(65) == "Tiempo restante: 1:05");
   assert(remainingTimeText(120) == "Tiempo restante: 2:00");
 }
 
-@("should encode multi-byte characters like toUTF8 when copying a secret into a wipeable buffer")
-unittest {
-  import std.exception : assertThrown;
-  import std.utf : UTFException;
-  dstring secret = "pín€𝄞1"d;
-  auto characters = wipeableUtf8(secret);
-  assert(characters == secret.toUTF8);
-  characters[] = '\0';
-  assert(wipeableUtf8(""d).length == 0);
-  assertThrown!UTFException(wipeableUtf8([cast(dchar) 0xD800]));
-}

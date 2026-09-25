@@ -195,6 +195,12 @@ string toRfc3339Utc(SysTime time) @safe {
     utc.second);
 }
 
+/// Día (yyyy-MM-dd) en que cae `time` en la zona de Costa Rica, como se muestran los vencimientos.
+string costaRicaDay(SysTime time) @safe {
+  auto local = cast(DateTime) time.toOtherTZ(costaRicaTimeZone());
+  return format("%04d-%02d-%02d", local.year, cast(int) local.month, local.day);
+}
+
 /// Fecha en la zona de Costa Rica con su desplazamiento, como en RFC 3339 (-06:00).
 string toRfc3339CostaRica(SysTime time) @safe {
   SysTime local = time.toOtherTZ(costaRicaTimeZone());
@@ -296,4 +302,11 @@ unittest {
   assert(parseRfc3339("2026-09-22T20:04:05.123Z").toUnixTime == time.toUnixTime);
   assert(parsePdfDate("D:20260922140405-06'00'") == time);
   assert(parsePdfDate("D:20260922200405Z") == time);
+}
+
+@("should give the Costa Rica calendar day when a UTC time is past local midnight")
+unittest {
+  import std.datetime.timezone : UTC;
+  assert(costaRicaDay(SysTime(DateTime(2027, 1, 1, 3, 0, 0), UTC())) == "2026-12-31");
+  assert(costaRicaDay(SysTime(DateTime(2027, 1, 1, 6, 0, 0), UTC())) == "2027-01-01");
 }

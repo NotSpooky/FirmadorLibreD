@@ -102,7 +102,8 @@ struct GaudiSignRequest {
 }
 
 /**
- * Lee un mensaje del hub; devuelve true y llena `request` si es una solicitud «Firme».
+ * Lee un mensaje del hub; devuelve true y llena `request` si es una solicitud «Firme». Los
+ * demás, como el «{}» con que SignalR mantiene viva la conexión, dan false.
  *
  * Throws: JsonShapeException si es «Firme» pero le faltan datos.
  */
@@ -391,6 +392,7 @@ unittest {
   import std.exception : assertThrown;
   GaudiSignRequest request;
   assert(!parseGaudiMessage(parseJsonText(`{"C":"d","M":[]}`, "x"), request));
+  assert(!parseGaudiMessage(parseJsonText("{}", "x"), request));
   assert(!parseGaudiMessage(parseJsonText(`{"M":[{"M":"Otro"}]}`, "x"), request));
   assertThrown!JsonShapeException(parseGaudiMessage(parseJsonText(`{"M":[{"M":"Firme","A":[{}]}]}`, "x"), request));
   auto negotiation = parseGaudiNegotiation(parseJsonText(

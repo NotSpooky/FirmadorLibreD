@@ -25,7 +25,6 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.cards.cardinfo;
 
-import std.datetime.date : DateTime;
 import std.format : format;
 import std.json : JSONValue;
 import std.string : strip;
@@ -33,7 +32,7 @@ import std.string : strip;
 import firmador.asn1.oids;
 import firmador.i18n : t;
 import firmador.tokens.token : SecretPin;
-import firmador.util.datetime : costaRicaTimeZone;
+import firmador.util.datetime : costaRicaDay;
 import firmador.x509.certificate : Certificate;
 
 /// Tipo de credencial; los valores son los de las constantes de la versión Java.
@@ -58,14 +57,8 @@ CertificateSubject certificateSubject(const Certificate certificate) @safe {
   subject.firstName = certificate.subject.first(oidGivenName);
   subject.commonName = certificate.subject.first(oidCommonName);
   subject.organization = certificate.subject.first(oidOrganization);
-  subject.expires = expiryDate(certificate);
+  subject.expires = costaRicaDay(certificate.notAfter);
   return subject;
-}
-
-/// Fecha de caducidad en la zona de Costa Rica con formato yyyy-MM-dd.
-string expiryDate(const Certificate certificate) @safe {
-  auto local = cast(DateTime) certificate.notAfter.toOtherTZ(costaRicaTimeZone());
-  return format("%04d-%02d-%02d", local.year, cast(int) local.month, local.day);
 }
 
 /// Credencial de firma.

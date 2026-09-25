@@ -196,13 +196,26 @@ final class OfflineValidationSource : ValidationDataSource {
  * Certificados de una descarga AIA: un certificado DER o PEM, o un PKCS#7 sólo con
  * certificados (.p7c).
  *
- * Throws: Exception si el contenido no es ninguno de esos formatos.
+ * Throws: Exception si el contenido no es ninguno de esos formatos, con el motivo de cada
+ * intento.
  */
 Certificate[] certificatesFromAia(const(ubyte)[] content) @safe {
   try {
     return parseCertificates(content);
-  } catch (Exception) {
-    auto signedData = parseSignedData(content);
-    return signedData.certificates;
+  } catch (Exception asCertificate) {
+    try {
+      return parseSignedData(content).certificates;
+    } catch (Exception asPkcs7) {
+      throw new Exception(format("La descarga no es un certificado (%s) ni un PKCS#7 con certificados (%s)",
+        asCertificate.msg, asPkcs7.msg), asPkcs7);
+    }
   }
+}
+
+@("should report why both formats failed when an AIA download is neither a certificate nor PKCS#7")
+unittest {
+  import std.algorithm : canFind;
+  import std.exception : collectException;
+  auto failure = collectException(certificatesFromAia(cast(const(ubyte)[]) "no es DER"));
+  assert(failure !is null && failure.msg.canFind("certificado (") && failure.msg.canFind("PKCS#7 con certificados ("));
 }

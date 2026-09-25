@@ -283,6 +283,8 @@ final class PageView : ScrollWidgetBase {
   void delegate(int page) onCurrentPage;
   /// Cambió el tamaño del recuadro (esquina arrastrada o scaleSignature); recibe la escala nueva.
   void delegate(float scale) onSignatureResized;
+  /// Cambió la escala de las páginas (zoom o tamaño de la vista); recibe los píxeles por punto nuevos.
+  void delegate(float scale) onScaleChanged;
 
   private PageSource source;
   private float[2][] pageSizes;
@@ -492,6 +494,7 @@ final class PageView : ScrollWidgetBase {
       // no debe dejar la vista en blanco.
       scale = newScale;
       invalidate();
+      if (onScaleChanged !is null) onScaleChanged(scale);
     }
     pageTops = null;
     int y = pagePadding;

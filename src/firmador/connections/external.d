@@ -773,6 +773,7 @@ unittest {
     ~ `"refresh_token":"r","id_token":"i","alias":"1-1UCR","user_logged":"Ana"}}`, "x"));
   assert(login.kind == ExternalEvent.Kind.login && login.login.user == "Ana" && login.login.tokenAlias == "1-1UCR");
   assert(parseExternalEvent(parseJsonText(`{"accion":"otra"}`, "x")).kind == ExternalEvent.Kind.ignored);
+  assert(parseExternalEvent(parseJsonText("{}", "x")).kind == ExternalEvent.Kind.ignored);
 }
 
 @("should reject events whose document identifiers are not UUIDs when parsing")

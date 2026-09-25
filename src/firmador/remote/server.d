@@ -314,7 +314,7 @@ final class RemoteServer {
       currentSettings());
     auto document = new Document(gui, signRequest.document, "document" ~ signRequest.extension);
     document.setSettings(signRequest.settings);
-    signWithRemoteCard(response, signRequest.serialNumber, "Firmando desde web...", null, (card) {
+    signWithRemoteCard(response, signRequest.serialNumber, t("remote_http_worker_signing_from_web"), null, (card) {
       document.sign(card);
       auto signed = document.signedContent;
       if (signed is null) return JSONValue(null);

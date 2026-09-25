@@ -37,7 +37,7 @@ import firmador.crypto.digest;
 import firmador.i18n : t;
 import firmador.ooxml.signature;
 import firmador.settings : Settings;
-import firmador.util.datetime : dateLanguageFor, formatJavaDate, parseRfc3339;
+import firmador.util.datetime : costaRicaDay, dateLanguageFor, formatJavaDate, parseRfc3339;
 import firmador.util.zip;
 import firmador.validation.certpath;
 import firmador.validation.cmsverify : validateTimestamp;
@@ -146,10 +146,9 @@ string ooxmlReport(const OoxmlSignatureCheck[] checks, const Settings settings) 
       : firstName ~ " " ~ lastName;
     string date = check.signingTime.isNull ? "" : formatJavaDate(settings.getDateFormat(),
       (cast(SysTime) check.signingTime.get).toLocalTime, dateLanguageFor(settings.language));
-    string expires = format("%04d-%02d-%02d", signer.notAfter.year, cast(int) signer.notAfter.month, signer.notAfter.day);
     report ~= format(t("ooxmlvalidator_report"), position, name, signer.subject.first(oidSerialNumber),
       signer.subject.first(oidOrganization), date, t(check.valid ? "ooxmlvalidator_valid" : "ooxmlvalidator_invalid"),
-      expires, t(check.validOverTime ? "ooxmlvalidator_valid" : "ooxmlvalidator_invalid"));
+      costaRicaDay(signer.notAfter), t(check.validOverTime ? "ooxmlvalidator_valid" : "ooxmlvalidator_invalid"));
     report ~= "<br>";
   }
   return report;

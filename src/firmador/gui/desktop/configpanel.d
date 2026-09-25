@@ -54,6 +54,7 @@ import firmador.cards.pkcs12store : normalizeStorePath, Pkcs12CredentialStore, r
 import firmador.crypto.openssl : WrongPasswordException;
 import firmador.gui.desktop.common;
 import firmador.gui.desktop.dialogs;
+import firmador.gui.desktop.secretfield : SecretField;
 import firmador.gui.desktop.pageview : zoomAt, zoomIndexFor, zoomSettingValues;
 import firmador.gui.desktop.signpanel : rotationLabels, rotationValues, zoomLabels;
 import firmador.gui.desktop.window : DesktopInterface;
@@ -390,13 +391,13 @@ final class ConfigPanel : VerticalLayout {
   private void askPkcs12Password(string path) {
     auto dialog = new FirmadorDialog(t("pkcs12_config_password_title"), window);
     dialog.addChild(new TextWidget(null, format(t("pkcs12_config_password_prompt"), baseName(path)).toUTF32));
-    auto password = new EditLine("contrasena");
-    password.passwordChar = '•';
+    auto password = new SecretField("contrasena");
     password.minWidth = 260;
+    password.onEnter = () { dialog.close(new Action(StandardAction.Ok)); };
     dialog.addChild(password);
     dialog.addOkCancel();
     dialog.open((const Action result) {
-      auto characters = takeSecretText(password);
+      auto characters = password.take();
       scope (exit) characters[] = '\0';
       if (result is null || result.id != StandardAction.Ok) return;
       try {
@@ -419,6 +420,7 @@ final class ConfigPanel : VerticalLayout {
           ~ rootCause(exception).msg);
       }
     });
+    password.setFocus();
   }
 
   // Carga y aplicación ------------------------------------------------------------------

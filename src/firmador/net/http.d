@@ -33,7 +33,7 @@ import std.format : format;
 import std.logger : info, trace, warning;
 import etc.c.curl : CurlOption;
 import std.net.curl : HTTP, CurlException;
-import std.string : indexOf, strip, toLower;
+import std.string : indexOf, startsWith, toLower;
 
 /// Error de red o respuesta que no se pudo recibir.
 class HttpException : Exception {
@@ -132,8 +132,33 @@ HttpResponse httpPost(string url, const(ubyte)[] requestBody, string contentType
 }
 
 /**
- * Abre un flujo de eventos (text/event-stream) y entrega cada línea «data: …» no vacía a
- * `onData`, hasta que el servidor cierre, `cancelled` se active o `onData` devuelva
+ * Saca de `buffer` las líneas completas de un flujo de eventos y devuelve el valor no
+ * vacío de cada campo «data» (con «data:» o «data: », como permite la especificación de
+ * SSE); lo que queda sin salto de línea sigue en `buffer`. Cada línea es un mensaje, como
+ * los leía la versión Java: los servicios mandan un JSON por línea.
+ *
+ * Params:
+ *   buffer = lo recibido y aún no procesado; se queda con la línea incompleta.
+ * Returns: los datos, en orden.
+ */
+string[] takeSseData(ref string buffer) pure @safe {
+  string[] payloads;
+  while (true) {
+    auto newline = buffer.indexOf('\n');
+    if (newline < 0) return payloads;
+    string line = buffer[0 .. newline];
+    buffer = buffer[newline + 1 .. $];
+    if (line.length && line[$ - 1] == '\r') line = line[0 .. $ - 1];
+    if (!line.startsWith("data:")) continue;
+    string payload = line["data:".length .. $];
+    if (payload.startsWith(" ")) payload = payload[1 .. $];
+    if (payload.length) payloads ~= payload;
+  }
+}
+
+/**
+ * Abre un flujo de eventos (text/event-stream) y entrega cada dato a `onData`
+ * (takeSseData), hasta que el servidor cierre, `cancelled` se active o `onData` devuelva
  * false. Devuelve el estado HTTP de la respuesta.
  *
  * Throws: HttpException si no se pudo conectar.
@@ -142,7 +167,7 @@ int httpEventStream(string url, const string[string] headers, scope bool delegat
     shared(bool)* cancelled, HttpOptions options = HttpOptions.init) @trusted {
   options.operationTimeout = Duration.zero;
   int status;
-  auto pending = appender!string;
+  string pending;
   bool stopped = false;
   auto errorBody = appender!(ubyte[]);
   auto http = HTTP(url);
@@ -163,20 +188,10 @@ int httpEventStream(string url, const string[string] headers, scope bool delegat
       return data.length;
     }
     pending ~= cast(const(char)[]) data;
-    while (true) {
-      string buffered = pending[];
-      auto newline = buffered.indexOf('\n');
-      if (newline < 0) break;
-      string line = buffered[0 .. newline].strip;
-      string rest = buffered[newline + 1 .. $];
-      pending = appender!string;
-      pending ~= rest;
-      if (line.length >= 6 && line[0 .. 6] == "data: ") {
-        string payload = line[6 .. $];
-        if (payload != "{}" && !onData(payload)) {
-          stopped = true;
-          return cast(size_t) 0;
-        }
+    foreach (payload; takeSseData(pending)) {
+      if (!onData(payload)) {
+        stopped = true;
+        return cast(size_t) 0;
       }
     }
     return data.length;
@@ -292,4 +307,13 @@ unittest {
   assert(withQuery("https://x/negotiate?clientProtocol=1.4", [["transport", "serverSentEvents"]])
     == "https://x/negotiate?clientProtocol=1.4&transport=serverSentEvents");
   assert(withQuery("https://x/send", [["a", "1"], ["b", "2"]]) == "https://x/send?a=1&b=2");
+}
+
+@("should take every data field with or without the space and keep the partial line when splitting an event stream")
+unittest {
+  string buffer = "event: x\r\ndata: {\"a\":1}\r\n\r\ndata:{}\n: comentario\ndata: \ndata:{\"b\"";
+  assert(takeSseData(buffer) == [`{"a":1}`, "{}"]);
+  assert(buffer == `data:{"b"`);
+  buffer ~= ":2}\n";
+  assert(takeSseData(buffer) == [`{"b":2}`] && buffer.length == 0);
 }
