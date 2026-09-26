@@ -99,6 +99,11 @@ final class Previewer {
     return document.pageGeometry(index);
   }
 
+  /// Anotaciones del PDF (PdfDocument.annotations); ninguna si la vista previa no es el documento mismo.
+  PdfAnnotation[] annotations() @safe {
+    return kind == PreviewKind.pdf && document !is null ? document.annotations() : null;
+  }
+
   /// Se puede ubicar la firma visible sobre la vista previa (showSignLabelPreview): sólo en los PDF.
   bool showsSignaturePosition() const pure nothrow @safe @nogc {
     return kind == PreviewKind.pdf;

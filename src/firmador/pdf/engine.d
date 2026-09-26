@@ -265,13 +265,20 @@ struct PdfDss {
   immutable(ubyte)[][] crls;
 }
 
-/// Anotación de una página, para detectar cambios después de firmar.
+/**
+ * Anotación de una página: para detectar cambios después de firmar y para saber qué tapa
+ * una firma visible nueva (firmador.pdf.pades.coveredAnnotations).
+ */
 struct PdfAnnotation {
   int pageIndex;
   string subtype;
   string fieldType;
   PdfRect rect;
   string contents;
+  /// Número de objeto de la anotación; 0 si no es un objeto indirecto.
+  int objectNumber;
+  /// Campo de firma sin firmar (/FT /Sig sin /V): una firma nueva puede ocuparlo.
+  bool emptySignatureField;
 }
 
 private PdfRect toRect(fz_context* ctx, pdf_obj* array) @trusted {
@@ -540,9 +547,15 @@ final class PdfDocument {
           PdfAnnotation entry;
           entry.pageIndex = index;
           entry.subtype = nameText(ctx, get(ctx, cleanup, annotation, "Subtype"));
+          // El tipo y el valor del campo pueden estar en el campo padre del widget.
+          auto parent = get(ctx, cleanup, annotation, "Parent");
           string fieldType = nameText(ctx, get(ctx, cleanup, annotation, "FT"));
-          if (fieldType is null) fieldType = nameText(ctx, get(ctx, cleanup, get(ctx, cleanup, annotation, "Parent"), "FT"));
+          if (fieldType is null) fieldType = nameText(ctx, get(ctx, cleanup, parent, "FT"));
           entry.fieldType = fieldType;
+          entry.objectNumber = pdf_to_num(ctx, annotation);
+          bool signed = get(ctx, cleanup, annotation, "V") !is null || get(ctx, cleanup, parent, "V") !is null;
+          entry.emptySignatureField = entry.subtype == "Widget" && fieldType == "Sig" && !signed
+            && entry.objectNumber != 0;
           auto rect = get(ctx, cleanup, annotation, "Rect");
           if (rect !is null) entry.rect = toRect(ctx, rect);
           entry.contents = textString(ctx, get(ctx, cleanup, annotation, "Contents"));

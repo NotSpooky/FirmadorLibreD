@@ -140,9 +140,15 @@ immutable(ubyte)[] signPades(GuiInterface gui, SigningServices services, const S
     try {
       prepared = preparePadesSignature(input.content, parameters, padesSignatureContentSize);
     } catch (SignatureOverlapException exception) {
-      error("Error al firmar (traslape de firma): ", exception.msg);
-      gui.showMessage(t("signers_signature_overlap"));
-      throw new ReportedSigningFailure(exception.msg, exception);
+      // Tapar anotaciones no invalida la firma, pero DSS lo avisa al validar: se pregunta.
+      if (!gui.askConfirmation(t("signers_signature_covers_title"), t("signers_signature_covers_confirm"))) {
+        info("Firma cancelada: el recuadro tapa anotaciones y no se aceptó (", exception.msg, ")");
+        gui.showNotification(t("signers_signature_covers_cancelled"), NotificationType.warning);
+        throw new ReportedSigningFailure(exception.msg, exception);
+      }
+      info("Se firma tapando anotaciones de la página ", parameters.pageIndex + 1, " con la aceptación del usuario");
+      parameters.allowCovering = true;
+      prepared = preparePadesSignature(input.content, parameters, padesSignatureContentSize);
     }
     auto attributes = padesSignedAttributes(preparedDigest(prepared), certificate).idup;
     auto chain = services.intermediateChain(certificate);

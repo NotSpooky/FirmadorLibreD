@@ -129,17 +129,56 @@ VisibleSignatureInput layoutInput(const VisibleSignature visible, const PageGeom
   return input;
 }
 
-/// El rectángulo se superpone con una anotación existente de la página (isOverlap de DSS).
-bool overlapsAnnotation(const(PdfAnnotation)[] annotations, int pageIndex, PdfRect rect) pure nothrow @safe @nogc {
-  foreach (annotation; annotations) {
-    if (annotation.pageIndex != pageIndex) continue;
-    auto other = annotation.rect;
-    if (other.width <= 0 || other.height <= 0) continue;
-    if (rect.x0 >= other.x1 || other.x0 >= rect.x1) continue;
-    if (rect.y0 >= other.y1 || other.y0 >= rect.y1) continue;
-    return true;
+/// Lo que tapa el recuadro de una firma visible nueva en su página.
+struct SignatureCoverage {
+  /// Campo de firma vacío que la firma ocupa en vez de crear uno (su número de objeto), o 0.
+  int filledField;
+  /// Anotaciones que el recuadro tapa, sin contar el campo que ocupa: DSS lo marca al validar.
+  PdfAnnotation[] covered;
+}
+
+/// Los rectángulos se superponen como en DSS (AnnotationBox.isOverlap): con bordes que sólo se tocan, no.
+bool rectanglesOverlap(PdfRect first, PdfRect second) pure nothrow @safe @nogc {
+  if (first.x0 >= second.x1 || second.x0 >= first.x1) return false;
+  return !(first.y0 >= second.y1 || second.y0 >= first.y1);
+}
+
+/**
+ * Anotaciones de la página que tapa el recuadro `rect` de una firma visible nueva, con el
+ * criterio de DSS (isAnnotationBoxOverlapping): todas, se vean o no. Si tapa campos de
+ * firma vacíos, la firma ocupa el de mayor área tapada, así que ése no se superpone; los
+ * demás cuentan como tapados.
+ *
+ * Params:
+ *   annotations = anotaciones del documento (PdfDocument.annotations).
+ *   pageIndex = página (base 0) de la firma.
+ *   rect = recuadro de la firma en el espacio de usuario de la página.
+ * Returns: el campo que ocupa y lo que tapa.
+ */
+SignatureCoverage signatureCoverage(const(PdfAnnotation)[] annotations, int pageIndex, PdfRect rect) pure @safe {
+  float overlapArea(PdfRect other) {
+    import std.algorithm : max, min;
+    return max(0f, min(rect.x1, other.x1) - max(rect.x0, other.x0))
+      * max(0f, min(rect.y1, other.y1) - max(rect.y0, other.y0));
   }
-  return false;
+  SignatureCoverage coverage;
+  const(PdfAnnotation)[] overlapping;
+  foreach (annotation; annotations) {
+    if (annotation.pageIndex == pageIndex && rectanglesOverlap(rect, annotation.rect)) overlapping ~= annotation;
+  }
+  float filledArea = -1;
+  foreach (annotation; overlapping) {
+    if (annotation.emptySignatureField && overlapArea(annotation.rect) > filledArea) {
+      filledArea = overlapArea(annotation.rect);
+      coverage.filledField = annotation.objectNumber;
+    }
+  }
+  foreach (annotation; overlapping) {
+    if (!annotation.emptySignatureField || annotation.objectNumber != coverage.filledField) {
+      coverage.covered ~= annotation;
+    }
+  }
+  return coverage;
 }
 
 /// Primer nombre «SignatureN» que no usa ningún campo del formulario.
@@ -166,14 +205,17 @@ struct PadesSignatureParameters {
   string location;
   string contactInfo;
   SysTime signingTime;
+  /// El usuario aceptó que la firma visible tape anotaciones (signatureCoverage).
+  bool allowCovering;
 }
 
 /**
  * Añade el campo de firma al PDF y devuelve el documento preparado con el resumen SHA-256
- * de los tramos que cubrirá la firma.
+ * de los tramos que cubrirá la firma. Una firma visible sobre un campo de firma vacío lo
+ * ocupa en vez de crear otro campo (signatureCoverage).
  *
- * Throws: SignatureOverlapException si el campo visible se superpone con una anotación;
- * PdfException si el PDF no admite la firma.
+ * Throws: SignatureOverlapException si la firma visible tapa anotaciones y no se aceptó
+ * (`allowCovering`); PdfException si el PDF no admite la firma.
  */
 PreparedSignature preparePadesSignature(immutable(ubyte)[] pdf, const PadesSignatureParameters parameters,
     size_t contentsSize = padesSignatureContentSize) @trusted {
@@ -187,8 +229,12 @@ PreparedSignature preparePadesSignature(immutable(ubyte)[] pdf, const PadesSigna
   plan.contactInfo = parameters.contactInfo;
   plan.appName = appName;
   auto field = fieldPlan(document, parameters.pageIndex, parameters.visible, parameters.appearance);
-  if (field.visible && overlapsAnnotation(document.annotations(), parameters.pageIndex, field.rect)) {
-    throw new SignatureOverlapException("The new signature field position overlaps with an existing annotation!");
+  if (field.visible) {
+    auto coverage = signatureCoverage(document.annotations(), parameters.pageIndex, field.rect);
+    if (coverage.covered.length && !parameters.allowCovering) {
+      throw new SignatureOverlapException("The new signature field position overlaps with an existing annotation!");
+    }
+    field.existingWidget = coverage.filledField;
   }
   return appendSignatureField(document, plan, field);
 }
@@ -379,15 +425,39 @@ unittest {
   assert(resolvePageNumber(-9, 5) == 5);
 }
 
-@("should detect overlapping annotations and choose unused field names")
+@("should detect covered annotations like DSS and choose unused field names")
 unittest {
   PdfAnnotation existing;
   existing.pageIndex = 0;
   existing.rect = PdfRect(100, 100, 200, 150);
-  assert(overlapsAnnotation([existing], 0, PdfRect(150, 120, 250, 170)));
-  assert(!overlapsAnnotation([existing], 1, PdfRect(150, 120, 250, 170)));
-  assert(!overlapsAnnotation([existing], 0, PdfRect(200, 100, 300, 150)));
+  assert(signatureCoverage([existing], 0, PdfRect(150, 120, 250, 170)).covered.length == 1);
+  assert(signatureCoverage([existing], 1, PdfRect(150, 120, 250, 170)).covered.length == 0);
+  // Bordes que sólo se tocan no se superponen.
+  assert(signatureCoverage([existing], 0, PdfRect(200, 100, 300, 150)).covered.length == 0);
+  // Como en DSS, una anotación sin tamaño dentro del recuadro cuenta.
+  PdfAnnotation point;
+  point.rect = PdfRect(160, 130, 160, 130);
+  assert(signatureCoverage([point], 0, PdfRect(150, 120, 250, 170)).covered.length == 1);
   assert(nextFieldName(["Signature1", "Signature3"]) == "Signature2");
+}
+
+@("should fill the most covered empty signature field and count the rest as covered")
+unittest {
+  PdfAnnotation small, large, link;
+  small.emptySignatureField = large.emptySignatureField = true;
+  small.objectNumber = 7;
+  small.rect = PdfRect(0, 0, 40, 40);
+  large.objectNumber = 9;
+  large.rect = PdfRect(30, 0, 200, 60);
+  link.subtype = "Link";
+  link.rect = PdfRect(500, 500, 520, 520);
+  auto inField = signatureCoverage([small, large, link], 0, PdfRect(35, 5, 180, 55));
+  assert(inField.filledField == 9 && inField.covered.length == 1 && inField.covered[0].objectNumber == 7);
+  auto outside = signatureCoverage([small, large, link], 0, PdfRect(300, 300, 400, 350));
+  assert(outside.filledField == 0 && outside.covered.length == 0);
+  // Un campo de firma ya firmado no se ocupa: queda tapado.
+  large.emptySignatureField = false;
+  assert(signatureCoverage([large], 0, PdfRect(35, 5, 180, 55)).filledField == 0);
 }
 
 @("should produce a PAdES signature whose CMS covers the byte ranges when signing with a test key")
@@ -421,4 +491,38 @@ unittest {
   assert(verifySignature(certificate.subjectPublicKeyInfoDer, algorithm,
     parsed.signerInfos[0].signedAttributesForSignature, parsed.signerInfos[0].signature));
   assert(document.render(0, 0.2).rgb.length > 0);
+}
+
+@("should fill an empty signature field instead of adding one and refuse covering a link unless accepted")
+unittest {
+  import std.exception : assertThrown;
+  import firmador.pdf.sigpreview : minimalPdf;
+  // Carta con un campo de firma vacío arriba a la izquierda (o un enlace en el mismo lugar).
+  immutable(ubyte)[] letterWith(string annotation) {
+    return minimalPdf(["<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Annots [4 0 R] >>", annotation]);
+  }
+  PadesSignatureParameters parameters;
+  parameters.visible = true;
+  parameters.appearance.text = "Firmante\nPrueba";
+  parameters.appearance.originX = 100;
+  parameters.appearance.originY = 100;
+  parameters.signingTime = Clock.currTime;
+
+  auto withField = letterWith("<< /Type /Annot /Subtype /Widget /FT /Sig /T (FirmaVacia) /Rect [50 500 450 750] "
+    ~ "/P 3 0 R >>");
+  auto filled = PdfDocument.open(preparePadesSignature(withField, parameters).bytes);
+  scope (exit) filled.close();
+  auto annotations = filled.annotations();
+  assert(annotations.length == 1 && !annotations[0].emptySignatureField && annotations[0].objectNumber == 4);
+  auto signatures = filled.signatureFields();
+  assert(signatures.length == 1 && signatures[0].fieldName == "FirmaVacia");
+
+  auto withLink = letterWith("<< /Type /Annot /Subtype /Link /Rect [50 500 450 750] >>");
+  assertThrown!SignatureOverlapException(preparePadesSignature(withLink, parameters));
+  parameters.allowCovering = true;
+  auto covering = PdfDocument.open(preparePadesSignature(withLink, parameters).bytes);
+  scope (exit) covering.close();
+  assert(covering.annotations().length == 2);
 }

@@ -58,6 +58,7 @@ import firmador.gui.desktop.dialogs;
 import firmador.gui.desktop.pageview;
 import firmador.gui.desktop.uithread : runInBackground, runOnUi;
 import firmador.gui.desktop.window : DesktopInterface;
+import firmador.gui.guiinterface : NotificationType;
 import firmador.i18n : t;
 import firmador.launch : hideSignatureAdviceProperty, launchFlag, launchProperty, signatureImageProperty;
 import firmador.pdf.engine : PageGeometry;
@@ -282,6 +283,9 @@ final class SignPanel : VerticalLayout {
     pages = new PageView("paginas");
     pages.fillParent();
     pages.setZoom(zoomAt(zoomBox.selectedItemIndex));
+    pages.onSnappedToField = () {
+      host.showNotification(t("signpanel_snapped_to_field"), NotificationType.info);
+    };
     pages.onSignatureResized = (float scale) {
       signScale = scale;
       updateSizeLabel();

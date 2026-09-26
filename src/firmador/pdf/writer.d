@@ -74,14 +74,17 @@ struct AppearancePlan {
   float[] alphaValues;
 }
 
-/// Campo de firma que se va a crear.
+/// Campo de firma que se va a crear, o el campo de firma vacío que se va a ocupar.
 struct FieldPlan {
+  /// Nombre del campo nuevo (el que se ocupa conserva el suyo).
   string fieldName;
   int pageIndex;
   /// Rectángulo en la página; [0 0 0 0] para una firma invisible.
   PdfRect rect;
   bool visible;
   AppearancePlan appearance;
+  /// Número de objeto del widget de un campo de firma vacío que se ocupa; 0 para crear uno.
+  int existingWidget;
 }
 
 /// Documento con un campo de firma nuevo cuyo /Contents todavía es la reserva.
@@ -220,8 +223,9 @@ private immutable(ubyte)[] saveIncremental(fz_context* ctx, ref MupdfCleanup cle
 }
 
 /**
- * Añade el campo de firma, su diccionario con las reservas y, si es visible, su
- * apariencia, y devuelve el documento resultante con las posiciones de las reservas.
+ * Añade el campo de firma (u ocupa el campo de firma vacío `field.existingWidget`), su
+ * diccionario con las reservas y, si es visible, su apariencia, y devuelve el documento
+ * resultante con las posiciones de las reservas.
  *
  * Throws: PdfException si el PDF está cifrado, no admite una actualización incremental o
  * la página no existe.
@@ -264,16 +268,26 @@ PreparedSignature appendSignatureField(PdfDocument document, const SignatureDict
     }
     auto signatureReference = cleanup.keep(pdf_add_object(ctx, doc, signature));
 
-    auto widget = cleanup.keep(pdf_new_dict(ctx, doc, 10));
-    put(ctx, cleanup, widget, "Type", name(ctx, cleanup, "Annot"));
-    put(ctx, cleanup, widget, "Subtype", name(ctx, cleanup, "Widget"));
-    put(ctx, cleanup, widget, "FT", name(ctx, cleanup, "Sig"));
-    put(ctx, cleanup, widget, "T", textObject(ctx, cleanup, field.fieldName));
+    bool filling = field.existingWidget != 0;
+    pdf_obj* widget;
+    if (filling) {
+      widget = cleanup.keep(pdf_load_object(ctx, doc, field.existingWidget));
+      enforce!PdfException(pdf_is_dict(ctx, widget), "El campo de firma vacío que se iba a ocupar no es un diccionario");
+    } else {
+      widget = cleanup.keep(pdf_new_dict(ctx, doc, 10));
+      put(ctx, cleanup, widget, "Type", name(ctx, cleanup, "Annot"));
+      put(ctx, cleanup, widget, "Subtype", name(ctx, cleanup, "Widget"));
+      put(ctx, cleanup, widget, "FT", name(ctx, cleanup, "Sig"));
+      put(ctx, cleanup, widget, "T", textObject(ctx, cleanup, field.fieldName));
+    }
     put(ctx, cleanup, widget, "F", cleanup.keep(pdf_new_int(ctx, 132)));
     put(ctx, cleanup, widget, "P", page);
     fz_rect rect = fz_rect(field.rect.x0, field.rect.y0, field.rect.x1, field.rect.y1);
     put(ctx, cleanup, widget, "Rect", cleanup.keep(pdf_new_rect(ctx, doc, rect)));
-    put(ctx, cleanup, widget, "V", signatureReference);
+    // El valor va en el campo: el widget mismo, o su padre si el widget no tiene nombre.
+    auto parent = get(ctx, cleanup, widget, "Parent");
+    bool valueInParent = filling && get(ctx, cleanup, widget, "T") is null && parent !is null;
+    put(ctx, cleanup, valueInParent ? parent : widget, "V", signatureReference);
     if (field.visible) {
       auto appearance = field.appearance;
       auto resources = cleanup.keep(pdf_new_dict(ctx, doc, 3));
@@ -325,32 +339,38 @@ PreparedSignature appendSignatureField(PdfDocument document, const SignatureDict
       put(ctx, cleanup, normal, "N", stream);
       put(ctx, cleanup, widget, "AP", normal);
     }
-    auto widgetReference = cleanup.keep(pdf_add_object(ctx, doc, widget));
-
-    auto annotations = get(ctx, cleanup, page, "Annots");
-    if (annotations is null || !pdf_is_array(ctx, annotations)) {
-      annotations = cleanup.keep(pdf_new_array(ctx, doc, 1));
-      put(ctx, cleanup, page, "Annots", annotations);
-    }
-    pdf_array_push(ctx, annotations, widgetReference);
-
     auto form = get(ctx, cleanup, root, "AcroForm");
     if (form is null || !pdf_is_dict(ctx, form)) {
       form = cleanup.keep(pdf_new_dict(ctx, doc, 2));
       put(ctx, cleanup, root, "AcroForm", form);
     }
-    auto fields = get(ctx, cleanup, form, "Fields");
-    if (fields is null || !pdf_is_array(ctx, fields)) {
-      fields = cleanup.keep(pdf_new_array(ctx, doc, 1));
-      put(ctx, cleanup, form, "Fields", fields);
+    // El campo que se ocupa ya está en la página y en el formulario.
+    if (!filling) {
+      auto widgetReference = cleanup.keep(pdf_add_object(ctx, doc, widget));
+      auto annotations = get(ctx, cleanup, page, "Annots");
+      if (annotations is null || !pdf_is_array(ctx, annotations)) {
+        annotations = cleanup.keep(pdf_new_array(ctx, doc, 1));
+        put(ctx, cleanup, page, "Annots", annotations);
+      }
+      pdf_array_push(ctx, annotations, widgetReference);
+      auto fields = get(ctx, cleanup, form, "Fields");
+      if (fields is null || !pdf_is_array(ctx, fields)) {
+        fields = cleanup.keep(pdf_new_array(ctx, doc, 1));
+        put(ctx, cleanup, form, "Fields", fields);
+      }
+      pdf_array_push(ctx, fields, widgetReference);
     }
-    pdf_array_push(ctx, fields, widgetReference);
     put(ctx, cleanup, form, "SigFlags", cleanup.keep(pdf_new_int(ctx, 3)));
 
     written = saveIncremental(ctx, cleanup, doc);
   });
-  info(format("Campo de firma «%s» añadido en la página %d (%d bytes)", field.fieldName, field.pageIndex + 1,
-    written.length));
+  if (field.existingWidget != 0) {
+    info(format("Firma añadida en el campo de firma vacío (objeto %d) de la página %d (%d bytes)",
+      field.existingWidget, field.pageIndex + 1, written.length));
+  } else {
+    info(format("Campo de firma «%s» añadido en la página %d (%d bytes)", field.fieldName, field.pageIndex + 1,
+      written.length));
+  }
   return locatePlaceholders(written, plan.contentsSize);
 }
 

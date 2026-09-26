@@ -71,26 +71,29 @@ float[2] visualSize(PdfRect box, int rotation) pure nothrow @safe @nogc {
 }
 
 /**
- * PDF de una sola página en blanco con esa MediaBox y rotación, con la tabla de
- * referencias correcta para que admita una actualización incremental.
+ * PDF con esos objetos (el primero, 1 0 R, es el catálogo) y la tabla de referencias
+ * correcta para que admita una actualización incremental.
  */
-immutable(ubyte)[] blankPagePdf(PdfRect mediaBox, int rotation) pure @safe {
+immutable(ubyte)[] minimalPdf(const string[] objects) pure @safe {
   auto output = appender!string;
   size_t[] offsets;
   output ~= "%PDF-1.7\n";
-  void object(string body) {
+  foreach (body; objects) {
     offsets ~= output[].length;
     output ~= format("%d 0 obj\n%s\nendobj\n", offsets.length, body);
   }
-  object("<< /Type /Catalog /Pages 2 0 R >>");
-  object("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
-  object(format("<< /Type /Page /Parent 2 0 R /MediaBox [%.3f %.3f %.3f %.3f] /Rotate %d /Resources << >> >>",
-    mediaBox.x0, mediaBox.y0, mediaBox.x1, mediaBox.y1, rotation));
   size_t xref = output[].length;
   output ~= format("xref\n0 %d\n0000000000 65535 f \n", offsets.length + 1);
   foreach (offset; offsets) output ~= format("%010d 00000 n \n", offset);
   output ~= format("trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", offsets.length + 1, xref);
   return cast(immutable(ubyte)[]) output[];
+}
+
+/// PDF de una sola página en blanco con esa MediaBox y rotación (minimalPdf).
+immutable(ubyte)[] blankPagePdf(PdfRect mediaBox, int rotation) pure @safe {
+  return minimalPdf(["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    format("<< /Type /Page /Parent 2 0 R /MediaBox [%.3f %.3f %.3f %.3f] /Rotate %d /Resources << >> >>",
+    mediaBox.x0, mediaBox.y0, mediaBox.x1, mediaBox.y1, rotation)]);
 }
 
 /// Apariencia de la firma dibujada, con su tamaño en puntos visuales.

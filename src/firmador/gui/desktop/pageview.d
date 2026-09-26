@@ -50,8 +50,8 @@ import dlangui.widgets.widget;
 import firmador.configuration : maxSignatureScale, minSignatureScale;
 import firmador.gui.desktop.common : indexIn;
 import firmador.gui.desktop.uithread : runOnUi;
-import firmador.pdf.engine : PageGeometry, PageRaster, PdfRect;
-import firmador.pdf.sigpreview : visualRect, visualSize;
+import firmador.pdf.engine : PageGeometry, PageRaster, PdfAnnotation, PdfRect;
+import firmador.pdf.sigpreview : VisualRect, visualRect, visualSize;
 import firmador.previewers.previewer : Previewer;
 
 /// Porcentajes fijos del selector de escala (ZOOM_FIXED_PERCENTS).
@@ -246,6 +246,42 @@ ColorDrawBuf render(PageSource source, int index, float scale) @safe {
     (VirtualPages pages) => renderVirtualPage(pages, index, scale));
 }
 
+/// Anotaciones de las páginas (ninguna en los documentos virtuales).
+PdfAnnotation[] annotations(PageSource source) @safe {
+  return source.match!((Previewer previewer) => previewer.annotations(), (VirtualPages pages) => null);
+}
+
+/**
+ * Campos de firma vacíos de una página, en puntos visuales de lo que se muestra de ella
+ * (su recorte), como la ubicación del recuadro de la firma.
+ */
+VisualRect[] emptyFieldRects(const(PdfAnnotation)[] annotations, int page, PageGeometry geometry) pure @safe {
+  auto crop = visualRect(geometry.cropBox, geometry.mediaBox, geometry.rotation);
+  VisualRect[] rects;
+  foreach (annotation; annotations) {
+    if (annotation.pageIndex != page || !annotation.emptySignatureField) continue;
+    auto field = visualRect(annotation.rect, geometry.mediaBox, geometry.rotation);
+    rects ~= VisualRect(field.left - crop.left, field.top - crop.top, field.width, field.height);
+  }
+  return rects;
+}
+
+/// Campo que más tapa el recuadro (esquina `x`, `y`; tamaño `width` × `height`), o nulo si no toca ninguno.
+Nullable!VisualRect fieldUnderBox(const VisualRect[] fields, float x, float y, float width, float height)
+    pure nothrow @safe @nogc {
+  Nullable!VisualRect best;
+  float bestArea = 0;
+  foreach (field; fields) {
+    float area = max(0f, min(x + width, field.left + field.width) - max(x, field.left))
+      * max(0f, min(y + height, field.top + field.height) - max(y, field.top));
+    if (area > bestArea) {
+      bestArea = area;
+      best = field;
+    }
+  }
+  return best;
+}
+
 /// Admite ubicar una firma visible (PDF).
 bool placesSignature(PageSource source) pure @safe {
   return source.match!((Previewer previewer) => previewer.showsSignaturePosition(), (VirtualPages pages) => false);
@@ -310,12 +346,16 @@ final class PageView : ScrollWidgetBase {
   void delegate(int page) onCurrentPage;
   /// Cambió el tamaño del recuadro (esquina arrastrada o scaleSignature); recibe la escala nueva.
   void delegate(float scale) onSignatureResized;
+  /// El recuadro se ajustó a un campo de firma vacío al soltarlo (snapIntoEmptyField).
+  void delegate() onSnappedToField;
   /// Cambió la escala de las páginas (zoom o tamaño de la vista); recibe los píxeles por punto nuevos.
   void delegate(float scale) onScaleChanged;
 
   private Nullable!PageSource source;
   private float[2][] pageSizes;
   private PageGeometry[] geometries;
+  /// Campos de firma vacíos de cada página (emptyFieldRects), donde el recuadro se ajusta al soltarlo.
+  private VisualRect[][] emptyFields;
   private int[] pageTops;
   private Zoom zoom;
   private float scale = 1;
@@ -369,7 +409,14 @@ final class PageView : ScrollWidgetBase {
     source = newSource;
     pageSizes = null;
     geometries = null;
+    emptyFields = null;
     if (!source.isNull) {
+      PdfAnnotation[] pageAnnotations;
+      try {
+        pageAnnotations = source.get.annotations();
+      } catch (Exception exception) {
+        warning("No se pudieron leer los campos de firma vacíos; la firma no se ajustará a ellos: ", exception.msg);
+      }
       foreach (index; 0 .. source.get.pageCount()) {
         PageGeometry geometry;
         try {
@@ -380,6 +427,7 @@ final class PageView : ScrollWidgetBase {
         }
         geometries ~= geometry;
         pageSizes ~= visualSize(geometry.cropBox, geometry.rotation);
+        emptyFields ~= emptyFieldRects(pageAnnotations, index, geometry);
       }
     }
     placement = SignaturePlacement(0, placement.x, placement.y);
@@ -668,6 +716,24 @@ final class PageView : ScrollWidgetBase {
    *   anchorX = distancia horizontal desde la esquina superior izquierda del recuadro, en puntos.
    *   anchorY = distancia vertical desde esa esquina, en puntos.
    */
+  /**
+   * Si el recuadro tapa un campo de firma vacío, lo lleva a la esquina de ese campo y lo
+   * achica para que quepa: la firma ocupará el campo (firmador.pdf.pades.signatureCoverage).
+   */
+  private void snapIntoEmptyField() {
+    if (placement.page >= emptyFields.length || signatureWidth <= 0 || signatureHeight <= 0) return;
+    auto field = fieldUnderBox(emptyFields[placement.page], placement.x, placement.y, signatureWidth, signatureHeight);
+    if (field.isNull) return;
+    moveSignature(placement.page, field.get.left, field.get.top);
+    if (onSnappedToField !is null) onSnappedToField();
+    float fit = min(1f, field.get.width / signatureWidth, field.get.height / signatureHeight);
+    if (fit >= 1) return;
+    auto room = roomForSignature();
+    resizeSignatureFrom(fittedSignatureScale(signatureScale * fit, signatureScale, signatureWidth, signatureHeight,
+      room[0], room[1]), signatureScale, signatureWidth, signatureHeight);
+    if (onSignatureResized !is null) onSignatureResized(signatureScale);
+  }
+
   private void placeSignatureAtPoint(int x, int y, float anchorX, float anchorY) {
     int page = pageAt(y);
     Rect rc = pageRect(page);
@@ -687,6 +753,8 @@ final class PageView : ScrollWidgetBase {
       setFocus();
       if (event.doubleClick && signatureShown) {
         placeSignatureAtPoint(event.x, event.y, signatureWidth / 2, signatureHeight / 2);
+        // Con Mayúscula se ubica libremente, sin ajustarse a los campos de firma vacíos.
+        if (!(event.flags & MouseFlag.Shift)) snapIntoEmptyField();
         return true;
       }
       if (onResizeHandle(event.x, event.y)) {
@@ -725,6 +793,7 @@ final class PageView : ScrollWidgetBase {
     }
     if ((event.action == MouseAction.ButtonUp || event.action == MouseAction.Cancel) && dragging) {
       dragging = false;
+      if (event.action == MouseAction.ButtonUp && !(event.flags & MouseFlag.Shift)) snapIntoEmptyField();
       return true;
     }
     return super.onMouseEvent(event);
@@ -906,4 +975,26 @@ unittest {
   assert(clampedScroll(300, 1000, 400) == 300);
   // Si el contenido cabe, no hay desplazamiento.
   assert(clampedScroll(50, 300, 400) == 0);
+}
+
+@("should map empty signature fields to the shown page and pick the one the box covers most")
+unittest {
+  PageGeometry geometry;
+  geometry.mediaBox = PdfRect(0, 0, 612, 792);
+  geometry.cropBox = PdfRect(10, 20, 602, 772);
+  PdfAnnotation field, signed, otherPage;
+  field.emptySignatureField = otherPage.emptySignatureField = true;
+  field.rect = signed.rect = PdfRect(100, 600, 300, 700);
+  otherPage.pageIndex = 1;
+  otherPage.rect = field.rect;
+  // Arriba a la izquierda del recorte: x 100 - 10, y (772 - 700).
+  auto rects = emptyFieldRects([field, signed, otherPage], 0, geometry);
+  assert(rects == [VisualRect(90, 72, 200, 100)]);
+  // Con la página girada 90 grados el campo queda de 100 × 200.
+  geometry.cropBox = geometry.mediaBox;
+  geometry.rotation = 90;
+  assert(emptyFieldRects([field], 0, geometry) == [VisualRect(600, 100, 100, 200)]);
+  auto fields = [VisualRect(0, 0, 100, 50), VisualRect(90, 0, 200, 50)];
+  assert(fieldUnderBox(fields, 80, 10, 60, 20).get == fields[1]);
+  assert(fieldUnderBox(fields, 400, 400, 60, 20).isNull);
 }
