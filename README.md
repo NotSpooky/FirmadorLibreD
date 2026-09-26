@@ -108,7 +108,7 @@ según `pkg-config` y compila el puente con mupdf.
 ### Windows
 
 Se compila en Windows 10 u 11 de 64 bits. La primera vez, en PowerShell abierto como
-administrador y desde la carpeta `firmador` del repositorio:
+administrador y desde la carpeta del repositorio (la que tiene `dub.json`):
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows\setup.ps1

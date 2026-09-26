@@ -36,7 +36,7 @@
 
 .PARAMETER DepsRoot
   Carpeta de las dependencias del proyecto, sin espacios. Por omisión, .build\windows
-  dentro de la carpeta firmador del repositorio.
+  dentro del repositorio.
 #>
 [CmdletBinding()]
 param([string] $DepsRoot)

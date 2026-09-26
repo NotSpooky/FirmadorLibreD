@@ -58,10 +58,15 @@ done
 # ImportC recibe una sola ruta de cabeceras (cImportPaths en dub.json): se reúne en
 # src/cinclude lo que hay en cada directorio -I de pkg-config, y los -D en
 # firmador_pkgdefs.h, que incluye cada módulo de src/c antes que nada. El directorio se
-# vacía pero no se borra: dub lo exige antes de ejecutar este paso.
+# vacía pero no se borra: dub lo exige antes de ejecutar este paso. Se vacía con el
+# propio sh y no con find, que en Windows puede ser el find.exe del sistema. Lo que se
+# reúne nunca empieza con punto, así que * no toca .gitkeep.
 include="$root/src/cinclude"
 mkdir -p "$include"
-find "$include" -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
+for entry in "$include"/*; do
+  [ -e "$entry" ] || [ -L "$entry" ] || continue
+  rm -rf "$entry"
+done
 defines="$include/firmador_pkgdefs.h"
 printf '%s\n' "/* Generado por tools/prebuild.sh a partir de pkg-config. */" > "$defines"
 for flag in $(pkg-config --cflags $packages); do

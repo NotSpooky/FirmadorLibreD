@@ -29,8 +29,8 @@
   de entorno del sistema ni requiere administrador.
 
 .PARAMETER DepsRoot
-  Carpeta de las dependencias que usó setup.ps1. Por omisión, .build\windows dentro de la
-  carpeta firmador del repositorio.
+  Carpeta de las dependencias que usó setup.ps1. Por omisión, .build\windows dentro del
+  repositorio.
 
 .PARAMETER Build
   Tipo de compilación de dub: release (optimizada, por omisión) o debug.
