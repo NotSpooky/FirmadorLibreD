@@ -48,9 +48,6 @@ enum int validationServiceTimeoutSeconds = 30;
 /// Zona horaria con la que se muestran las fechas: Costa Rica no usa horario de verano desde 1992.
 enum int costaRicaUtcOffsetHours = -6;
 
-/// Identificador de zona horaria que se registra en las bitácoras y reportes.
-enum string costaRicaTimeZoneName = "America/Costa_Rica";
-
 /// Puerto de Firmador Remoto registrado en IANA.
 enum ushort defaultRemotePort = 3516;
 
@@ -104,8 +101,7 @@ enum long pkcs11CertificateCacheMilliseconds = 30_000;
 /// Cada cuánto vuelve a mirar el monitor de tarjetas si PC/SC no avisa de cambios.
 enum long smartCardPollIntervalMilliseconds = 5_000;
 
-/// Documentos que se firman, validan o previsualizan a la vez.
-enum int maxSigningWorkers = 2;
+/// Documentos que se validan o previsualizan a la vez.
 enum int maxValidationWorkers = 3;
 enum int maxPreviewWorkers = 5;
 

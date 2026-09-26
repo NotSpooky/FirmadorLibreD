@@ -35,10 +35,8 @@ import firmador.jose.jades;
 import firmador.util.datetime : parseRfc3339;
 import firmador.util.json;
 import firmador.validation.certpath;
-import firmador.validation.cmsverify : validateTimestamp;
 import firmador.validation.conclusion;
 import firmador.validation.model;
-import firmador.validation.pool;
 import firmador.validation.sources;
 import firmador.x509.certificate;
 

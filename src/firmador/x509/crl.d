@@ -25,7 +25,6 @@ module firmador.x509.crl;
 
 import std.bigint : BigInt;
 import std.datetime.systime : SysTime;
-import std.exception : enforce;
 import std.typecons : Nullable;
 
 import firmador.asn1.der;

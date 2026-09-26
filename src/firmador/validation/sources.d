@@ -27,13 +27,11 @@ module firmador.validation.sources;
 
 import core.sync.mutex : Mutex;
 import std.bigint : BigInt;
-import std.datetime.systime : Clock, SysTime;
+import std.datetime.systime : Clock;
 import std.exception : enforce;
 import std.format : format;
 import std.logger : info, warning;
 
-import firmador.asn1.der;
-import firmador.asn1.oids;
 import firmador.cms.ocsp;
 import firmador.cms.signeddata : parseSignedData;
 import firmador.cms.tsp;

@@ -85,7 +85,6 @@ string signatureMethodUri(bool rsa, DigestAlgorithm digest) pure nothrow @safe @
  * Throws: XmlException si el algoritmo no se admite.
  */
 SignatureAlgorithm signatureAlgorithmFromXmlUri(string uri, out bool ecdsa) pure @safe {
-  static immutable string[DigestAlgorithm] pssNames;
   SignatureAlgorithm algorithm;
   foreach (digest; [DigestAlgorithm.sha1, DigestAlgorithm.sha224, DigestAlgorithm.sha256, DigestAlgorithm.sha384,
       DigestAlgorithm.sha512]) {

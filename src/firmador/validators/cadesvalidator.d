@@ -37,7 +37,6 @@ import firmador.validation.certpath;
 import firmador.validation.cmsverify;
 import firmador.validation.conclusion;
 import firmador.validation.model;
-import firmador.validation.pool;
 import firmador.validation.sources;
 import firmador.x509.certificate;
 

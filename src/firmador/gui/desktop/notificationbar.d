@@ -118,8 +118,7 @@ final class NotificationOverlay : WidgetGroup {
     super("contenedor");
     this.content = content;
     this.bar = bar;
-    layoutWidth = FILL_PARENT;
-    layoutHeight = FILL_PARENT;
+    fillParent();
     addChild(bar);
     addChild(content);
   }

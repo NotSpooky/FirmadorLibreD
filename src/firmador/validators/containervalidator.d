@@ -39,7 +39,6 @@ import firmador.validation.certpath;
 import firmador.validation.cmsverify : validateTimestamp;
 import firmador.validation.conclusion : finishSignature, unreadableSignature, unreadableTimestamp;
 import firmador.validation.model;
-import firmador.validation.pool;
 import firmador.validation.sources;
 import firmador.validators.cadesvalidator;
 import firmador.validators.xmlvalidator;

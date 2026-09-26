@@ -33,11 +33,11 @@ module firmador.connections.tokenstore;
 
 import core.sync.mutex : Mutex;
 import std.datetime.systime : Clock;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.file : exists, read, rename;
 import std.format : format;
 import std.json : JSONValue, toJSON;
-import std.logger : error, info, warning;
+import std.logger : error, info;
 import std.path : buildPath;
 
 import firmador.crypto.openssl : aesGcmDecrypt, aesGcmEncrypt, CryptoException, gcmNonceLength, pbkdf2Sha256;
@@ -55,9 +55,7 @@ enum TokenType : string {
 
 /// Error del almacén de tokens (falta un token, archivo dañado o contraseña distinta).
 class TokenStoreException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// Archivo del almacén dentro del directorio de configuración.

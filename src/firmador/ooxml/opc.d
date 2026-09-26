@@ -27,7 +27,7 @@ module firmador.ooxml.opc;
 
 import std.algorithm : canFind, endsWith, sort, startsWith;
 import std.array : join, split;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
 import std.string : lastIndexOf, toLower;
 import std.uri : decodeComponent;
@@ -56,9 +56,7 @@ enum string originPartName = "/_xmlsignatures/origin.sigs";
 
 /// Excepción de un paquete OPC mal formado.
 class OpcException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// Tipos de contenido del paquete.
@@ -140,12 +138,6 @@ string relationshipsSource(string relsPartName) pure @safe {
   return source.length ? directory ~ "/" ~ source : directory.length ? directory : "/";
 }
 
-/// Directorio base de una parte de relaciones como lo calcula POI («/word» o «»).
-string relationshipsBase(string relsPartName) pure @safe {
-  auto position = relsPartName.lastIndexOf("/_rels/");
-  return position > 0 ? relsPartName[0 .. position] : "";
-}
-
 /**
  * Nombre de parte absoluto y normalizado del destino de una relación, relativo al
  * directorio de su parte de origen.
@@ -194,8 +186,6 @@ int nextSignatureIndex(const ZipEntry[] entries) pure @safe {
 unittest {
   assert(relationshipsSource("/_rels/.rels") == "/");
   assert(relationshipsSource("/word/_rels/document.xml.rels") == "/word/document.xml");
-  assert(relationshipsBase("/word/_rels/document.xml.rels") == "/word");
-  assert(relationshipsBase("/_rels/.rels") == "");
   assert(resolveTarget("/", "word/document.xml") == "/word/document.xml");
   assert(resolveTarget("/word/document.xml", "styles.xml") == "/word/styles.xml");
   assert(resolveTarget("/word/document.xml", "../customXml/item1.xml") == "/customXml/item1.xml");

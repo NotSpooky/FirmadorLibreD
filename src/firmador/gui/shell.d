@@ -31,7 +31,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 module firmador.gui.shell;
 
 import std.algorithm : canFind, map;
-import std.array : array, replace, split;
+import std.array : array, replace;
 import std.exception : enforce;
 import std.file : exists, isFile, mkdirRecurse, read, readText, write;
 import std.format : format;
@@ -41,7 +41,7 @@ import std.path : dirName;
 import std.stdio : stderr, stdout;
 import std.string : join, strip, toLower;
 
-import firmador.cards.cardinfo : CardSignInfo, matchesIdentifier;
+import firmador.cards.cardinfo : CardSignInfo;
 import firmador.cards.detector : createPinOnlyCard, SmartCardDetector;
 import firmador.configuration : shellMaxLineLength;
 import firmador.documents.document : Document;
@@ -49,7 +49,7 @@ import firmador.documents.mimetype : detectMimeType;
 import firmador.gui.console;
 import firmador.gui.guiinterface : GuiInterface;
 import firmador.gui.errors : isAuthenticationFailure;
-import firmador.i18n : htmlToText, t;
+import firmador.i18n : htmlToText;
 import firmador.previewers.previewer : previewerFor;
 import firmador.remote.dto : remoteDocumentJson;
 import firmador.settings : Settings;

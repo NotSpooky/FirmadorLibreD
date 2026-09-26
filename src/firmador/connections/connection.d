@@ -30,7 +30,6 @@ module firmador.connections.connection;
 import core.thread : Thread;
 import core.time : dur;
 import std.algorithm : countUntil, remove, sort;
-import std.format : format;
 import std.logger : error, info, warning;
 import std.typecons : Nullable;
 import std.uuid : UUID;

@@ -27,7 +27,7 @@ module firmador.signers.common;
 
 import std.algorithm : canFind;
 import std.datetime.systime : Clock, SysTime;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
 import std.logger : error, info, warning;
 import std.string : strip;
@@ -51,12 +51,12 @@ import firmador.validation.pool;
 import firmador.validation.sources;
 import firmador.x509.certificate;
 
-/// La operación no se pudo completar y el motivo ya se le mostró al usuario.
+/**
+ * La operación no se pudo completar y el motivo ya se le mostró al usuario. La excepción
+ * que se avisó va encadenada (next), para quien necesite su tipo.
+ */
 class ReportedSigningFailure : Exception {
-  /// Params: cause = la excepción que se avisó, encadenada para quien necesite su tipo.
-  this(string message, Throwable cause = null, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line, cause);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// Dispositivo abierto con la clave que se usa para firmar.
@@ -267,7 +267,7 @@ string signatureText(const Certificate certificate, const Settings documentSetti
  */
 string signatureTextFor(string commonName, string organization, string identification,
     const Settings documentSettings, const Settings appSettings, SysTime now) @safe {
-  string pattern = documentSettings.dateFormat.strip.length ? documentSettings.dateFormat : appSettings.getDateFormat();
+  string pattern = documentSettings.dateFormat.strip.length ? documentSettings.dateFormat : appSettings.dateFormat;
   string date = formatJavaDate(pattern, now.toOtherTZ(costaRicaTimeZone()), dateLanguageFor(appSettings.language));
   string additional;
   if (!documentSettings.hideSignatureAdvice) {

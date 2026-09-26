@@ -27,7 +27,7 @@ module firmador.cms.tsp;
 
 import std.bigint : BigInt;
 import std.datetime.systime : SysTime;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
 
 import firmador.asn1.der;
@@ -69,9 +69,7 @@ alias Timestamper = TimeStampToken delegate(const(ubyte)[] digest) @safe;
 
 /// El servicio de sellado rechazó la solicitud o respondió algo que no corresponde.
 class TimeStampException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /**

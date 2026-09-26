@@ -27,7 +27,6 @@ module firmador.signers.ooxml;
 
 import std.datetime.systime : Clock;
 import std.logger : info;
-import std.path : extension;
 
 import firmador.cards.cardinfo : CardSignInfo;
 import firmador.cms.tsp : TimeStampToken;

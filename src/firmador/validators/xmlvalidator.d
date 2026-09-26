@@ -26,21 +26,17 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.validators.xmlvalidator;
 
-import std.algorithm : canFind;
 import std.datetime.systime : Clock, SysTime;
 import std.logger : trace, warning;
 import std.path : baseName;
 import std.string : strip;
 
-import firmador.cms.tsp;
 import firmador.configuration : haciendaPolicyId, haciendaPolicyLegacyId, haciendaPolicyDocument;
 import firmador.crypto.digest;
 import firmador.util.datetime : parseRfc3339;
 import firmador.validation.certpath;
-import firmador.validation.cmsverify : validateTimestamp;
 import firmador.validation.conclusion;
 import firmador.validation.model;
-import firmador.validation.pool;
 import firmador.validation.sources;
 import firmador.x509.certificate;
 import firmador.xml.dom;

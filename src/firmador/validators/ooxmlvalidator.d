@@ -32,7 +32,6 @@ import std.string : strip;
 import std.typecons : Nullable;
 
 import firmador.asn1.oids;
-import firmador.cms.tsp;
 import firmador.crypto.digest;
 import firmador.i18n : t;
 import firmador.ooxml.signature;
@@ -42,7 +41,6 @@ import firmador.util.zip;
 import firmador.validation.certpath;
 import firmador.validation.cmsverify : validateTimestamp;
 import firmador.validation.model;
-import firmador.validation.pool;
 import firmador.validation.sources;
 import firmador.x509.certificate;
 import firmador.xml.dom;
@@ -143,7 +141,7 @@ string ooxmlReport(const OoxmlSignatureCheck[] checks, const Settings settings) 
     string lastName = signer.subject.first(oidSurname);
     string name = firstName.length == 0 && lastName.length == 0 ? signer.subject.first(oidCommonName)
       : firstName ~ " " ~ lastName;
-    string date = check.signingTime.isNull ? "" : formatJavaDate(settings.getDateFormat(),
+    string date = check.signingTime.isNull ? "" : formatJavaDate(settings.dateFormat,
       (cast(SysTime) check.signingTime.get).toLocalTime, dateLanguageFor(settings.language));
     report ~= format(t("ooxmlvalidator_report"), position, name, signer.subject.first(oidSerialNumber),
       signer.subject.first(oidOrganization), date, t(check.valid ? "ooxmlvalidator_valid" : "ooxmlvalidator_invalid"),

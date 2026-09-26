@@ -31,7 +31,7 @@ import core.sync.mutex : Mutex;
 import std.conv : to;
 import std.datetime.systime : Clock;
 import std.exception : enforce;
-import std.file : exists, isDir, isFile, mkdirRecurse, readText, rename, write, remove;
+import std.file : exists, isDir, isFile, mkdirRecurse, readText, rename, write;
 import std.format : format;
 import std.logger : error, info, warning;
 import std.path : buildPath, dirName;
@@ -100,9 +100,7 @@ string configDirectory() @trusted {
 
 /// Fija la ruta de config.properties (pruebas y configuraciones alternativas).
 void setConfigPath(string path) @trusted {
-  managerLock.lock();
-  scope (exit) managerLock.unlock();
-  overridePath = path;
+  synchronized (managerLock) overridePath = path;
 }
 
 /// Ruta de config.properties (config-flatpak-properties dentro de flatpak).
@@ -204,9 +202,7 @@ Settings readSettings() @trusted {
     string invalidScale = applyProperties(conf, props);
     if (invalidScale !is null) error("Valor decimal inválido en la configuración: «", invalidScale, "», se usa 1");
     setLogLevel(conf.advancedLogs);
-    managerLock.lock();
-    currentProperties = props;
-    managerLock.unlock();
+    synchronized (managerLock) currentProperties = props;
   }
   try {
     conf.keyPassword = resolveKeyPassword(conf, props);
@@ -254,9 +250,7 @@ private string resolveKeyPassword(Settings conf, const string[string] props) @tr
   } else if (keyring) {
     error("El llavero del sistema no aceptó la contraseña del almacén de tokens; se guarda en la configuración");
   }
-  managerLock.lock();
-  keyPasswordInFile = !savedInKeyring;
-  managerLock.unlock();
+  synchronized (managerLock) keyPasswordInFile = !savedInKeyring;
   // Guardar una nueva en el archivo, o sacar del archivo la que pasó al llavero.
   if (generated ? !savedInKeyring : savedInKeyring) writeSettings(conf, true);
   return password;
@@ -282,9 +276,7 @@ void writeSettings(const Settings conf, bool save) @trusted {
       info("Configuración guardada en ", path);
     });
   }
-  managerLock.lock();
-  currentProperties = updated;
-  managerLock.unlock();
+  synchronized (managerLock) currentProperties = updated;
 }
 
 /**
@@ -318,9 +310,7 @@ Settings currentSettings() @trusted {
         problem ~= format("; tampoco se pudo apartar %s (%s)", unreadable, renameFailure.msg);
       }
       error(problem);
-      managerLock.lock();
-      loadProblem = problem;
-      managerLock.unlock();
+      synchronized (managerLock) loadProblem = problem;
       // Sin el archivo, la contraseña del almacén se resuelve de nuevo (llavero o nueva).
       try {
         loaded.keyPassword = resolveKeyPassword(loaded, null);
@@ -339,25 +329,19 @@ Settings currentSettings() @trusted {
 
 /// Por qué no se pudo usar la configuración guardada al arrancar, o null si se usó.
 string settingsLoadProblem() @trusted {
-  managerLock.lock();
-  scope (exit) managerLock.unlock();
-  return loadProblem;
+  synchronized (managerLock) return loadProblem;
 }
 
 /// Reemplaza los ajustes vigentes (al aplicar la configuración) y actualiza idioma y bitácora.
 void replaceCurrentSettings(Settings settings) @trusted {
-  managerLock.lock();
-  cachedSettings = settings;
-  managerLock.unlock();
+  synchronized (managerLock) cachedSettings = settings;
   setLogLevel(settings.advancedLogs);
   setMessagesLocale(settings.language, settings.country);
 }
 
 /// Olvida los ajustes vigentes para volver a leerlos (nullifySettingsVariable).
 void forgetCurrentSettings() @trusted {
-  managerLock.lock();
-  scope (exit) managerLock.unlock();
-  cachedSettings = null;
+  synchronized (managerLock) cachedSettings = null;
 }
 
 /// Clave de config.properties con la última carpeta usada en un selector de archivos.
@@ -473,9 +457,7 @@ unittest {
 
   rememberDirectory("/carpeta/que/ya/no/existe");
   writeSettings(currentSettings(), true);
-  managerLock.lock();
-  currentProperties = null;
-  managerLock.unlock();
+  synchronized (managerLock) currentProperties = null;
   readSettings();
   assert(lastDirectory() == "/carpeta/que/ya/no/existe");
 }

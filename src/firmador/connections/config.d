@@ -32,11 +32,11 @@ module firmador.connections.config;
 import std.algorithm : any, canFind, map, startsWith;
 import std.array : array;
 import std.conv : ConvException, to;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.file : exists, readText;
 import std.format : format;
 import std.json : JSONValue;
-import std.logger : error, info;
+import std.logger : info;
 import std.path : buildPath;
 import std.string : indexOf, strip, toLower;
 
@@ -59,9 +59,7 @@ enum string servicesUrlsFileName = "servicesUrls.xml";
 
 /// Error en los datos de una conexión (archivo, JSON o URL no válidos).
 class ConnectionConfigException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// Qué atiende una conexión.
@@ -388,16 +386,6 @@ void saveConnections(const ConnectionConfig[] connections) @trusted {
     writeFileAtomically(path, formatServicesUrls(connections));
     info("Conexiones guardadas en ", path);
   });
-}
-
-/**
- * Conexión guardada con ese servicio (ConnectionUtils.findConnection).
- *
- * Throws: ConnectionConfigException si no existe.
- */
-ConnectionConfig findConnectionConfig(string service) @safe {
-  foreach (config; loadConnections()) if (config.service == service) return config;
-  throw new ConnectionConfigException(format("No hay una conexión configurada para el servicio %s", service));
 }
 
 version (unittest) {

@@ -26,9 +26,8 @@ module firmador.x509.name;
 
 import std.algorithm : map;
 import std.array : appender, array, join;
-import std.ascii : toLower, isWhite;
+import std.ascii : toLower;
 import std.exception : enforce;
-import std.format : format;
 import std.uni : toLowerUni = toLower;
 
 import firmador.asn1.der;

@@ -61,7 +61,7 @@ final class Document {
   private DocumentSigner signer_;
   private Previewer preview_;
   private string pathToSave_;
-  private bool valid_, validated_, previewLoaded_, ready_, signedWithErrors_, showPreview_ = true, massiveSign_;
+  private bool valid_, validated_, previewLoaded_, ready_, signedWithErrors_, showPreview_ = true;
   private bool remote_, virtual_, validating_;
   private string report_;
   private CardSignInfo usedCard_;
@@ -169,17 +169,8 @@ final class Document {
     setSigner(DocumentSigner(SignatureFormat.asic));
   }
 
-  /// Firma separada CAdES (forceCades).
-  void forceCades() pure @safe {
-    setSigner(DocumentSigner(SignatureFormat.cades));
-  }
-
   Previewer preview() pure @trusted {
     synchronized (this) return preview_;
-  }
-
-  void setPreview(Previewer preview) pure @trusted {
-    synchronized (this) preview_ = preview;
   }
 
   /**
@@ -252,10 +243,6 @@ final class Document {
     synchronized (this) return signedContent_;
   }
 
-  void setSignedContent(immutable(ubyte)[] signed) pure @trusted {
-    synchronized (this) signedContent_ = signed;
-  }
-
   /// Extensión del documento firmado según su firmador (getExtension).
   string signedExtension() pure @safe {
     return signer.signedExtension(name_);
@@ -300,12 +287,6 @@ final class Document {
     }
   }
 
-  /// Valida y carga la vista previa si falta (setPrincipal).
-  void makePrincipal() @safe {
-    if (!validated) validate();
-    if (!previewLoaded) loadPreview();
-  }
-
   /// Páginas de la vista previa (getNumberOfPages).
   int previewPageCount() @safe {
     return preview.pageCount();
@@ -324,10 +305,7 @@ final class Document {
   CardSignInfo usedCard() pure @trusted { synchronized (this) return usedCard_; }
   bool showPreview() pure @trusted { synchronized (this) return showPreview_; }
   void setShowPreview(bool value) pure @trusted { synchronized (this) showPreview_ = value; }
-  bool massiveSign() pure @trusted { synchronized (this) return massiveSign_; }
-  void setMassiveSign(bool value) pure @trusted { synchronized (this) massiveSign_ = value; }
   DocumentStatus status() pure @trusted { synchronized (this) return status_; }
-  void setStatus(DocumentStatus value) pure @trusted { synchronized (this) status_ = value; }
   bool validating() pure @trusted { synchronized (this) return validating_; }
   void setValidating(bool value) pure @trusted { synchronized (this) validating_ = value; }
 

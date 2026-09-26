@@ -32,12 +32,11 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 module firmador.gui.desktop.window;
 
 import std.algorithm : canFind, countUntil, filter, remove;
-import std.array : array, replace;
+import std.array : array;
 import std.file : exists, isDir, isFile, dirEntries, SpanMode;
 import std.format : format;
 import std.logger : error, info, warning;
-import std.path : absolutePath, baseName, dirName, extension;
-import std.string : strip;
+import std.path : absolutePath, dirName, extension;
 import std.utf : toUTF32;
 import std.uuid : UUID;
 
@@ -54,8 +53,7 @@ import dlangui.widgets.widget;
 
 import firmador.cards.cardinfo : CardSignInfo;
 import firmador.cards.detector : SmartCardDetector;
-import firmador.configuration : defaultRemotePort, firmadorVersion;
-import firmador.connections.config : firmadorRemotoService;
+import firmador.configuration : defaultRemotePort;
 import firmador.connections.connection;
 import firmador.connections.external;
 import firmador.connections.gaudi : GaudiIntegration;
@@ -187,8 +185,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     manager = new DocumentManager(this);
 
     auto root = new VerticalLayout("raiz");
-    root.layoutWidth = FILL_PARENT;
-    root.layoutHeight = FILL_PARENT;
+    root.fillParent();
     root.padding = Rect(6, 6, 6, 6);
     auto selection = new HorizontalLayout("seleccion");
     selection.layoutWidth = FILL_PARENT;
@@ -203,13 +200,11 @@ final class DesktopInterface : GuiInterface, ConnectionView {
         if (paths.length == 0) return;
         addFiles(paths, true);
       });
-      return true;
     }));
     root.addChild(selection);
 
     tabs = new TabWidget("pestanas");
-    tabs.layoutWidth = FILL_PARENT;
-    tabs.layoutHeight = FILL_PARENT;
+    tabs.fillParent();
     signPanel = new SignPanel(this);
     connectionPanel = new ConnectionPanel(this);
     configPanel = new ConfigPanel(this);

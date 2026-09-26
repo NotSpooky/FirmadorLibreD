@@ -65,8 +65,7 @@ final class VerticalScroll : ScrollWidget {
     // no cabe de ninguna manera.
     super(id, ScrollBarMode.Auto, ScrollBarMode.Auto);
     contentWidget = content;
-    layoutWidth = FILL_PARENT;
-    layoutHeight = FILL_PARENT;
+    fillParent();
   }
 
   override Point fullContentSize() {
@@ -143,10 +142,13 @@ void allowMultilineTooltips() @trusted {
 }
 
 /// Botón con texto, ayuda y acción.
-Button makeButton(string id, string labelKey, string tooltipKey, bool delegate() action) @trusted {
+Button makeButton(string id, string labelKey, string tooltipKey, void delegate() action) @trusted {
   auto button = new Button(id, dt(labelKey));
   if (tooltipKey.length) button.tooltipText = tip(tooltipKey);
-  button.click = (Widget source) => action();
+  button.click = (Widget source) {
+    action();
+    return true;
+  };
   return button;
 }
 

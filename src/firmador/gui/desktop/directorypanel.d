@@ -27,8 +27,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.gui.desktop.directorypanel;
 
-import std.algorithm : canFind, filter, map, remove, sort;
-import std.array : array;
+import std.algorithm : canFind, remove, sort;
 import std.file : dirEntries, exists, isDir, isFile, mkdirRecurse, read, SpanMode;
 import std.format : format;
 import std.logger : error, info;
@@ -107,24 +106,20 @@ final class DirectoryPanel : HorizontalLayout {
   this(DesktopInterface host) @trusted {
     super("carpetas");
     this.host = host;
-    layoutWidth = FILL_PARENT;
-    layoutHeight = FILL_PARENT;
+    fillParent();
     auto left = new VerticalLayout;
-    left.layoutWidth = FILL_PARENT;
-    left.layoutHeight = FILL_PARENT;
+    left.fillParent();
     auto buttons = new HorizontalLayout;
     buttons.addChild(makeButton("elegir-carpeta", "directory_panel_select_directory", null, () {
       chooseDirectory(window, t("directory_panel_select_directory"), null, (string directory) {
         if (directory !is null) addDirectories([directory]);
       });
-      return true;
     }));
     buttons.addChild(makeButton("vaciar", "directoty_empty_action", null, () {
       directories = null;
       selectedDirectory = null;
       reloadView();
       host.showNotification(t("directoty_empty_action_done"), NotificationType.success);
-      return true;
     }));
     left.addChild(buttons);
     left.addChild(boldTitle("directory_list_panel"));
@@ -133,8 +128,7 @@ final class DirectoryPanel : HorizontalLayout {
     left.addChild(new VerticalScroll("lista-carpetas-scroll", list));
     addChild(left);
     detail = new VerticalLayout("detalle-carpeta");
-    detail.layoutWidth = FILL_PARENT;
-    detail.layoutHeight = FILL_PARENT;
+    detail.fillParent();
     detail.padding = Rect(12, 0, 0, 0);
     addChild(detail);
   }
@@ -160,7 +154,7 @@ final class DirectoryPanel : HorizontalLayout {
 
   private void showDetail(string directory) {
     detail.removeAllChildren();
-    void add(string id, string key, bool delegate() action) {
+    void add(string id, string key, void delegate() action) {
       auto button = makeButton(id, key, null, action);
       button.layoutWidth = FILL_PARENT;
       button.margins = Rect(0, 0, 0, 5);
@@ -168,27 +162,20 @@ final class DirectoryPanel : HorizontalLayout {
     }
     add("firmar-carpeta", "directory_panel_sign", () {
       signDirectory(directory, signedDirectoryFor(directory), DirectoryOutput.destination);
-      return true;
     });
     add("firmar-archivo", "directory_panel_sign_document", () {
       signDirectory(directory, null, DirectoryOutput.besideOriginal);
-      return true;
     });
-    add("firmar-asic", "directory_panel_sign_asic", () {
-      signAsAsic(directory);
-      return true;
-    });
+    add("firmar-asic", "directory_panel_sign_asic", () { signAsAsic(directory); });
     add("guardar-en", "directory_panel_save_as", () {
       chooseDirectory(window, t("directory_panel_save_as"), null, (string destination) {
         if (destination !is null) signDirectory(directory, destination, DirectoryOutput.destination);
       });
-      return true;
     });
     add("guardar-en-archivo", "directory_panel_save_as_name", () {
       chooseDirectory(window, t("directory_panel_save_as_name"), null, (string destination) {
         if (destination !is null) signDirectory(directory, destination, DirectoryOutput.besideOriginal);
       });
-      return true;
     });
     detail.addChild(new TextWidget(null, directory.toUTF32));
     size_t files, subdirectories;
@@ -230,7 +217,6 @@ final class DirectoryPanel : HorizontalLayout {
     return files;
   }
 
-  /// Documentos de los archivos con extensión; avisa de los que no la tienen.
   /// Firma cada archivo de la carpeta con su formato (processDirectory).
   private void signDirectory(string directory, string destination, DirectoryOutput output) {
     auto documents = host.openDocuments(filesOf(directory));

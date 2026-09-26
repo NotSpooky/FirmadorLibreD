@@ -32,9 +32,9 @@ module firmador.gui.desktop.pageview;
 import core.sync.condition : Condition;
 import core.sync.mutex : Mutex;
 import core.thread : Thread;
-import std.algorithm : max, min, remove, countUntil;
+import std.algorithm : max, min, remove;
 import std.conv : to;
-import std.logger : error, trace, warning;
+import std.logger : error, warning;
 import std.math : round;
 import std.sumtype : match, SumType;
 import std.typecons : Nullable;
@@ -462,11 +462,6 @@ final class PageView : ScrollWidgetBase {
     resizeSignatureFrom(fittedSignatureScale(requested, signatureScale, signatureWidth, signatureHeight, room[0],
       room[1]), signatureScale, signatureWidth, signatureHeight);
     if (onSignatureResized !is null) onSignatureResized(signatureScale);
-  }
-
-  /// Escala actual de la firma en el recuadro.
-  float currentSignatureScale() const pure @safe {
-    return signatureScale;
   }
 
   /// Espacio desde la esquina superior izquierda del recuadro hasta los márgenes de su página.

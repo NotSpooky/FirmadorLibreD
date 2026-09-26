@@ -41,8 +41,7 @@ import firmador.util.desktop : openUrl;
 final class AboutPanel : VerticalLayout {
   this(DesktopInterface host) @trusted {
     super("acerca-de");
-    layoutWidth = FILL_PARENT;
-    layoutHeight = FILL_PARENT;
+    fillParent();
     padding = Rect(24, 24, 24, 24);
     auto logo = new ImageWidget("logo");
     logo.drawable = imageDrawable(cast(immutable(ubyte)[]) import("firmador.png"), 128);
@@ -61,7 +60,6 @@ final class AboutPanel : VerticalLayout {
         error(t("about_log_openurl"), ": ", exception.msg);
         host.showError(exception);
       }
-      return true;
     });
     website.alignment = Align.Center;
     addChild(website);

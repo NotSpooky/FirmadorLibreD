@@ -80,9 +80,7 @@ string remoteOriginFromUrl(string url) pure @safe {
 
 /// Fija o reemplaza propiedades de lanzamiento (al arrancar, o al recibir un enlace en macOS).
 void setLaunchProperties(const string[string] values) @trusted {
-  propertiesLock.lock();
-  scope (exit) propertiesLock.unlock();
-  foreach (key, value; values) properties[key] = value;
+  synchronized (propertiesLock) foreach (key, value; values) properties[key] = value;
 }
 
 /// Valor de una propiedad de lanzamiento, o null si no se indicó.

@@ -34,22 +34,16 @@ module firmador.pdf.engine;
 
 import core.stdc.string : memcpy, strlen;
 import core.sync.mutex : Mutex;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
-import std.logger : info, trace, warning;
-import std.string : fromStringz, toStringz;
+import std.logger : trace;
+import std.string : fromStringz;
 
 import cmupdf;
 
 /// Error de mupdf o de estructura del PDF.
 class PdfException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
-
-  this(string message, Throwable cause, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line, cause);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// Objetos de mupdf que se liberan al terminar una operación.

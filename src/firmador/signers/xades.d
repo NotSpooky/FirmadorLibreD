@@ -31,7 +31,6 @@ import std.exception : enforce;
 import std.logger : info;
 
 import firmador.cards.cardinfo : CardSignInfo;
-import firmador.crypto.digest;
 import firmador.documents.mimetype : mimeTypeString;
 import firmador.gui.guiinterface;
 import firmador.settings;

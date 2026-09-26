@@ -32,7 +32,7 @@ import std.algorithm : startsWith;
 import std.datetime.systime : Clock;
 import std.format : format;
 import std.json : JSONValue, toJSON;
-import std.logger : error, info, warning;
+import std.logger : error, info;
 import std.string : strip;
 
 import firmador.cards.cardinfo;
@@ -47,7 +47,6 @@ import firmador.remote.dto;
 import firmador.remote.http;
 import firmador.remote.origins;
 import firmador.remote.slot;
-import firmador.settings : Settings;
 import firmador.settingsmanager : currentSettings;
 import firmador.signers.common : rootCause;
 import firmador.signers.documentsigner : SigningInput;
@@ -74,10 +73,6 @@ final class RemoteServer {
     this.detector = detector;
     this.port = port;
     slotsLock = new Mutex;
-  }
-
-  ushort listeningPort() const pure nothrow @safe @nogc {
-    return port;
   }
 
   /**
@@ -109,14 +104,6 @@ final class RemoteServer {
   /// Está atendiendo su puerto.
   bool isRunning() pure @safe {
     return server !is null && server.isRunning();
-  }
-
-  /// Documento enviado con ese nombre, o null.
-  RemoteDocumentSlot findDocument(string name) pure @trusted {
-    synchronized (slotsLock) {
-      if (auto slot = name in slots) return *slot;
-      return null;
-    }
   }
 
   private void reportErrors(string[] errors) @safe {

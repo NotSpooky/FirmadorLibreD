@@ -29,7 +29,6 @@ import core.time : dur, Duration;
 import std.algorithm : canFind;
 import std.datetime.systime : SysTime;
 import std.exception : enforce;
-import std.format : format;
 import std.typecons : Nullable;
 
 import firmador.asn1.der;
@@ -48,7 +47,6 @@ struct RevocationInfo {
   immutable(ubyte)[] der;
   CertificateStatus status;
   SysTime revocationTime;
-  int revocationReason = -1;
   /// producedAt (OCSP) o thisUpdate (CRL).
   SysTime productionTime;
   SysTime thisUpdate;
@@ -93,7 +91,6 @@ RevocationInfo verifyOcsp(const OcspResponse response, const Certificate certifi
   info.der = response.der;
   info.status = single.status;
   info.revocationTime = single.revocationTime;
-  info.revocationReason = single.revocationReason;
   info.productionTime = response.producedAt;
   info.thisUpdate = single.thisUpdate;
   info.nextUpdate = single.nextUpdate;
@@ -124,7 +121,6 @@ RevocationInfo verifyCrl(const CertificateRevocationList crl, const Certificate 
   if (findRevocation(crl, certificate.serialNumber, entry)) {
     info.status = CertificateStatus.revoked;
     info.revocationTime = entry.revocationDate;
-    info.revocationReason = entry.reason;
   } else {
     info.status = CertificateStatus.good;
   }
@@ -187,7 +183,6 @@ unittest {
 unittest {
   // CRL real del BCCR guardada en la prueba sería frágil: se arma una firmada con una clave de prueba.
   import firmador.crypto.openssl : makeTestIdentity;
-  import firmador.x509.name : encodeName;
   auto issuerIdentity = makeTestIdentity("Emisor de prueba", "x");
   auto issuer = parseCertificate(issuerIdentity.certificateDer);
   auto other = parseCertificate(makeTestIdentity("Otro emisor", "x").certificateDer);

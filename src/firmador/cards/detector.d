@@ -31,8 +31,8 @@ import core.stdc.config : c_ulong;
 import core.sync.mutex : Mutex;
 import core.thread : Thread;
 import core.time : dur, MonoTime;
-import std.algorithm : canFind, remove;
-import std.exception : enforce;
+import std.algorithm : canFind;
+import std.exception : basicExceptionCtors;
 import std.file : exists, isFile;
 import std.logger : error, info, trace, warning;
 
@@ -53,9 +53,7 @@ alias SmartCardListener = void delegate(const(CardSignInfo)[] cards);
 
 /// La biblioteca PKCS#11 es de otra arquitectura (UnsupportedArchitectureException).
 class UnsupportedArchitectureException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// Certificado leído de una tarjeta, con dónde está y cómo se llama su clave.
@@ -146,9 +144,7 @@ final class SmartCardDetector {
 
   /// Olvida los certificados leídos de la tarjeta para volver a pedirlos.
   void invalidateCache() @trusted {
-    lock.lock();
-    scope (exit) lock.unlock();
-    cacheValid = false;
+    synchronized (lock) cacheValid = false;
   }
 
   /**
@@ -278,9 +274,7 @@ final class SmartCardDetector {
   CardSignInfo[] readSaveListSmartCard() @trusted {
     scanCards(true);
     notifyListeners();
-    lock.lock();
-    scope (exit) lock.unlock();
-    return cardinfo.dup;
+    synchronized (lock) return cardinfo.dup;
   }
 
   /// Credenciales con certificado: las que la API remota puede ofrecer y seleccionar.
@@ -295,16 +289,7 @@ final class SmartCardDetector {
 
   /// Última lista leída.
   CardSignInfo[] listCardInfo() @trusted {
-    lock.lock();
-    scope (exit) lock.unlock();
-    return cardinfo.dup;
-  }
-
-  /// Reemplaza la lista (la usan los flujos que ya leyeron las tarjetas).
-  void setCardInfo(CardSignInfo[] cards) @trusted {
-    lock.lock();
-    scope (exit) lock.unlock();
-    cardinfo = cards;
+    synchronized (lock) return cardinfo.dup;
   }
 
   /// Hay al menos un certificado en la tarjeta.
@@ -336,23 +321,6 @@ final class SmartCardDetector {
       invalidateCache();
       return;
     }
-  }
-
-  /**
-   * Comprueba el PIN iniciando y cerrando una sesión de usuario, antes de firmar un lote:
-   * así un PIN equivocado se detecta una sola vez en lugar de gastar un intento por
-   * documento. No aplica a los almacenes PKCS#12.
-   *
-   * Throws: Pkcs11Exception (CKR_PIN_INCORRECT, CKR_PIN_LOCKED…) si la tarjeta rechaza el PIN.
-   */
-  void verifyPin(const CardSignInfo card) @trusted {
-    if (card is null || card.cardType == CardType.pkcs12 || card.cardType == CardType.remote) return;
-    enforce(card.hasPin, "No se indicó el PIN");
-    auto module_ = Pkcs11Module.load(libraryPath());
-    auto session = module_.openSession(module_.resolveSlot(card.slotID));
-    scope (exit) session.close();
-    session.login(card.pin.get());
-    session.logout();
   }
 
   /**
@@ -412,13 +380,6 @@ final class SmartCardDetector {
     listenerLock.unlock();
     auto detected = listCardInfo();
     if (detected.length) notifyOne(listener, detected);
-  }
-
-  /// Da de baja un oyente; los diálogos que se cierran tienen que llamarlo.
-  void removeListener(SmartCardListener listener) @trusted {
-    listenerLock.lock();
-    scope (exit) listenerLock.unlock();
-    listeners = listeners.remove!(registered => registered is listener);
   }
 
   private void notifyListeners() @trusted {

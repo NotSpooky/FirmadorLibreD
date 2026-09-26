@@ -30,17 +30,14 @@ import std.bigint : BigInt;
 import std.conv : to, ConvException;
 import std.datetime.date : DateTime;
 import std.datetime.systime : SysTime;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
-import std.string : indexOf;
 
-import firmador.util.datetime : toGeneralizedTime, utcDateTime, utcTime;
+import firmador.util.datetime : utcDateTime, utcTime;
 
 /// Error de estructura en datos ASN.1 recibidos.
 class Asn1Exception : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// Clase de una etiqueta ASN.1.
@@ -565,11 +562,6 @@ ubyte[] derContextConstructed(uint number, const(ubyte[])[] elements...) pure @s
   return derTlv(tagByte(TagClass.contextSpecific, true, number), joinBytes(elements));
 }
 
-/// Elemento [n] primitivo (IMPLICIT de un tipo primitivo).
-ubyte[] derContextPrimitive(uint number, const(ubyte)[] content) pure @safe {
-  return derTlv(tagByte(TagClass.contextSpecific, false, number), content);
-}
-
 /// Cambia la etiqueta de un elemento ya codificado (IMPLICIT), conservando si es construido.
 ubyte[] derRetag(const(ubyte)[] encoded, TagClass tagClass, uint number) pure @safe {
   auto element = parseDer(encoded);
@@ -628,15 +620,6 @@ ubyte[] derUtf8String(string text) pure @safe {
   return derTlv(0x0C, cast(const(ubyte)[]) text);
 }
 
-ubyte[] derIa5String(string text) pure @safe {
-  foreach (character; text) enforce!Asn1Exception(character < 0x80, "IA5String con caracteres fuera de ASCII");
-  return derTlv(0x16, cast(const(ubyte)[]) text);
-}
-
-ubyte[] derGeneralizedTime(SysTime time) pure @safe {
-  return derTlv(0x18, cast(const(ubyte)[]) toGeneralizedTime(time));
-}
-
 /// UTCTime para fechas entre 1950 y 2049, como exige RFC 5652 para signing-time.
 ubyte[] derUtcTime(SysTime time) pure @safe {
   DateTime utc = utcDateTime(time);
@@ -644,12 +627,6 @@ ubyte[] derUtcTime(SysTime time) pure @safe {
   string text = format("%02d%02d%02d%02d%02d%02dZ", utc.year % 100, cast(int) utc.month, utc.day, utc.hour,
     utc.minute, utc.second);
   return derTlv(0x17, cast(const(ubyte)[]) text);
-}
-
-/// Fecha en UTCTime hasta 2049 y en GeneralizedTime después (Time de RFC 5280).
-ubyte[] derTime(SysTime time) pure @safe {
-  DateTime utc = utcDateTime(time);
-  return utc.year >= 1950 && utc.year < 2050 ? derUtcTime(time) : derGeneralizedTime(time);
 }
 
 /// Identificador de algoritmo (AlgorithmIdentifier) con parámetros NULL o sin parámetros.
@@ -732,7 +709,6 @@ unittest {
   assert(parseUtcTime("500101000000Z").toUTC.year == 1950);
   auto withFraction = parseGeneralizedTime("20260922200405.125Z");
   assert(withFraction.fracSecs.total!"msecs" == 125);
-  assert(parseDer(derGeneralizedTime(withFraction)).timeValue.toUnixTime == withFraction.toUnixTime);
   import std.exception : assertThrown;
   assertThrown!Asn1Exception(parseGeneralizedTime("2026092220Z"));
 }

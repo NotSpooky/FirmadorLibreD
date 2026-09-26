@@ -25,15 +25,13 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 module firmador.util.json;
 
 import std.base64 : Base64, Base64Exception;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
 import std.json : JSONValue, JSONType, parseJSON, JSONException;
 
 /// El JSON recibido no tiene la forma esperada.
 class JsonShapeException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /**

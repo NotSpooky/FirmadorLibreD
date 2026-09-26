@@ -25,7 +25,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.validators.factory;
 
-import std.algorithm : canFind, startsWith;
+import std.algorithm : startsWith;
 import std.logger : info, trace;
 
 import firmador.containers.asic : classifyContainer;

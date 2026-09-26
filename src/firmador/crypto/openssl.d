@@ -26,7 +26,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 module firmador.crypto.openssl;
 
 import core.stdc.string : strlen;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
 import std.string : toStringz;
 
@@ -39,9 +39,7 @@ import firmador.x509.certificate : Certificate;
 
 /// Error de OpenSSL con el detalle de su cola de errores.
 class CryptoException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 private __gshared bool providersLoaded;
@@ -311,9 +309,7 @@ struct Pkcs12Contents {
 
 /// La contraseña de un almacén PKCS#12 no es la correcta.
 class WrongPasswordException : CryptoException {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 private immutable(ubyte)[] certificateToDer(X509* certificate) @trusted {

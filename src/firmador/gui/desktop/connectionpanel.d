@@ -69,19 +69,16 @@ final class ConnectionPanel : VerticalLayout {
   this(DesktopInterface host) @trusted {
     super("conexiones");
     this.host = host;
-    layoutWidth = FILL_PARENT;
-    layoutHeight = FILL_PARENT;
+    fillParent();
     auto split = new HorizontalLayout;
-    split.layoutWidth = FILL_PARENT;
-    split.layoutHeight = FILL_PARENT;
+    split.fillParent();
 
     auto left = new VerticalLayout;
-    left.layoutWidth = FILL_PARENT;
-    left.layoutHeight = FILL_PARENT;
+    left.fillParent();
     left.layoutWeight = 1;
     left.addChild(boldTitle("connection_panel_connections"));
     auto add = makeButton("agregar-conexion", "connection_panel_add", "connection_panel_add_button_accessible_description",
-      () { importConnections(); return true; });
+      () { importConnections(); });
     left.addChild(add);
     list = new VerticalLayout("lista-conexiones");
     list.layoutWidth = FILL_PARENT;
@@ -89,8 +86,7 @@ final class ConnectionPanel : VerticalLayout {
     split.addChild(left);
 
     auto right = new VerticalLayout;
-    right.layoutWidth = FILL_PARENT;
-    right.layoutHeight = FILL_PARENT;
+    right.fillParent();
     right.layoutWeight = 2;
     right.padding = Rect(12, 0, 0, 0);
     right.addChild(boldTitle("connection_panel_info"));
@@ -112,7 +108,6 @@ final class ConnectionPanel : VerticalLayout {
         loggedErrors[connection] = 0;
       }
       refreshAll();
-      return true;
     }));
     addChild(logHeader);
     log = new LogWidget("registro");
@@ -213,14 +208,11 @@ final class ConnectionPanel : VerticalLayout {
     stateLabel.margins = Rect(0, 8, 0, 4);
     details.addChild(stateLabel);
     auto connect = makeButton("conectar", connection.isRunning() ? "connection_panel_disconnect"
-      : "connection_panel_connect", "connection_panel_connection_button_des", () {
-      toggleConnection(connection);
-      return true;
-    });
+      : "connection_panel_connect", "connection_panel_connection_button_des", () { toggleConnection(connection); });
     details.addChild(connect);
     if (connection.kind == ConnectionKind.external && connection.isLogged()) {
       auto request = makeButton("pedir-documentos", "connection_panel_get_documents_title",
-        "coonection_panel_get_documents", () { host.requestVirtualDocuments(connection); return true; });
+        "coonection_panel_get_documents", () { host.requestVirtualDocuments(connection); });
       details.addChild(request);
     }
     if (remote) {
@@ -261,7 +253,6 @@ final class ConnectionPanel : VerticalLayout {
       host.connections.stopRemote(port);
       appendLog(connection.name, format("%s %d", t("connection_panel_connection_end"), port));
       refreshAll();
-      return true;
     });
     stop.margins = Rect(8, 0, 0, 0);
     row.addChild(stop);
@@ -269,10 +260,7 @@ final class ConnectionPanel : VerticalLayout {
   }
 
   private Widget allowedOriginRow(string origin) {
-    return originRow(origin, "connection_panel_delete", () {
-      confirmRemoveOrigin(origin);
-      return true;
-    });
+    return originRow(origin, "connection_panel_delete", () { confirmRemoveOrigin(origin); });
   }
 
   private Widget deniedOriginRow(string origin) {
@@ -282,11 +270,10 @@ final class ConnectionPanel : VerticalLayout {
         authorizeOrigin(host, currentSettings(), origin);
         runOnUi(() => refreshAll());
       }, () => refreshAll());
-      return true;
     });
   }
 
-  private Widget originRow(string origin, string buttonKey, bool delegate() action) {
+  private Widget originRow(string origin, string buttonKey, void delegate() action) {
     auto row = new HorizontalLayout;
     row.layoutWidth = FILL_PARENT;
     auto text = new TextWidget(null, origin.toUTF32);

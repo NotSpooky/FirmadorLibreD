@@ -28,6 +28,7 @@ module firmador.pdf.pades;
 import core.sync.mutex : Mutex;
 import std.algorithm : canFind;
 import std.datetime.systime : Clock, SysTime;
+import std.exception : basicExceptionCtors;
 import std.format : format;
 import std.logger : info, warning;
 
@@ -152,9 +153,7 @@ string nextFieldName(const string[] existing) pure @safe {
 
 /// El campo de firma no se puede poner donde ya hay una anotación.
 class SignatureOverlapException : PdfException {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// Parámetros de una firma PAdES.
@@ -421,6 +420,5 @@ unittest {
   auto algorithm = signatureAlgorithmFrom(parsed.signerInfos[0].signatureAlgorithm, DigestAlgorithm.sha256);
   assert(verifySignature(certificate.subjectPublicKeyInfoDer, algorithm,
     parsed.signerInfos[0].signedAttributesForSignature, parsed.signerInfos[0].signature));
-  import firmador.pdf.engine : PageRaster;
   assert(document.render(0, 0.2).rgb.length > 0);
 }

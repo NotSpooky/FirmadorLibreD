@@ -381,7 +381,6 @@ dchar[256] winAnsiTable() pure nothrow @safe @nogc {
  * ella se cambian por '?' y se cuentan en `replaced`.
  */
 ubyte[] encodeWinAnsi(string text, ref size_t replaced) pure @safe {
-  auto table = winAnsiTable();
   ubyte[] encoded;
   foreach (dchar character; text) {
     if (character == '\t') character = ' ';

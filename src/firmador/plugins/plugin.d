@@ -31,7 +31,7 @@ import std.array : appender;
 import std.datetime.systime : Clock;
 import std.file : append;
 import std.format : format;
-import std.logger : error, info, warning;
+import std.logger : error, info;
 import std.meta : staticMap;
 import std.path : buildPath;
 import std.string : join;

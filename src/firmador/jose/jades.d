@@ -31,7 +31,7 @@ import std.algorithm : canFind;
 import std.array : appender;
 import std.base64 : Base64URLNoPadding, Base64Exception;
 import std.datetime.systime : SysTime;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
 import std.json : JSONType, JSONValue, toJSON;
 import std.logger : info;
@@ -50,9 +50,7 @@ import firmador.x509.certificate;
 
 /// El JWS no tiene la forma esperada.
 class JwsException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// base64url sin relleno (RFC 7515 §2).

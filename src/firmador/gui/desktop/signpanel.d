@@ -31,11 +31,10 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.gui.desktop.signpanel;
 
-import std.algorithm : canFind, countUntil, map;
+import std.algorithm : countUntil, map;
 import std.array : array, replace;
 import std.datetime.systime : Clock;
 import std.format : format;
-import std.path : dirName;
 import std.string : strip;
 import std.typecons : Nullable, nullable;
 import std.utf : toUTF32, toUTF8;
@@ -59,7 +58,6 @@ import firmador.gui.desktop.dialogs;
 import firmador.gui.desktop.pageview;
 import firmador.gui.desktop.uithread : runInBackground, runOnUi;
 import firmador.gui.desktop.window : DesktopInterface;
-import firmador.gui.guiinterface : NotificationType;
 import firmador.i18n : t;
 import firmador.launch : hideSignatureAdviceProperty, launchFlag, launchProperty, signatureImageProperty;
 import firmador.pdf.engine : PageGeometry;
@@ -218,8 +216,7 @@ final class SignPanel : VerticalLayout {
   this(DesktopInterface host) @trusted {
     super("firma");
     this.host = host;
-    layoutWidth = FILL_PARENT;
-    layoutHeight = FILL_PARENT;
+    fillParent();
     auto settings = currentSettings();
 
     topBar = new HorizontalLayout("barra-superior");
@@ -253,7 +250,6 @@ final class SignPanel : VerticalLayout {
     topBar.addChild(rotationBox);
     positionButton = makeButton("posicion", "signpanel_sign_position", "signpanel_sign_position", () {
       showPositionDialog();
-      return true;
     });
     positionButton.margins = Rect(12, 0, 0, 0);
     topBar.addChild(positionButton);
@@ -284,8 +280,7 @@ final class SignPanel : VerticalLayout {
     addChild(topBar);
 
     pages = new PageView("paginas");
-    pages.layoutWidth = FILL_PARENT;
-    pages.layoutHeight = FILL_PARENT;
+    pages.fillParent();
     pages.setZoom(zoomAt(zoomBox.selectedItemIndex));
     pages.onSignatureResized = (float scale) {
       signScale = scale;
@@ -321,19 +316,12 @@ final class SignPanel : VerticalLayout {
     mainRow.addChild(fieldsColumn);
     auto signRow = new HorizontalLayout;
     signRow.margins = Rect(12, 0, 0, 0);
-    cancelButton = makeButton("rechazar", "signpanel_cancel_btn", "signpanel_cancel_tooltip", () {
-      confirmCancel();
-      return true;
-    });
-    signButton = makeButton("firmar", "signpanel_sign_btn", "signpanel_sign_tooltip", () {
-      requestSign();
-      return true;
-    });
+    cancelButton = makeButton("rechazar", "signpanel_cancel_btn", "signpanel_cancel_tooltip", () { confirmCancel(); });
+    signButton = makeButton("firmar", "signpanel_sign_btn", "signpanel_sign_tooltip", () { requestSign(); });
     signButton.fontWeight = 800;
     signButton.minWidth = 140;
     collapseButton = makeButton("plegar", "signpanel_collapse_footer", "signpanel_collapse_footer", () {
       applyFooterState(!footerCollapsed);
-      return true;
     });
     signRow.addChild(cancelButton);
     signRow.addChild(signButton);
@@ -362,15 +350,13 @@ final class SignPanel : VerticalLayout {
     secondaryActions.addChild(formatGroup);
     validateButton = makeButton("ver-firmas", "signpanel_validate_btn", "signpanel_validate_tooltip", () {
       if (current !is null) host.showDocumentReport(current);
-      return true;
     });
     advancedButton = makeButton("avanzadas", "signpanel_advanced_options_btn", "signpanel_advanced_options_tooltip",
-      () { showAdvancedOptions(); return true; });
+      () { showAdvancedOptions(); });
     saveButton = makeButton("guardar-configuracion", "signpanel_save_btn", "signpanel_save_tooltip", () {
-      if (current is null) return true;
+      if (current is null) return;
       current.setSettings(collectSettings());
       host.showMessage(t("signpanel_dialog_save_configuration"));
-      return true;
     });
     foreach (button; [validateButton, advancedButton, saveButton]) {
       button.margins = Rect(8, 0, 0, 0);

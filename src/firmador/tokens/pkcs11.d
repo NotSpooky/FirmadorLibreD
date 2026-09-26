@@ -29,8 +29,7 @@ module firmador.tokens.pkcs11;
 import core.stdc.config : c_ulong;
 import core.sync.mutex : Mutex;
 import std.algorithm : canFind;
-import std.conv : to;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
 import std.logger : info, trace, warning;
 import std.string : fromStringz, strip, toStringz;
@@ -61,9 +60,7 @@ class Pkcs11Exception : Exception {
 
 /// La biblioteca PKCS#11 no se pudo cargar (ruta, dependencias o arquitectura).
 class Pkcs11LibraryException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// Nombre del código de retorno de PKCS#11, como los mensajes de PKCS11Exception en Java.
@@ -138,9 +135,7 @@ shared static this() {
 
 /// Toma el cerrojo de PKCS#11 durante `action` (también para agrupar varias llamadas).
 auto withPkcs11Lock(T)(scope T delegate() action) @trusted {
-  pkcs11Lock.lock();
-  scope (exit) pkcs11Lock.unlock();
-  return action();
+  synchronized (pkcs11Lock) return action();
 }
 
 /// Texto de un campo de longitud fija de PKCS#11 (relleno con espacios).
@@ -330,10 +325,9 @@ final class Pkcs11Session {
    *
    * Throws: Pkcs11Exception con CKR_PIN_INCORRECT, CKR_PIN_LOCKED… si la tarjeta lo rechaza.
    */
-  void login(const(char)[] pin, bool contextSpecific = false) @trusted {
+  void login(const(char)[] pin) @trusted {
     withPkcs11Lock!void(() {
-      c_ulong userType = contextSpecific ? CKU_CONTEXT_SPECIFIC : CKU_USER;
-      c_ulong result = owner.functions.C_Login(handle, userType, cast(ubyte*) pin.ptr, pin.length);
+      c_ulong result = owner.functions.C_Login(handle, CKU_USER, cast(ubyte*) pin.ptr, pin.length);
       if (result == CKR_USER_ALREADY_LOGGED_IN) {
         trace("El usuario ya había iniciado sesión en la ranura ", slot);
         return;

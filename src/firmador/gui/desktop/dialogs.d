@@ -30,11 +30,8 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.gui.desktop.dialogs;
 
-import core.time : dur;
 import std.algorithm : map;
 import std.array : array;
-import std.ascii : isDigit;
-import std.conv : to;
 import std.format : format;
 import std.logger : error, info, warning;
 import std.uni : toUpper;
@@ -48,7 +45,7 @@ import dlangui.dialogs.dialog;
 import dlangui.graphics.drawbuf;
 import dlangui.graphics.images : loadImage;
 import dlangui.graphics.resources;
-import dlangui.platforms.common.platform : Platform, Window;
+import dlangui.platforms.common.platform : Window;
 import dlangui.widgets.combobox;
 import dlangui.widgets.controls;
 import dlangui.widgets.editors;

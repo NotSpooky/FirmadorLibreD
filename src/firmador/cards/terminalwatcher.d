@@ -28,7 +28,7 @@ module firmador.cards.terminalwatcher;
 import core.thread : Thread;
 import core.time : dur;
 import std.logger : info, trace;
-import std.string : fromStringz, toStringz;
+import std.string : toStringz;
 
 import cpcsc;
 

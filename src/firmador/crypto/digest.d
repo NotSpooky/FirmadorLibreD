@@ -24,7 +24,6 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 module firmador.crypto.digest;
 
 import std.digest.sha : SHA1, SHA224, SHA256, SHA384, SHA512;
-import std.exception : enforce;
 import std.format : format;
 
 import firmador.asn1.oids;
@@ -142,17 +141,6 @@ DigestAlgorithm digestFromJoseName(string name) pure @safe {
     if (digestJoseName(algorithm) == name || digestXmlUri(algorithm) == name) return algorithm;
   }
   throw new Exception(format("Algoritmo de resumen JOSE no admitido: %s", name));
-}
-
-/// Nombre del resumen en DSS (SHA256…), el que aparece en los DTO remotos.
-string digestDssName(DigestAlgorithm algorithm) pure nothrow @safe @nogc {
-  final switch (algorithm) {
-    case DigestAlgorithm.sha1: return "SHA1";
-    case DigestAlgorithm.sha224: return "SHA224";
-    case DigestAlgorithm.sha256: return "SHA256";
-    case DigestAlgorithm.sha384: return "SHA384";
-    case DigestAlgorithm.sha512: return "SHA512";
-  }
 }
 
 /// Prefijo DER de DigestInfo (RFC 8017 §9.2) que antecede al resumen en RSA PKCS#1 v1.5.

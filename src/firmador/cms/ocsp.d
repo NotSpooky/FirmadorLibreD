@@ -26,7 +26,7 @@ module firmador.cms.ocsp;
 
 import std.bigint : BigInt;
 import std.datetime.systime : SysTime;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
 import std.typecons : Nullable;
 
@@ -97,9 +97,7 @@ struct OcspResponse {
 
 /// El respondedor contestó con un estado de error o algo que no es una respuesta básica.
 class OcspException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// OCSPRequest sin firmar ni nonce (como OnlineOCSPSource de DSS) para un certificado.

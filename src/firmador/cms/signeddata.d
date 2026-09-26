@@ -25,8 +25,6 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.cms.signeddata;
 
-import std.algorithm : canFind, map;
-import std.array : array;
 import std.bigint : BigInt;
 import std.datetime.systime : SysTime;
 import std.exception : enforce;

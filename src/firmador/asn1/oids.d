@@ -53,7 +53,6 @@ enum string oidAuthorityInfoAccess = "1.3.6.1.5.5.7.1.1";
 enum string oidAccessOcsp = "1.3.6.1.5.5.7.48.1";
 enum string oidAccessCaIssuers = "1.3.6.1.5.5.7.48.2";
 enum string oidOcspNoCheck = "1.3.6.1.5.5.7.48.1.5";
-enum string oidOcspNonce = "1.3.6.1.5.5.7.48.1.2";
 enum string oidOcspBasic = "1.3.6.1.5.5.7.48.1.1";
 enum string oidEkuTimeStamping = "1.3.6.1.5.5.7.3.8";
 enum string oidEkuOcspSigning = "1.3.6.1.5.5.7.3.9";
@@ -86,15 +85,10 @@ enum string oidSigningTime = "1.2.840.113549.1.9.5";
 enum string oidTstInfo = "1.2.840.113549.1.9.16.1.4";
 enum string oidSigningCertificate = "1.2.840.113549.1.9.16.2.12";
 enum string oidSigningCertificateV2 = "1.2.840.113549.1.9.16.2.47";
-enum string oidSignaturePolicyIdentifier = "1.2.840.113549.1.9.16.2.15";
 enum string oidSignatureTimeStampToken = "1.2.840.113549.1.9.16.2.14";
-enum string oidContentTimestamp = "1.2.840.113549.1.9.16.2.20";
-enum string oidCertificateValues = "1.2.840.113549.1.9.16.2.23";
-enum string oidRevocationValues = "1.2.840.113549.1.9.16.2.24";
 enum string oidArchiveTimestampV3 = "0.4.0.1733.2.4";
 enum string oidAtsHashIndexV3 = "0.4.0.19122.1.5";
 enum string oidRevocationInfoOcsp = "1.3.6.1.5.5.7.16.2";
-enum string oidAdbeRevocationInfoArchival = "1.2.840.113583.1.1.8";
 
 // Tipos de uso de claves de KeyUsage (orden de bits de RFC 5280)
 enum KeyUsageBit : size_t {

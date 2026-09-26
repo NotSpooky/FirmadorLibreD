@@ -29,7 +29,6 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.connections.gaudi;
 
-import core.atomic : atomicLoad, atomicStore;
 import core.thread : Thread;
 import core.time : dur;
 import std.base64 : Base64, Base64Exception;

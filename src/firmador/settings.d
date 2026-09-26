@@ -27,13 +27,13 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.settings;
 
-import std.algorithm : canFind, filter, map, uniq, startsWith;
+import std.algorithm : canFind, filter, map, startsWith;
 import std.array : array, join, split;
 import std.conv : to, ConvException;
 import std.exception : enforce;
 import std.format : format;
-import std.logger : error, warning;
-import std.string : strip, toLower;
+import std.logger : error;
+import std.string : strip;
 import std.typecons : Nullable;
 import std.uni : icmp;
 
@@ -54,9 +54,6 @@ enum SignatureRotation { automatic, none, rotate90, rotate180, rotate270 }
 struct Rgba {
   ubyte red, green, blue, alpha = 255;
 
-  bool isTransparent() const pure nothrow @safe @nogc {
-    return alpha == 0;
-  }
 }
 
 /// Familia estándar PDF de la fuente de la firma visible (fuentes lógicas de Java).
@@ -282,26 +279,6 @@ final class Settings {
     foreach (listener; listeners.dup) listener();
   }
 
-  /// Formato de fecha del idioma configurado.
-  string getDateFormat() const pure nothrow @safe @nogc {
-    return dateFormat;
-  }
-
-  /// Familia PDF estándar que corresponde a la fuente configurada.
-  FontFamily fontFamily() const pure @safe {
-    return fontFamilyFor(font);
-  }
-
-  /// Estilo de la fuente configurada.
-  FontStyle fontStyle() const pure @safe {
-    return fontStyleFor(font);
-  }
-
-  /// Nombre de familia para la interfaz (null si es una fuente lógica).
-  string displayFontName() const pure @safe {
-    return displayFontNameFor(font);
-  }
-
   SignerTextPosition getFontAlignment() const pure @safe {
     switch (fontAlignment) {
       case "LEFT": return SignerTextPosition.left;
@@ -499,28 +476,6 @@ int resolveOriginPort(string origin, bool allowOriginPort, out bool outOfRange) 
   return port;
 }
 
-/**
- * Origen normalizado (esquema://servidor[:puerto]) de un origen de lanzamiento, o el de
- * localhost con el puerto de esta ejecución si no se lanzó desde una página.
- */
-string normalizedOrigin(string origin, int portNumber) pure @safe {
-  import std.string : indexOf;
-  string value = origin is null ? format("http://localhost:%d", portNumber) : origin;
-  auto httpIndex = value.indexOf("http");
-  if (httpIndex > 0) value = value[httpIndex .. $];
-  auto hash = value.indexOf('#');
-  if (hash != -1) value = value[0 .. hash];
-  auto schemeEnd = value.indexOf("://");
-  if (schemeEnd <= 0) return value;
-  string scheme = value[0 .. schemeEnd];
-  string rest = value[schemeEnd + 3 .. $];
-  auto pathStart = rest.indexOf('/');
-  string authority = pathStart >= 0 ? rest[0 .. pathStart] : rest;
-  auto userEnd = authority.indexOf('@');
-  if (userEnd >= 0) authority = authority[userEnd + 1 .. $];
-  return scheme ~ "://" ~ authority;
-}
-
 /// Claves de config.properties que no son campos simples (ver settingsToProperties).
 private enum string pluginsKey = "plugins";
 private enum string pkcs12Key = "pkcs12file";
@@ -564,9 +519,6 @@ private enum string[2][] propertyKeys = [
   ["allowOriginPort", "allowOriginPort"], ["preferredBrowser", "preferredBrowser"],
   ["registeredAllowedOrigins", "registeredAllowedOrigins"],
 ];
-
-/// Fuente de la contraseña del almacén de tokens al leer config.properties.
-enum KeyPasswordSource { secureStore, settingsFile, generated }
 
 /**
  * Traslada config.properties a unos ajustes por omisión, con las mismas claves y valores
@@ -817,8 +769,6 @@ unittest {
   assert(resolveOriginPort("http://localhost:8000#abc", true, outOfRange) == defaultRemotePort);
   assert(resolveOriginPort(null, true, outOfRange) == defaultRemotePort);
   assert(processOrigin("firmador:https://sitio.cr#3517#True", defaultRemotePort).minimized);
-  assert(normalizedOrigin("https://sitio.cr:8443/ruta#3517", 3516) == "https://sitio.cr:8443");
-  assert(normalizedOrigin(null, 3517) == "http://localhost:3517");
 }
 
 @("should map configured font names to PDF families and styles")
@@ -837,7 +787,7 @@ unittest {
   assert(parseColor("#FF8000") == Rgba(255, 128, 0, 255));
   assert(parseColor("0x000010") == Rgba(0, 0, 16, 255));
   assert(parseColor("16") == Rgba(0, 0, 16, 255));
-  assert(parseColor("Transparente").isTransparent);
+  assert(parseColor("Transparente").alpha == 0);
   assertThrown(parseColor("rojo"));
   assertThrown(parseColor("#1000000"));
 }

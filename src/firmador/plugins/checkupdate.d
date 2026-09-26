@@ -38,7 +38,7 @@ import std.digest.sha : sha256Of;
 import std.exception : enforce;
 import std.file : isDir, mkdirRecurse, read, remove, rename, setAttributes, tempDir, thisExePath, write;
 import std.format : format;
-import std.logger : error, info, warning;
+import std.logger : error, info;
 import std.path : buildNormalizedPath, buildPath, dirName;
 import std.process : Config, spawnProcess;
 import std.string : indexOf, strip, toUpper;

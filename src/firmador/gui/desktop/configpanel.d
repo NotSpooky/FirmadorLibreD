@@ -30,8 +30,8 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.gui.desktop.configpanel;
 
-import std.algorithm : canFind, countUntil, map, remove;
-import std.array : array, join, replace, split;
+import std.algorithm : canFind, map, remove;
+import std.array : array, join, replace;
 import std.conv : ConvException, to;
 import std.exception : enforce;
 import std.format : format;
@@ -55,13 +55,13 @@ import firmador.crypto.openssl : WrongPasswordException;
 import firmador.gui.desktop.common;
 import firmador.gui.desktop.dialogs;
 import firmador.gui.desktop.secretfield : SecretField;
-import firmador.gui.desktop.pageview : zoomAt, zoomIndexFor, zoomSettingValues;
+import firmador.gui.desktop.pageview : zoomIndexFor, zoomSettingValues;
 import firmador.gui.desktop.signpanel : rotationLabels, rotationValues, zoomLabels;
 import firmador.gui.desktop.window : DesktopInterface;
 import firmador.gui.guiinterface : NotificationType;
 import firmador.i18n : t;
 import firmador.plugins.plugin : knownPluginNames;
-import firmador.settings : parseColor, Settings, splitHosts, transparentColorName;
+import firmador.settings : parseColor, Settings, splitHosts;
 import firmador.settingsmanager : currentSettings, replaceCurrentSettings, writeSettings;
 import firmador.signers.common : rootCause;
 
@@ -146,13 +146,11 @@ final class ConfigPanel : VerticalLayout {
   this(DesktopInterface host) @trusted {
     super("configuracion");
     this.host = host;
-    layoutWidth = FILL_PARENT;
-    layoutHeight = FILL_PARENT;
+    fillParent();
     auto top = new HorizontalLayout;
     switchButton = makeButton("cambiar-vista", "configpanel_advanced_options", null, () {
       showingAdvanced = !showingAdvanced;
       showView();
-      return true;
     });
     top.addChild(switchButton);
     addChild(top);
@@ -168,16 +166,9 @@ final class ConfigPanel : VerticalLayout {
     buttons.addChild(makeButton("restaurar", "configpanel_restore", null, () {
       load(new Settings());
       host.showNotification(t("configpanel_restore_done"), NotificationType.success);
-      return true;
     }));
-    buttons.addChild(makeButton("aplicar", "configpanel_apply_without_saving", null, () {
-      apply(false);
-      return true;
-    }));
-    buttons.addChild(makeButton("guardar", "configpanel_save", null, () {
-      apply(true);
-      return true;
-    }));
+    buttons.addChild(makeButton("aplicar", "configpanel_apply_without_saving", null, () { apply(false); }));
+    buttons.addChild(makeButton("guardar", "configpanel_save", null, () { apply(true); }));
     addChild(buttons);
     load(currentSettings());
     showView();
@@ -241,7 +232,6 @@ final class ConfigPanel : VerticalLayout {
       chooseFiles(window, t(dialogKey), false, null, (string[] paths) {
         if (paths.length) edit.text = paths[0].toUTF32;
       });
-      return true;
     }));
     row(table, label, rowLayout);
     return edit;

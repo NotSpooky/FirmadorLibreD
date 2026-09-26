@@ -26,10 +26,6 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.pdf.writer;
 
-import core.stdc.string : memcpy;
-import std.algorithm : canFind;
-import std.array : appender;
-import std.conv : to;
 import std.exception : enforce;
 import std.format : format;
 import std.logger : info;
@@ -137,7 +133,6 @@ PreparedSignature locatePlaceholders(immutable(ubyte)[] bytes, size_t contentsSi
   prepared.byteRangeLength = rangeAt + close + 1 - open;
 
   // /Contents pertenece al mismo diccionario: se busca el más cercano a /ByteRange.
-  string zeros = "<";
   auto contentsMarker = "/Contents";
   ptrdiff_t best = -1;
   ptrdiff_t search = 0;

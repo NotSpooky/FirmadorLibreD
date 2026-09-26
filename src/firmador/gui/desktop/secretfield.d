@@ -183,7 +183,6 @@ final class SecretField : Widget {
 @("should keep multi-byte characters whole and wipe every byte it drops when editing a secret")
 unittest {
   import std.algorithm : all;
-  import std.utf : toUTF8;
   SecretText secret;
   foreach (dchar character; "pín€𝄞"d) secret.append(character);
   assert(secret.characterCount == 5);

@@ -32,15 +32,15 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.gui.desktop.documentlist;
 
-import std.algorithm : canFind, countUntil, filter, map, remove, sort, startsWith;
+import std.algorithm : canFind, filter, map, remove, sort, startsWith;
 import std.array : array, join;
 import std.conv : to;
-import std.datetime.date : Date, DateTimeException;
+import std.datetime.date : Date;
 import std.file : exists, isDir, mkdirRecurse, readText, rename, rmdirRecurse;
 import std.format : format;
 import std.logger : error, info;
-import std.path : baseName, buildPath, dirName;
-import std.string : indexOf, lineSplitter, strip, toLower;
+import std.path : buildPath, dirName;
+import std.string : lineSplitter, strip, toLower;
 import std.utf : toUTF32, toUTF8;
 import std.uuid : UUID;
 
@@ -177,12 +177,10 @@ final class DocumentListPanel : HorizontalLayout {
   this(DesktopInterface host) @trusted {
     super("documentos");
     this.host = host;
-    layoutWidth = FILL_PARENT;
-    layoutHeight = FILL_PARENT;
+    fillParent();
 
     auto left = new VerticalLayout;
-    left.layoutWidth = FILL_PARENT;
-    left.layoutHeight = FILL_PARENT;
+    left.fillParent();
     left.layoutWeight = 3;
     auto search = new HorizontalLayout;
     auto searchField = new EditLine("buscar");
@@ -199,20 +197,15 @@ final class DocumentListPanel : HorizontalLayout {
     searchField.enterKey = (EditWidgetBase source) => runSearch();
     search.addChild(searchField);
     search.addChild(makeButton("buscar-boton", "list_document_search_button", "list_document_search_button",
-      () => runSearch()));
+      () { runSearch(); }));
     search.addChild(makeButton("propiedades", "list_document_properties", "list_document_properties", () {
       showActions();
-      return true;
     }));
-    localButton = makeButton("locales", "list_document_button_local", null, () {
-      showLocalDocuments();
-      return true;
-    });
+    localButton = makeButton("locales", "list_document_button_local", null, () { showLocalDocuments(); });
     virtualButton = makeButton("virtuales", "list_document_button_virtual", null, () {
       onlyVirtual = true;
       refreshModeButtons();
       reloadView();
-      return true;
     });
     search.addChild(localButton);
     search.addChild(virtualButton);
@@ -223,8 +216,7 @@ final class DocumentListPanel : HorizontalLayout {
     addChild(left);
 
     auto right = new VerticalLayout;
-    right.layoutWidth = FILL_PARENT;
-    right.layoutHeight = FILL_PARENT;
+    right.fillParent();
     right.layoutWeight = 2;
     report = new RichText("reporte");
     report.padding = Rect(8, 8, 8, 8);
@@ -240,10 +232,9 @@ final class DocumentListPanel : HorizontalLayout {
 
   private VerticalLayout buildActions() {
     auto panel = new VerticalLayout("acciones-lista");
-    panel.layoutWidth = FILL_PARENT;
-    panel.layoutHeight = FILL_PARENT;
+    panel.fillParent();
     panel.addChild(boldTitle("list_document_actions"));
-    Button add(string id, string key, bool delegate() action) {
+    Button add(string id, string key, void delegate() action) {
       auto button = makeButton(id, key, null, action);
       button.layoutWidth = FILL_PARENT;
       panel.addChild(button);
@@ -252,12 +243,10 @@ final class DocumentListPanel : HorizontalLayout {
     add("firmar-todos", "list_document_signall", () {
       if (visibleDocuments.length == 0) return notifyEmpty("list_document_no_documents_to_sign");
       host.signDocuments(visibleDocuments);
-      return true;
     });
     add("firmar-elegidos", "list_document_signall_selected", () {
       if (selectedVisible.length == 0) return notifyEmpty("list_document_no_documents_to_sign");
       host.signDocuments(selectedVisible);
-      return true;
     });
     add("limpiar", "list_document_clear", () {
       // Se quitan los de la vista actual y se conservan los del otro tipo.
@@ -266,16 +255,9 @@ final class DocumentListPanel : HorizontalLayout {
       host.showNotification(t("list_document_clear_documents"), NotificationType.success);
       host.clearDone();
       reloadView();
-      return true;
     });
-    localOnlyButtons ~= add("guardar-lista", "list_document_save_list", () {
-      saveDocumentList();
-      return true;
-    });
-    localOnlyButtons ~= add("cargar-lista", "list_document_load_list", () {
-      loadDocumentList();
-      return true;
-    });
+    localOnlyButtons ~= add("guardar-lista", "list_document_save_list", () { saveDocumentList(); });
+    localOnlyButtons ~= add("cargar-lista", "list_document_load_list", () { loadDocumentList(); });
     add("preparar-todos", "list_document_previewall", () {
       if (visibleDocuments.length == 0) return notifyEmpty("list_document_previewall_empty_action");
       if (onlyVirtual) {
@@ -284,18 +266,13 @@ final class DocumentListPanel : HorizontalLayout {
         host.showLoading(t("loadprogressdialogworker_analyzing_docs"));
         host.manager.processDocuments(visibleDocuments, 0);
       }
-      return true;
     });
-    localOnlyButtons ~= add("carpeta-salida", "list_document_changefolder", () {
-      changeOutputFolder();
-      return true;
-    });
+    localOnlyButtons ~= add("carpeta-salida", "list_document_changefolder", () { changeOutputFolder(); });
     add("configurar-todos", "list_document_setconfigureall", () {
       if (onlyVirtual) return notifyEmpty("list_document_no_virtual_documents_to_config");
       if (visibleDocuments.length == 0) return notifyEmpty("list_document_no_documents_to_sign");
       foreach (document; visibleDocuments) document.setSettings(host.currentDocumentSettings());
       host.showNotification(t("list_document_setconfigureall_success"), NotificationType.success);
-      return true;
     });
     selectAllButton = add("elegir-todos", "list_document_selectall", () {
       if (visibleDocuments.length == 0) return notifyEmpty("list_document_no_documents_to_sign");
@@ -305,7 +282,6 @@ final class DocumentListPanel : HorizontalLayout {
         foreach (document; visibleDocuments) if (!selected.canFind(document)) selected ~= document;
       }
       reloadView();
-      return true;
     });
     add("orden-nombre", "list_document_order_by_name", () => sortBy("nombre"));
     add("orden-firmas", "list_document_order_by_number_of_signatures", () => sortBy("firmas"));
@@ -318,9 +294,8 @@ final class DocumentListPanel : HorizontalLayout {
     return panel;
   }
 
-  private bool notifyEmpty(string key) {
+  private void notifyEmpty(string key) {
     host.showNotification(t(key), NotificationType.info);
-    return true;
   }
 
   // Documentos -------------------------------------------------------------------
@@ -383,7 +358,7 @@ final class DocumentListPanel : HorizontalLayout {
     reloadView();
   }
 
-  private bool sortBy(string criterion) {
+  private void sortBy(string criterion) {
     auto shown = visibleDocuments;
     if (shown.length == 0) return notifyEmpty("list_document_no_documents_to_sign");
     bool up = ascending.get(criterion, true);
@@ -405,7 +380,6 @@ final class DocumentListPanel : HorizontalLayout {
         break;
     }
     reorder(shown);
-    return true;
   }
 
   private static int pagesOf(Document document) @trusted {

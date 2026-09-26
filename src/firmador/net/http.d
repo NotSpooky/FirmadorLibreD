@@ -28,18 +28,16 @@ module firmador.net.http;
 import core.atomic : atomicLoad;
 import core.time : dur, Duration;
 import std.array : appender;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors;
 import std.format : format;
-import std.logger : info, trace, warning;
+import std.logger : info, warning;
 import etc.c.curl : CurlOption;
 import std.net.curl : HTTP, CurlException;
 import std.string : indexOf, startsWith, toLower;
 
 /// Error de red o respuesta que no se pudo recibir.
 class HttpException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// Respuesta HTTP completa.

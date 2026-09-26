@@ -30,13 +30,11 @@ import std.datetime.systime : Clock, SysTime;
 import std.exception : enforce;
 import std.format : format;
 import std.logger : info;
-import std.path : extension;
 
 import firmador.cards.cardinfo : CardSignInfo;
 import firmador.containers.asic;
 import firmador.documents.mimetype : isAsic;
 import firmador.gui.guiinterface;
-import firmador.settings;
 import firmador.signers.common;
 import firmador.signers.documentsigner;
 import firmador.signers.xades : extendXadesDocument, raiseXadesLevel;

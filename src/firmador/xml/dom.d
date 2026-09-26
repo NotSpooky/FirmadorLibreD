@@ -26,8 +26,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.xml.dom;
 
-import core.stdc.string : strlen;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
 import std.string : fromStringz, toStringz;
 
@@ -35,14 +34,7 @@ import clibxml;
 
 /// Error de lectura o de estructura XML.
 class XmlException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
-
-  /// Con la causa encadenada.
-  this(string message, Throwable cause, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line, cause);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// Espacio de nombres de XMLDSig.
@@ -251,18 +243,6 @@ final class XmlDocument {
       throw new XmlException("El documento no es XML bien formado: " ~ detail);
     }
     return new XmlDocument(parsed);
-  }
-
-  /// Documento nuevo con un elemento raíz.
-  static XmlDocument create(string uri, string prefix, string rootName) @trusted {
-    auto created = xmlNewDoc(cast(const(ubyte)*) "1.0".ptr);
-    auto root = xmlNewDocNode(created, null, cast(const(ubyte)*) rootName.toStringz, null);
-    xmlDocSetRootElement(created, root);
-    if (uri.length) {
-      auto ns = xmlNewNs(root, cast(const(ubyte)*) uri.toStringz, prefix.length ? cast(const(ubyte)*) prefix.toStringz : null);
-      xmlSetNs(root, ns);
-    }
-    return new XmlDocument(created);
   }
 
   /// Libera el documento.
@@ -573,7 +553,7 @@ unittest {
 @("should build namespaced elements and find them by Id when constructing signatures")
 unittest {
   import std.algorithm : canFind;
-  auto document = XmlDocument.create("urn:raiz", "r", "Raiz");
+  auto document = XmlDocument.parse(cast(const(ubyte)[]) `<r:Raiz xmlns:r="urn:raiz"/>`);
   scope (exit) document.close();
   auto signature = document.root.appendElement(xmldsigNamespace, "ds", "Signature");
   signature.setAttribute("Id", "firma-1");

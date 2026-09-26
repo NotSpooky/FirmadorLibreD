@@ -31,9 +31,7 @@ import std.logger : error, info;
 import std.math : round;
 
 import firmador.cards.cardinfo : CardSignInfo;
-import firmador.cms.tsp;
 import firmador.configuration : maxSignatureScale, minSignatureScale, padesSignatureContentSize;
-import firmador.crypto.digest;
 import firmador.gui.guiinterface;
 import firmador.i18n : t;
 import firmador.pdf.appearance;
@@ -46,7 +44,6 @@ import firmador.signers.common;
 import firmador.signers.documentsigner;
 import firmador.signers.resources;
 import firmador.util.datetime;
-import firmador.x509.certificate;
 
 /// Resolución con que se interpreta el tamaño configurado de la imagen (IMAGE_DPI en Java).
 enum int configuredImageDpi = 21;
@@ -186,7 +183,7 @@ immutable(ubyte)[] timestampPdf(GuiInterface gui, SigningServices services, immu
   try {
     VisibleSignature appearance;
     if (visibleTimestamp) {
-      string date = formatJavaDate(appSettings.getDateFormat(), Clock.currTime.toOtherTZ(costaRicaTimeZone()),
+      string date = formatJavaDate(appSettings.dateFormat, Clock.currTime.toOtherTZ(costaRicaTimeZone()),
         dateLanguageFor(appSettings.language));
       appearance.text = format(t("signers_info_timestamp_included"), date);
       appearance.font = resolveSignatureFont(appSettings.font);

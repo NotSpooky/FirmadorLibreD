@@ -26,7 +26,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 module firmador.util.desktop;
 
 import std.algorithm : startsWith;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.file : exists;
 import std.format : format;
 import std.logger : error, info;
@@ -43,9 +43,7 @@ bool insideFlatpak() @safe {
 
 /// Error al abrir un enlace o un archivo.
 class DesktopException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /**

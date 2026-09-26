@@ -132,11 +132,6 @@ final class CardSignInfo {
     if (pin !is null) pin.destroy();
   }
 
-  /// Tiene un PIN no vacío.
-  bool hasPin() const pure @safe {
-    return pin !is null && !pin.isEmpty;
-  }
-
   /// JSON público de la credencial, con los mismos nombres que serializaba Jackson.
   JSONValue toJson() const pure @safe {
     JSONValue json;

@@ -43,8 +43,8 @@ import firmador.validation.sources;
 import firmador.x509.certificate;
 import firmador.x509.crl;
 
-/// Papel del certificado en la validación, para elegir los mensajes (firma, sello o revocación).
-enum CertificateRole { signature, timestamp, revocation }
+/// Papel del certificado en la validación, para elegir los mensajes (firma o sello).
+enum CertificateRole { signature, timestamp }
 
 /// Contexto de una validación de cadena.
 struct PathContext {
@@ -96,7 +96,6 @@ private string roleSuffix(CertificateRole role) pure @safe {
   final switch (role) {
     case CertificateRole.signature: return "_SIG";
     case CertificateRole.timestamp: return "_TSP";
-    case CertificateRole.revocation: return "_REV";
   }
 }
 
@@ -373,12 +372,6 @@ struct ValidationData {
     return certificates.length == 0 && ocspResponses.length == 0 && crls.length == 0;
   }
 
-  /// Une otros datos de validación a estos.
-  void merge(const ValidationData other) pure @trusted {
-    foreach (certificate; other.certificates) addCertificate(certificate);
-    foreach (der; other.ocspResponses) if (!ocspResponses.canFind(der)) ocspResponses ~= der;
-    foreach (der; other.crls) if (!crls.canFind(der)) crls ~= der;
-  }
 }
 
 /**

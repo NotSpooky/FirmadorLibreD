@@ -159,11 +159,6 @@ final class DocumentManager {
     previews.add([document]);
   }
 
-  /// Valida los documentos en segundo plano.
-  void scheduleValidation(Document[] documents) @safe {
-    validations.add(documents);
-  }
-
   /**
    * Valida y prepara la vista previa de los documentos (processDocument). Con más de
    * `limit` documentos (0: sin límite) no los procesa y avisa, como la versión Java.

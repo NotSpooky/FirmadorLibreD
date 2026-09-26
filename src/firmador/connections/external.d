@@ -32,7 +32,6 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.connections.external;
 
-import core.atomic : atomicLoad, atomicStore;
 import core.sync.mutex : Mutex;
 import core.thread : Thread;
 import std.array : replace;

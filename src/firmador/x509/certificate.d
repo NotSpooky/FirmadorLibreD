@@ -25,8 +25,8 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.x509.certificate;
 
-import std.algorithm : canFind, startsWith;
-import std.array : appender, replace;
+import std.algorithm : canFind;
+import std.array : replace;
 import std.base64 : Base64;
 import std.bigint : BigInt;
 import std.datetime.systime : SysTime;

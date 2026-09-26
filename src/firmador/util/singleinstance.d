@@ -31,7 +31,7 @@ import core.atomic : atomicLoad, atomicStore;
 import core.thread : Thread;
 import core.time : dur;
 import std.algorithm : map, startsWith;
-import std.array : array, join, replace;
+import std.array : join, replace;
 import std.file : exists, mkdirRecurse, readText, remove, write;
 import std.logger : error, info, warning;
 import std.path : buildPath;

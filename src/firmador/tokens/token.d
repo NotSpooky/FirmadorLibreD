@@ -28,7 +28,6 @@ module firmador.tokens.token;
 import core.stdc.config : c_ulong;
 import std.exception : enforce;
 import std.file : read;
-import std.format : format;
 import std.logger : info, trace, warning;
 import std.sumtype : match, SumType;
 import std.typecons : Nullable;
@@ -56,10 +55,6 @@ final class SecretPin {
 
   bool isEmpty() const pure @safe {
     return destroyed || value.length == 0;
-  }
-
-  bool isDestroyed() const pure @safe {
-    return destroyed;
   }
 
   /// Sobrescribe el PIN con ceros.
@@ -243,6 +238,6 @@ unittest {
   auto pin = new SecretPin("1234");
   assert(pin.get() == "1234");
   pin.destroy();
-  assert(pin.isDestroyed && pin.isEmpty);
+  assert(pin.isEmpty);
   assertThrown(pin.get());
 }

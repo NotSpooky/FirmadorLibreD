@@ -32,7 +32,7 @@ import core.time : dur, Duration;
 import std.algorithm : canFind, endsWith, startsWith;
 import std.array : appender, split;
 import std.ascii : isDigit, isHexDigit;
-import std.conv : ConvException, to;
+import std.conv : to;
 import std.exception : enforce;
 import std.format : format;
 import std.logger : error, info, trace, warning;
@@ -304,10 +304,6 @@ final class HttpServer {
       listener.shutdown(SocketShutdown.BOTH);
       listener.close();
     }
-  }
-
-  ushort listeningPort() const pure nothrow @safe @nogc {
-    return port;
   }
 
   /// Sigue aceptando conexiones (no se detuvo ni se cerró el puerto).

@@ -24,7 +24,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.documents.mimetype;
 
-import std.algorithm : canFind, endsWith;
+import std.algorithm : endsWith;
 import std.string : toLower;
 import std.uni : icmp;
 
@@ -71,12 +71,6 @@ string mimeTypeString(SupportedMimeType type) pure nothrow @safe @nogc {
   return infoFor(type).mimeType;
 }
 
-/// Extensión principal (sin punto), o null para BINARY.
-string extensionOf(SupportedMimeType type) pure nothrow @safe @nogc {
-  auto extensions = infoFor(type).extensions;
-  return extensions.length ? extensions[0] : null;
-}
-
 /// Tipo según la extensión del nombre; BINARY si no se reconoce.
 SupportedMimeType detectMimeType(string fileName) pure @safe {
   if (fileName is null) return SupportedMimeType.BINARY;
@@ -107,20 +101,9 @@ bool isOpenDocument(SupportedMimeType type) pure nothrow @safe @nogc {
 bool isOpenXml(SupportedMimeType type) pure nothrow @safe @nogc {
   return type == SupportedMimeType.DOCX || type == SupportedMimeType.XLSX || type == SupportedMimeType.PPTX;
 }
-bool isOldOffice(SupportedMimeType type) pure nothrow @safe @nogc {
-  return type == SupportedMimeType.DOC || type == SupportedMimeType.PPT || type == SupportedMimeType.XLS;
-}
 bool isAsic(SupportedMimeType type) pure nothrow @safe @nogc { return type == SupportedMimeType.ASICE; }
 bool isJson(SupportedMimeType type) pure nothrow @safe @nogc { return type == SupportedMimeType.JSON; }
 bool isZip(SupportedMimeType type) pure nothrow @safe @nogc { return type == SupportedMimeType.ZIP; }
-bool isImage(SupportedMimeType type) pure nothrow @safe @nogc {
-  return type == SupportedMimeType.JPG || type == SupportedMimeType.PNG;
-}
-
-/// No se previsualiza como documento: XML, OpenDocument, OOXML y Office antiguo (withoutVisualization).
-bool withoutVisualization(SupportedMimeType type) pure nothrow @safe @nogc {
-  return isXml(type) || isOpenDocument(type) || isOpenXml(type) || isOldOffice(type);
-}
 
 @("should detect the document type from the extension ignoring case")
 unittest {
@@ -129,6 +112,4 @@ unittest {
   assert(detectMimeType("foto.jpeg") == SupportedMimeType.JPG);
   assert(detectMimeType("sin-extension") == SupportedMimeType.BINARY);
   assert(mimeTypeFromString("APPLICATION/PDF") == SupportedMimeType.PDF);
-  assert(extensionOf(SupportedMimeType.BINARY) is null);
-  assert(withoutVisualization(SupportedMimeType.DOCX) && !withoutVisualization(SupportedMimeType.PDF));
 }

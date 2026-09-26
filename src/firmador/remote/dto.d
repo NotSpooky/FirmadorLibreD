@@ -32,8 +32,7 @@ import std.base64 : Base64;
 import std.datetime.systime : Clock, SysTime;
 import std.exception : enforce;
 import std.format : format;
-import std.json : JSONType, JSONValue, toJSON;
-import std.process : environment;
+import std.json : JSONType, JSONValue;
 import std.string : indexOf;
 import std.uuid : parseUUID, UUID, UUIDParsingException;
 
@@ -105,12 +104,6 @@ RemoteSignRequest[] parseRemoteSignRequests(const JSONValue json) pure @safe {
   RemoteSignRequest[] requests;
   foreach (item; arrayItems(json, "La lista de solicitudes de firma")) requests ~= parseRemoteSignRequest(item);
   return requests;
-}
-
-/// Nombre del servidor que muestra la petición: el suyo, INSTANCE_HOSTNAME o localhost.
-string requestHostname(const RemoteSignRequest request) @safe {
-  if (request.hostname.length) return request.hostname;
-  return environment.get("INSTANCE_HOSTNAME", "localhost");
 }
 
 /// Bytes de la imagen de una petición (quita el prefijo de data URL), o null si no es base64.

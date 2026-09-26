@@ -97,11 +97,9 @@ final class LogPanel : VerticalLayout {
   this(LogBuffer buffer) @trusted {
     super("bitacoras");
     this.buffer = buffer;
-    layoutWidth = FILL_PARENT;
-    layoutHeight = FILL_PARENT;
+    fillParent();
     lines = new LogWidget("lineas");
-    lines.layoutWidth = FILL_PARENT;
-    lines.layoutHeight = FILL_PARENT;
+    lines.fillParent();
     lines.maxLines = cast(int) maxLogLines;
     lines.text = buffer.text.toUTF32;
     addChild(lines);

@@ -120,17 +120,7 @@ void setLogLevel(string julLevelName) @trusted {
 
 /// Registra un receptor; lo usa la pestaña de bitácoras de la interfaz.
 void addLogSink(LogSink sink) @trusted {
-  sinkLock.lock();
-  scope (exit) sinkLock.unlock();
-  sinks ~= sink;
-}
-
-/// Da de baja un receptor registrado con addLogSink.
-void removeLogSink(LogSink sink) @trusted {
-  import std.algorithm : remove;
-  sinkLock.lock();
-  scope (exit) sinkLock.unlock();
-  sinks = sinks.remove!(registered => registered is sink);
+  synchronized (sinkLock) sinks ~= sink;
 }
 
 @("should map java.util.logging level names when reading the advancedLogs setting")

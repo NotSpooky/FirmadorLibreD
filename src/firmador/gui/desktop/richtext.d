@@ -26,7 +26,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.gui.desktop.richtext;
 
-import std.algorithm : canFind, max, min, startsWith;
+import std.algorithm : canFind, max, startsWith;
 import std.array : appender;
 import std.conv : ConvException, to;
 import std.string : indexOf, strip, toLower;

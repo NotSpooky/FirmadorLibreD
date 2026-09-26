@@ -29,19 +29,16 @@ module firmador.cards.pkcs12store;
 
 import core.sync.mutex : Mutex;
 import std.algorithm : canFind;
-import std.array : array;
 import std.datetime.systime : SysTime;
 import std.exception : enforce;
-import std.file : exists, getSize, read, readText, timeLastModified, isFile;
+import std.file : exists, getSize, read, readText, timeLastModified;
 import std.format : format;
-import std.json : JSONValue, JSONType, parseJSON, toJSON;
-import std.logger : error, info, warning;
+import std.json : JSONValue, JSONType, parseJSON;
+import std.logger : info, warning;
 import std.path : absolutePath, buildNormalizedPath, buildPath, baseName;
 
-import firmador.asn1.oids : KeyUsageBit;
 import firmador.cards.cardinfo;
 import firmador.crypto.openssl : openPkcs12;
-import firmador.i18n : t;
 import firmador.logging : withContext;
 import firmador.settingsmanager : configDirectory, writeFileAtomically;
 import firmador.util.json;
@@ -204,15 +201,6 @@ final class Pkcs12CredentialStore {
     return null;
   }
 
-  Pkcs12CardMetadata[] all() @trusted {
-    lock.lock();
-    scope (exit) lock.unlock();
-    loadIfNeeded();
-    Pkcs12CardMetadata[] result;
-    foreach (key; order) result ~= cards[key];
-    return result;
-  }
-
   void put(Pkcs12CardMetadata meta) @trusted {
     if (meta.path is null) return;
     lock.lock();
@@ -222,17 +210,6 @@ final class Pkcs12CredentialStore {
     meta.path = key;
     if (key !in cards) order ~= key;
     cards[key] = meta;
-  }
-
-  void remove(string path) @trusted {
-    if (path is null) return;
-    lock.lock();
-    scope (exit) lock.unlock();
-    loadIfNeeded();
-    string key = normalizeStorePath(path);
-    cards.remove(key);
-    import std.algorithm : filter;
-    order = order.filter!(existing => existing != key).array;
   }
 
   /// Deja sólo las rutas indicadas (al guardar la configuración, para no acumular almacenes quitados).
@@ -265,14 +242,6 @@ final class Pkcs12CredentialStore {
       loadedAt = lastModified();
       info("Almacenes PKCS#12 registrados guardados en ", storeFile);
     });
-  }
-
-  /// Fuerza releer el archivo en la próxima consulta.
-  void reload() @trusted {
-    lock.lock();
-    scope (exit) lock.unlock();
-    loaded = false;
-    loadedAt = -1;
   }
 
   private void loadIfNeeded() @trusted {
@@ -419,5 +388,5 @@ unittest {
   auto other = new Pkcs12CredentialStore(buildPath(directory, pkcs12StoreFileName));
   assert(other.get(p12) !is null && other.get(p12).commonName == "Persona Registrada");
   other.retainOnly([]);
-  assert(other.all().length == 0);
+  assert(other.get(p12) is null);
 }

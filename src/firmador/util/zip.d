@@ -25,10 +25,10 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.util.zip;
 
-import std.algorithm : canFind, sort, startsWith;
+import std.algorithm : canFind, sort;
 import std.datetime.systime : SysTime;
 import std.digest.crc : crc32Of;
-import std.exception : enforce;
+import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
 import std.zip : ArchiveMember, CompressionMethod, ZipArchive, ZipException;
 
@@ -38,9 +38,7 @@ import firmador.configuration : maxZipEntries, maxZipExpandedBytes;
 
 /// El ZIP no se puede leer o no cumple los límites.
 class ZipFormatException : Exception {
-  this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow @safe {
-    super(message, file, line);
-  }
+  mixin basicExceptionCtors;
 }
 
 /// Entrada de un ZIP.

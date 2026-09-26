@@ -28,7 +28,7 @@ module firmador.util.datetime;
 import core.time : dur, Duration;
 import std.array : appender;
 import std.conv : to;
-import std.datetime.date : Date, DateTime, DayOfWeek, Month;
+import std.datetime.date : Date, DateTime, DayOfWeek;
 import std.datetime.systime : SysTime;
 import std.datetime.timezone : SimpleTimeZone, UTC;
 import std.exception : enforce;
@@ -228,13 +228,6 @@ string costaRicaDay(SysTime time) pure @safe {
   return format("%04d-%02d-%02d", local.year, cast(int) local.month, local.day);
 }
 
-/// Fecha en la zona de Costa Rica con su desplazamiento, como en RFC 3339 (-06:00).
-string toRfc3339CostaRica(SysTime time) pure @safe {
-  DateTime fields = costaRicaDateTime(time);
-  return format("%04d-%02d-%02dT%02d:%02d:%02d%s", fields.year, cast(int) fields.month, fields.day, fields.hour,
-    fields.minute, fields.second, offsetText(costaRicaOffset, true, true));
-}
-
 /// Fecha de un diccionario PDF («D:AAAAMMDDHHmmSS+HH'mm'»), en la zona de Costa Rica.
 string toPdfDate(SysTime time) pure @safe {
   DateTime fields = costaRicaDateTime(time);
@@ -320,7 +313,6 @@ unittest {
 unittest {
   auto time = SysTime(DateTime(2026, 9, 22, 20, 4, 5), UTC());
   assert(toRfc3339Utc(time) == "2026-09-22T20:04:05Z");
-  assert(toRfc3339CostaRica(time) == "2026-09-22T14:04:05-06:00");
   assert(toPdfDate(time) == "D:20260922140405-06'00'");
   assert(toGeneralizedTime(time) == "20260922200405Z");
   assert(parseRfc3339("2026-09-22T14:04:05-06:00") == time);
