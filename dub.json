@@ -61,7 +61,7 @@
     "CoreServices"
   ],
   "libs-windows": [
-    "mupdf",
+    "libmupdf",
     "libxml2",
     "libxslt",
     "libcrypto",
@@ -70,6 +70,9 @@
     "crypt32",
     "shell32",
     "user32"
+  ],
+  "dflags-windows": [
+    "-mscrtlib=msvcrt"
   ],
   "excludedSourceFiles-osx": [
     "src/c/csecret.c"

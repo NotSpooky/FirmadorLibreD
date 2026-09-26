@@ -1,0 +1,2 @@
+# tools/prebuild.sh lo ejecuta sh también en Windows: siempre con saltos de línea LF.
+*.sh text eol=lf

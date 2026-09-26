@@ -21,7 +21,9 @@
 # Paso previo de dub: reúne en src/cinclude las cabeceras de las bibliotecas de C que
 # ImportC necesita, según pkg-config, y compila con el compilador de C del sistema el
 # puente con mupdf (src/shim/mupdfshim.c), que usa setjmp/longjmp y por eso no puede
-# compilarse con ImportC. Ver COMMANDS.md.
+# compilarse con ImportC. En Windows lo compila clang para MSVC con el runtime de C en DLL
+# (/MD), como libmupdf.lib y las bibliotecas de vcpkg (tools/windows/build.ps1). CC y AR
+# cambian el compilador y el archivador. Ver COMMANDS.md.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -29,10 +31,20 @@ out="$root/.build"
 mkdir -p "$out"
 
 packages="mupdf libxml-2.0 libxslt libcrypto"
+cc="${CC:-cc}"
+ar="${AR:-ar}"
+compile_flags="-fPIC"
+archive_flags=""
 case "$(uname -s)" in
   Linux*) packages="$packages libpcsclite libsecret-1" ;;
   Darwin*) ;;
-  MINGW*|MSYS*|CYGWIN*) ;;
+  MINGW*|MSYS*|CYGWIN*)
+    cc="${CC:-clang}"
+    ar="${AR:-llvm-ar}"
+    compile_flags="-fms-runtime-lib=dll"
+    # link.exe lee el formato COFF de las bibliotecas de MSVC.
+    archive_flags="--format=coff"
+    ;;
   *) packages="$packages libpcsclite" ;;
 esac
 
@@ -73,9 +85,18 @@ for flag in $(pkg-config --cflags $packages); do
   esac
 done
 
-cc="${CC:-cc}"
-# shellcheck disable=SC2046
-"$cc" -O2 -fPIC -std=c11 -Wall -Wextra -Werror $(pkg-config --cflags mupdf) \
+# Las cabeceras de mupdf son de terceros: van como cabeceras del sistema, para que sus
+# avisos no cuenten en -Werror (en Linux ya lo son, en /usr/include).
+mupdf_flags=""
+for flag in $(pkg-config --cflags mupdf); do
+  case "$flag" in
+    -I*) mupdf_flags="$mupdf_flags -isystem ${flag#-I}" ;;
+    *) mupdf_flags="$mupdf_flags $flag" ;;
+  esac
+done
+# shellcheck disable=SC2086
+"$cc" -O2 $compile_flags -std=c11 -Wall -Wextra -Werror $mupdf_flags \
   -c "$root/src/shim/mupdfshim.c" -o "$out/mupdfshim.o"
 rm -f "$out/libfirmadorshim.a"
-ar rcs "$out/libfirmadorshim.a" "$out/mupdfshim.o"
+# shellcheck disable=SC2086
+"$ar" rcs $archive_flags "$out/libfirmadorshim.a" "$out/mupdfshim.o"

@@ -105,6 +105,37 @@ dub build -b release        # versión optimizada
 El paso previo (`tools/prebuild.sh`) reúne las cabeceras de C que ImportC necesita
 según `pkg-config` y compila el puente con mupdf.
 
+### Windows
+
+Se compila en Windows 10 u 11 de 64 bits. La primera vez, en PowerShell abierto como
+administrador y desde la carpeta `firmador` del repositorio:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows\setup.ps1
+```
+
+El script instala lo que falte y al final compila:
+
+* **Programas del sistema**, con Chocolatey: Git, Visual Studio 2022 Build Tools (C++ y
+  el SDK de Windows), LLVM y 7-Zip.
+* **Dependencias del proyecto**, en `.build\windows`: LDC con `dub`; libxml2, libxslt,
+  OpenSSL, SDL2, FreeType y pkgconf compilados con vcpkg; y mupdf compilado desde su
+  código. Las descargas se verifican y, igual que los archivos intermedios, se borran al
+  terminar.
+
+Todo ocurre en la misma ventana. Como compila OpenSSL y mupdf, tarda un buen rato y
+necesita unos 20 GB libres mientras tanto. Para dejar las dependencias en otra carpeta
+(sin espacios), se agrega `-DepsRoot D:\firmador-deps` al comando.
+
+Después, para volver a compilar basta, sin administrador:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows\build.ps1
+```
+
+Deja `bin\firmador.exe` junto con las DLL que necesita. Con `-Build debug` compila con
+información de depuración; si se usó `-DepsRoot` en la instalación, va también aquí.
+
 
 ## Instalación en Linux
 
