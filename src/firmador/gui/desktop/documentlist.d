@@ -553,7 +553,7 @@ final class DocumentListPanel : HorizontalLayout {
       return;
     }
     lastAction = "na";
-    if (!document.isReady && !document.isVirtual) host.doPreview(document);
+    if (!document.previewLoaded && !document.isVirtual) host.doPreview(document);
     host.loadActiveDocument(document);
   }
 

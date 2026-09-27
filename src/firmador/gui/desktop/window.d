@@ -443,7 +443,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
         Document document = simplified ? simplifiedDocument
           : (documentList.documents.length ? documentList.documents[0] : null);
         if (document !is null) {
-          if (!document.isReady) doPreview(document);
+          if (!document.previewLoaded) doPreview(document);
           loadActiveDocument(document);
           displayFunctionality("sign");
         }

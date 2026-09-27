@@ -47,7 +47,12 @@ enum PreviewKind {
   none,
 }
 
-/// Vista previa de un documento: un PDF (el documento, su conversión o nonPreview.pdf) abierto con mupdf.
+/**
+ * Vista previa de un documento: un PDF (el documento, su conversión o nonPreview.pdf) abierto
+ * con mupdf. La cargan los hilos de firmador.documents.manager mientras el hilo de la ventana
+ * y el de dibujo (firmador.gui.desktop.pageview) la leen: todo acceso al PDF va con el
+ * cerrojo del objeto, para que nadie use uno que otro hilo acaba de cerrar.
+ */
 final class Previewer {
   private PreviewKind kind;
   private float scale;
@@ -67,19 +72,25 @@ final class Previewer {
    * Throws: Exception si no se puede leer o convertir.
    */
   void load(immutable(ubyte)[] content, string name) @safe {
-    close();
+    // Si no se puede preparar la nueva, no queda la anterior.
+    scope (failure) close();
     immutable(ubyte)[] pdf;
     final switch (kind) {
       case PreviewKind.pdf: pdf = content; break;
       case PreviewKind.office: pdf = convertWithSoffice(sofficePath, content, name); break;
       case PreviewKind.none: pdf = cast(immutable(ubyte)[]) import("nonPreview.pdf"); break;
     }
-    document = PdfDocument.open(pdf);
+    // Se abre fuera del cerrojo (la conversión puede tardar) y se cambia de una vez.
+    auto opened = PdfDocument.open(pdf);
+    synchronized (this) {
+      if (document !is null) document.close();
+      document = opened;
+    }
   }
 
   /// Páginas que se pueden mostrar.
   int pageCount() @safe {
-    return document is null ? 0 : document.pageCount();
+    synchronized (this) return document is null ? 0 : document.pageCount();
   }
 
   /// Página (desde 0) rasterizada con la escala de los ajustes.
@@ -89,19 +100,17 @@ final class Previewer {
 
   /// Página (desde 0) rasterizada con otra escala (1 = 72 ppp), para el zoom de la ventana.
   PageRaster renderPage(int index, float pageScale) @safe {
-    enforce(document !is null, "No hay documento cargado para la vista previa");
-    return document.render(index, pageScale);
+    synchronized (this) return loaded().render(index, pageScale);
   }
 
   /// Tamaño y rotación de la página.
   PageGeometry pageGeometry(int index) @safe {
-    enforce(document !is null, "No hay documento cargado para la vista previa");
-    return document.pageGeometry(index);
+    synchronized (this) return loaded().pageGeometry(index);
   }
 
   /// Anotaciones del PDF (PdfDocument.annotations); ninguna si la vista previa no es el documento mismo.
   PdfAnnotation[] annotations() @safe {
-    return kind == PreviewKind.pdf && document !is null ? document.annotations() : null;
+    synchronized (this) return kind == PreviewKind.pdf && document !is null ? document.annotations() : null;
   }
 
   /// Se puede ubicar la firma visible sobre la vista previa (showSignLabelPreview): sólo en los PDF.
@@ -111,10 +120,17 @@ final class Previewer {
 
   /// Libera el documento.
   void close() @safe {
-    if (document !is null) {
+    synchronized (this) {
+      if (document is null) return;
       document.close();
       document = null;
     }
+  }
+
+  /// El PDF cargado; se llama con el cerrojo tomado.
+  private PdfDocument loaded() @safe {
+    enforce(document !is null, "No hay documento cargado para la vista previa");
+    return document;
   }
 }
 
