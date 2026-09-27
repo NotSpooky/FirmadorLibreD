@@ -24,13 +24,14 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  * abren en el hilo de la ventana y entregan el resultado a una función; quien necesita
  * esperarlo desde otro hilo usa firmador.gui.desktop.uithread.waitOnUi.
  *
- * FirmadorDialog corrige dos comportamientos de dlangui: Escape cierra con la acción de
- * cancelar (dlangui la cambiaba por la acción por omisión) y cerrar la ventana cuenta
- * como cancelar, para que nadie quede esperando una respuesta que no llegará.
+ * FirmadorDialog corrige tres comportamientos de dlangui: Escape cierra con la acción de
+ * cancelar (dlangui la cambiaba por la acción por omisión), cerrar la ventana cuenta
+ * como cancelar, para que nadie quede esperando una respuesta que no llegará, y los
+ * diálogos de una misma ventana se muestran de a uno (dialogQueues).
  */
 module firmador.gui.desktop.dialogs;
 
-import std.algorithm : map;
+import std.algorithm : map, remove;
 import std.array : array;
 import std.format : format;
 import std.logger : error, info, warning;
@@ -110,7 +111,15 @@ DrawableRef imageDrawable(immutable(ubyte)[] bytes, int maxSide) @trusted {
   return DrawableRef(new ImageDrawable(reference));
 }
 
-/// Base de los diálogos: Escape cancela y cerrar la ventana también.
+/**
+ * Diálogos en ventana propia (no Popup) de cada ventana padre, en orden de llegada: el
+ * primero es el que se ve y los demás esperan a que se cierre, como con los JOptionPane de
+ * la versión Java. dlangui deja sin entrada a un diálogo modal mientras haya otro abierto
+ * después, así que dos a la vez dejarían uno sin responder. Sólo lo usa el hilo de la ventana.
+ */
+private FirmadorDialog[][void*] dialogQueues;
+
+/// Base de los diálogos: Escape cancela, cerrar la ventana también y se muestran de a uno por ventana.
 class FirmadorDialog : Dialog {
   private bool finished;
   private void delegate(const Action result) resultHandler;
@@ -121,9 +130,20 @@ class FirmadorDialog : Dialog {
     padding = Rect(12, 12, 12, 12);
   }
 
-  /// Muestra el diálogo; `handler` recibe la acción elegida, o null si se cerró la ventana.
+  /**
+   * Muestra el diálogo, o lo deja esperando si su ventana padre ya muestra otro
+   * (dialogQueues); `handler` recibe la acción elegida, o null si se cerró la ventana.
+   */
   void open(void delegate(const Action result) handler) @trusted {
     resultHandler = handler;
+    if (_flags & DialogFlag.Popup) return present();
+    auto queue = &dialogQueues.require(cast(void*) _parentWindow);
+    *queue ~= this;
+    if ((*queue).length == 1) present();
+  }
+
+  /// Muestra la ventana del diálogo; cerrarla cuenta como cancelar.
+  private void present() {
     show();
     if (_window !is null) {
       _window.onClose = () {
@@ -135,7 +155,19 @@ class FirmadorDialog : Dialog {
   private void deliver(const Action action) {
     if (finished) return;
     finished = true;
+    leaveQueue();
     if (resultHandler !is null) resultHandler(action);
+  }
+
+  /// Saca el diálogo de la cola de su ventana padre y, si era el visible, muestra el siguiente.
+  private void leaveQueue() {
+    void* parentKey = cast(void*) _parentWindow;
+    auto queue = parentKey in dialogQueues;
+    if (queue is null) return;
+    bool wasShown = (*queue).length > 0 && (*queue)[0] is this;
+    *queue = (*queue).remove!(dialog => dialog is this);
+    if ((*queue).length == 0) dialogQueues.remove(parentKey);
+    else if (wasShown) (*queue)[0].present();
   }
 
   override void close(const Action action) {
@@ -155,6 +187,17 @@ class FirmadorDialog : Dialog {
       return true;
     }
     return super.onKeyEvent(event);
+  }
+
+  /**
+   * Control que recibe el foco al mostrarse, en lugar del botón por omisión. Se aplica en
+   * onShow porque un diálogo en espera (dialogQueues) se muestra después de open.
+   */
+  protected Widget initialFocus;
+
+  override void onShow() {
+    super.onShow();
+    if (initialFocus !is null) initialFocus.setFocus();
   }
 
   /// Añade los botones; el primero es el que se activa con Intro.
@@ -275,6 +318,7 @@ final class PinDialog : FirmadorDialog {
     table.addChild(refresh);
     table.addChild(new TextWidget(null, t("pin_dialog_requestpin").toUTF32));
     pin = pinField();
+    initialFocus = pin;
     pin.onEnter = () { close(new Action(StandardAction.Ok)); };
     table.addChild(pin);
     table.addChild(new TextWidget(null, ""d));
@@ -331,7 +375,6 @@ final class PinDialog : FirmadorDialog {
       card.pin = takePin(pin);
       done(card);
     });
-    pin.setFocus();
   }
 }
 
@@ -348,7 +391,6 @@ void showRemotePinDialog(Window parent, CardSignInfo card, string description, i
     else dialog.pin.clear();
     done(accepted);
   });
-  dialog.pin.setFocus();
 }
 
 private final class RemotePinDialog : FirmadorDialog {
@@ -365,6 +407,7 @@ private final class RemotePinDialog : FirmadorDialog {
     table.addChild(new TextWidget("certificado", card.displayInfo.toUTF32));
     table.addChild(new TextWidget(null, t("pin_dialog_requestpin").toUTF32));
     pin = pinField();
+    initialFocus = pin;
     pin.onEnter = () { close(new Action(StandardAction.Ok)); };
     table.addChild(pin);
     column.addChild(table);
@@ -413,7 +456,6 @@ void showPinAndCodeDialog(Window parent, immutable(ubyte)[] logo, string entityN
     string code = dialog.code.text.toUTF8.toUpper;
     done(PinAndCode(true, takePin(dialog.pin), code));
   });
-  dialog.pin.setFocus();
 }
 
 private final class PinAndCodeDialog : FirmadorDialog {
@@ -436,6 +478,7 @@ private final class PinAndCodeDialog : FirmadorDialog {
     table.colCount = 2;
     table.addChild(new TextWidget(null, t("pin_code_pin_label").toUTF32));
     pin = pinField();
+    initialFocus = pin;
     // El PIN del BCCR sólo admite dígitos.
     pin.accepts = (dchar character) @safe => character >= '0' && character <= '9';
     table.addChild(pin);
