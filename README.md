@@ -139,8 +139,10 @@ Después, para volver a compilar basta, sin administrador:
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows\build.ps1
 ```
 
-Deja `bin\firmador.exe` junto con las DLL que necesita. Con `-Build debug` compila con
-información de depuración; si se usó `-DepsRoot` en la instalación, va también aquí.
+Deja `bin\firmador.exe` junto con las DLL que necesita, incluido el runtime de Visual C++,
+así que la carpeta `bin\` (sin `firmador.pdb`, que sólo sirve para depurar) funciona en
+otro Windows sin instalar nada más. Con `-Build debug` compila con información de
+depuración; si se usó `-DepsRoot` en la instalación, va también aquí.
 
 
 ## Instalación en Linux

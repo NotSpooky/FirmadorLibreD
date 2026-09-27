@@ -25,8 +25,9 @@
   Carga el entorno x64 de Visual Studio sólo para este proceso (ImportC y el enlazador lo
   necesitan), pone en el PATH LDC, LLVM, el sh de Git y pkg-config, apunta PKG_CONFIG_PATH
   y LIB a las bibliotecas de -DepsRoot y compila con dub. Deja bin\firmador.exe junto con
-  las DLL que necesita para ejecutarse: las de vcpkg y libcurl de LDC. No cambia variables
-  de entorno del sistema ni requiere administrador.
+  las DLL que necesita para ejecutarse: las de vcpkg, libcurl de LDC y las del runtime de
+  Visual C++ que se usan, así que bin\ funciona en un Windows sin nada más instalado. No
+  cambia variables de entorno del sistema ni requiere administrador.
 
 .PARAMETER DepsRoot
   Carpeta de las dependencias que usó setup.ps1. Por omisión, .build\windows dentro del
@@ -86,4 +87,33 @@ Copy-Item -Path (Join-Path $layout.VcpkgTriplet 'bin\*.dll') -Destination $bin -
 foreach ($file in @('libcurl.dll', 'curl-ca-bundle.crt')) {
   Copy-Item -LiteralPath (Join-Path $layout.LdcBin $file) -Destination $bin -Force
 }
+
+# Runtime de Visual C++ junto al programa (Microsoft permite copiar lo de VC\Redist): lo usan
+# el ejecutable, las DLL de vcpkg y el C++ que mupdf lleva adentro, y un Windows sin el
+# «Visual C++ Redistributable» no lo tiene. Se copian sólo las DLL que importa algún archivo
+# de bin\, incluidas las que importan las copiadas.
+if (-not $env:VCToolsRedistDir) { throw 'El entorno de Visual Studio no definió VCToolsRedistDir.' }
+$runtimeRoot = Join-Path $env:VCToolsRedistDir 'x64'
+$runtime = Get-Item -Path (Join-Path $runtimeRoot 'Microsoft.VC*.CRT') | Select-Object -First 1
+if (-not $runtime) { throw "No se encontró el runtime de Visual C++ (Microsoft.VC*.CRT) en $runtimeRoot." }
+$runtimeDlls = @{}
+foreach ($dll in Get-ChildItem -LiteralPath $runtime.FullName -Filter '*.dll') { $runtimeDlls[$dll.Name.ToLowerInvariant()] = $dll }
+$pending = [System.Collections.Generic.Queue[string]]::new()
+foreach ($file in Get-ChildItem -LiteralPath $bin -File | Where-Object { $_.Extension -in '.exe', '.dll' }) {
+  $pending.Enqueue($file.FullName)
+}
+$copiedRuntime = @{}
+while ($pending.Count) {
+  $file = $pending.Dequeue()
+  $dependents = & dumpbin /nologo /dependents $file
+  if ($LASTEXITCODE -ne 0) { throw "dumpbin no pudo leer las dependencias de $file (código $LASTEXITCODE)." }
+  foreach ($name in $dependents | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ -match '^\S+\.dll$' }) {
+    if (-not $runtimeDlls.ContainsKey($name) -or $copiedRuntime.ContainsKey($name)) { continue }
+    $target = Join-Path $bin $runtimeDlls[$name].Name
+    Copy-Item -LiteralPath $runtimeDlls[$name].FullName -Destination $target -Force
+    $copiedRuntime[$name] = $true
+    $pending.Enqueue($target)
+  }
+}
+Write-Host "Runtime de Visual C++ ($($runtime.Name)): $(($copiedRuntime.Keys | Sort-Object) -join ', ')"
 Write-Host "Listo: $(Join-Path $bin 'firmador.exe')" -ForegroundColor Green
