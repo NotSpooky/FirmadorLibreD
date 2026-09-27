@@ -76,7 +76,7 @@
   ],
   "lflags-windows": [
     "/SUBSYSTEM:WINDOWS",
-    "/ENTRY:mainCRTStartup"
+    "/ENTRY:wmainCRTStartup"
   ],
   "excludedSourceFiles-osx": [
     "src/c/csecret.c"

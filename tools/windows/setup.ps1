@@ -207,7 +207,11 @@ function Install-Mupdf {
   # MSVC que los compiló y obligan a link.exe a repetir el enlace con /LTCG.
   $properties = @('/p:Configuration=Release', '/p:Platform=x64', '/p:PlatformToolset=v143',
     '/p:WholeProgramOptimization=false')
-  $recipe = "$version $($properties -join ' ')"
+  # Información de depuración dentro de cada objeto (/Z7, «OldStyle») y no en los .pdb de
+  # mupdf, que se borran con el código: link.exe no tiene que buscarlos (LNK4099) y el
+  # .pdb de Firmador incluye a mupdf.
+  $debugFormat = 'OldStyle'
+  $recipe = "$version $($properties -join ' ') DebugInformationFormat=$debugFormat"
   if (Test-Prepared $layout.MupdfMarker $recipe) {
     Write-Host "mupdf $version ya está."
     return
@@ -226,9 +230,19 @@ function Install-Mupdf {
   $msbuild = & (Get-VswherePath) -products * -latest -requires Microsoft.Component.MSBuild `
     -find 'MSBuild\**\Bin\amd64\MSBuild.exe' | Select-Object -First 1
   if (-not $msbuild) { throw 'No se encontró MSBuild de Visual Studio Build Tools.' }
+  # Se importa después de los proyectos de mupdf, así que reemplaza el formato de todos.
+  $debugProps = Join-Path $layout.Work 'mupdf-depuracion.props'
+  @(
+    '<Project>'
+    '  <ItemDefinitionGroup>'
+    "    <ClCompile><DebugInformationFormat>$debugFormat</DebugInformationFormat></ClCompile>"
+    '  </ItemDefinitionGroup>'
+    '</Project>'
+  ) | Set-Content -LiteralPath $debugProps -Encoding Ascii
   # libmupdf.lib incluye las bibliotecas de las que depende (LinkLibraryDependencies).
   Invoke-Native "Compilando mupdf $version" $msbuild (@((Join-Path $source 'platform\win32\mupdf.sln'),
-    '/t:libmupdf') + $properties + @('/m', '/nologo', '/verbosity:minimal'))
+    '/t:libmupdf') + $properties + @("/p:ForceImportAfterCppTargets=$debugProps", '/m', '/nologo',
+    '/verbosity:minimal'))
   $built = Join-Path $source 'platform\win32\x64\Release\libmupdf.lib'
   if (-not (Test-Path -LiteralPath $built)) { throw "La compilación de mupdf no dejó $built." }
   $pkgconfig = Join-Path $layout.Mupdf 'lib\pkgconfig'
