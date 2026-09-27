@@ -32,6 +32,14 @@ import std.string : toStringz;
 
 import cpcsc;
 
+// winscard.h de Windows nombra estas funciones con macros hacia la variante A (ANSI) o W
+// (UTF-16), y ImportC no traslada esas macros; se usa la A, que coincide con los char de
+// listReaders y con SCARD_READERSTATE, que sin UNICODE es SCARD_READERSTATEA.
+version (Windows) {
+  private alias SCardListReaders = SCardListReadersA;
+  private alias SCardGetStatusChange = SCardGetStatusChangeA;
+}
+
 private enum LONG success = cast(LONG) 0x00000000;
 private enum LONG timeoutError = cast(LONG) 0x8010000A;
 private enum LONG cancelledError = cast(LONG) 0x80100002;
