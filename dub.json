@@ -18,7 +18,7 @@
     "src",
     "src/c"
   ],
-  "cSourcePaths": [
+  "cSourcePaths-posix": [
     "src/c"
   ],
   "stringImportPaths": [
@@ -75,9 +75,6 @@
     "-mscrtlib=msvcrt"
   ],
   "excludedSourceFiles-osx": [
-    "src/c/csecret.c"
-  ],
-  "excludedSourceFiles-windows": [
     "src/c/csecret.c"
   ],
   "buildTypes": {

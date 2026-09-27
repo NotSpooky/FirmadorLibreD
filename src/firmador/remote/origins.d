@@ -81,6 +81,20 @@ private HostAuthorization answerOfPending(string origin) @trusted {
   return answer is null ? HostAuthorization.denied : *answer;
 }
 
+/**
+ * Cierra la pregunta en curso por el origen con su respuesta y despierta a quienes la
+ * esperan en answerOfPending. Va aparte del scope (exit) de ask porque un synchronized
+ * dentro de él anida una limpieza en otra, y LDC genera para Windows (MSVC) un manejo de
+ * excepciones que LLVM rechaza («Unwind edges out of a funclet pad»).
+ */
+private void publishAnswer(string origin, HostAuthorization answer) @trusted {
+  synchronized (pendingLock) {
+    asking.remove(origin);
+    answers[origin] = answer;
+    pendingAnswered.notifyAll();
+  }
+}
+
 /// Pregunta una sola vez por origen aunque lleguen varias solicitudes a la vez (ask).
 private HostAuthorization ask(GuiInterface gui, string origin) @trusted {
   synchronized (pendingLock) {
@@ -89,13 +103,7 @@ private HostAuthorization ask(GuiInterface gui, string origin) @trusted {
     answers.remove(origin);
   }
   HostAuthorization answer = HostAuthorization.denied;
-  scope (exit) {
-    synchronized (pendingLock) {
-      asking.remove(origin);
-      answers[origin] = answer;
-      pendingAnswered.notifyAll();
-    }
-  }
+  scope (exit) publishAnswer(origin, answer);
   answer = gui.askHostAuthorization(origin);
   return answer;
 }
