@@ -95,20 +95,21 @@ void desktopNotification(string title, string message) @trusted {
   import firmador.i18n : htmlToText;
   import std.array : replace;
   string plain = htmlToText(message.replace("<br>", "\n"));
-  version (OSX) {
-    string escape(string text) { return text.replace("\\", "\\\\").replace("\"", "\\\""); }
-    string[] command = ["osascript", "-e", `display notification "` ~ escape(plain) ~ `" with title "` ~ escape(title)
-      ~ `"`];
-  } else version (Windows) {
+  version (Windows) {
     info("Aviso sin ventana visible (Windows no tiene notify-send): ", plain);
-    return;
   } else {
-    string[] command = ["notify-send", "--app-name=Firmador", title, plain];
-  }
-  try {
-    spawnProcess(command, null, Config.detached);
-  } catch (ProcessException exception) {
-    info("No se pudo mostrar el aviso del escritorio (", exception.msg, "): ", plain);
+    version (OSX) {
+      string escape(string text) { return text.replace("\\", "\\\\").replace("\"", "\\\""); }
+      string[] command = ["osascript", "-e", `display notification "` ~ escape(plain) ~ `" with title "`
+        ~ escape(title) ~ `"`];
+    } else {
+      string[] command = ["notify-send", "--app-name=Firmador", title, plain];
+    }
+    try {
+      spawnProcess(command, null, Config.detached);
+    } catch (ProcessException exception) {
+      info("No se pudo mostrar el aviso del escritorio (", exception.msg, "): ", plain);
+    }
   }
 }
 

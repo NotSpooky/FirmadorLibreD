@@ -189,8 +189,8 @@ version (linux) {
 }
 
 version (Windows) {
-  import core.sys.windows.windef : BOOL, DWORD, FILETIME, LPBYTE;
-  import core.sys.windows.winbase : GetLastError;
+  import core.sys.windows.windef : BOOL, DWORD, LPBYTE;
+  import core.sys.windows.winbase : FILETIME, GetLastError;
   import std.utf : toUTF16z;
 
   private extern (Windows) nothrow @nogc {

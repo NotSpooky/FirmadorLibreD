@@ -148,7 +148,7 @@ private void attachParentConsole() @trusted {
 private int startWindowToolkit(string[] arguments) @trusted {
   version (Windows) {
     import core.sys.windows.windows : GetCommandLineA, GetModuleHandleW, SW_SHOWNORMAL;
-    import dlangui.platforms.windows.winapp : DLANGUIWinMain;
+    import dlangui.platforms.common.platform : DLANGUIWinMain;
     return DLANGUIWinMain(GetModuleHandleW(null), null, GetCommandLineA(), SW_SHOWNORMAL);
   } else {
     import dlangui.platforms.common.platform : DLANGUImain;

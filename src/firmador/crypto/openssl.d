@@ -25,7 +25,9 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.crypto.openssl;
 
+import core.stdc.config : c_long, c_ulong;
 import core.stdc.string : strlen;
+import std.conv : to;
 import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
 import std.string : toStringz;
@@ -64,7 +66,7 @@ void loadOpenSslProviders() @trusted {
 string openSslErrors() @trusted {
   char[256] buffer;
   string text;
-  ulong code;
+  c_ulong code;
   while ((code = ERR_get_error()) != 0) {
     ERR_error_string_n(code, buffer.ptr, buffer.length);
     if (text.length) text ~= "; ";
@@ -149,7 +151,7 @@ SignatureAlgorithm signatureAlgorithmFrom(const AlgorithmIdentifier identifier, 
 
 private EVP_PKEY* publicKeyFromSpki(const(ubyte)[] spkiDer) @trusted {
   const(ubyte)* cursor = spkiDer.ptr;
-  EVP_PKEY* key = d2i_PUBKEY(null, &cursor, cast(long) spkiDer.length);
+  EVP_PKEY* key = d2i_PUBKEY(null, &cursor, spkiDer.length.to!c_long);
   enforce!CryptoException(key !is null, "No se pudo leer la clave pública: " ~ openSslErrors());
   return key;
 }
@@ -329,7 +331,7 @@ private immutable(ubyte)[] certificateToDer(X509* certificate) @trusted {
 Pkcs12Contents openPkcs12(const(ubyte)[] data, const(char)[] password) @trusted {
   loadOpenSslProviders();
   const(ubyte)* cursor = data.ptr;
-  PKCS12* store = d2i_PKCS12(null, &cursor, cast(long) data.length);
+  PKCS12* store = d2i_PKCS12(null, &cursor, data.length.to!c_long);
   enforce!CryptoException(store !is null, "El archivo no es un almacén PKCS#12: " ~ openSslErrors());
   scope (exit) PKCS12_free(store);
   auto passwordBuffer = new char[password.length + 1];

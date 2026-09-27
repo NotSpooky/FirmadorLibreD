@@ -29,6 +29,7 @@ module firmador.tokens.pkcs11;
 import core.stdc.config : c_ulong;
 import core.sync.mutex : Mutex;
 import std.algorithm : canFind;
+import std.conv : to;
 import std.exception : basicExceptionCtors, enforce;
 import std.format : format;
 import std.logger : info, trace, warning;
@@ -327,7 +328,7 @@ final class Pkcs11Session {
    */
   void login(const(char)[] pin) @trusted {
     withPkcs11Lock!void(() {
-      c_ulong result = owner.functions.C_Login(handle, CKU_USER, cast(ubyte*) pin.ptr, pin.length);
+      c_ulong result = owner.functions.C_Login(handle, CKU_USER, cast(ubyte*) pin.ptr, pin.length.to!c_ulong);
       if (result == CKR_USER_ALREADY_LOGGED_IN) {
         trace("El usuario ya había iniciado sesión en la ranura ", slot);
         return;
@@ -347,7 +348,7 @@ final class Pkcs11Session {
 
   private CK_OBJECT_HANDLE[] findObjects(CK_ATTRIBUTE[] template_) @trusted {
     CK_OBJECT_HANDLE[] found;
-    Pkcs11Module.check(owner.functions.C_FindObjectsInit(handle, template_.ptr, template_.length), "C_FindObjectsInit");
+    Pkcs11Module.check(owner.functions.C_FindObjectsInit(handle, template_.ptr, template_.length.to!c_ulong), "C_FindObjectsInit");
     scope (exit) owner.functions.C_FindObjectsFinal(handle);
     CK_OBJECT_HANDLE[32] batch;
     while (true) {
@@ -442,15 +443,17 @@ final class Pkcs11Session {
       Pkcs11Module.check(owner.functions.C_SignInit(handle, &mechanism, key), "C_SignInit");
       auto alwaysAuthenticate = attribute(key, CKA_ALWAYS_AUTHENTICATE);
       if (alwaysAuthenticate.length && alwaysAuthenticate[0] != 0) {
-        Pkcs11Module.check(owner.functions.C_Login(handle, CKU_CONTEXT_SPECIFIC, cast(ubyte*) pin.ptr, pin.length),
+        Pkcs11Module.check(owner.functions.C_Login(handle, CKU_CONTEXT_SPECIFIC, cast(ubyte*) pin.ptr,
+          pin.length.to!c_ulong),
           "C_Login (CKU_CONTEXT_SPECIFIC)");
       }
       c_ulong length;
-      Pkcs11Module.check(owner.functions.C_Sign(handle, request.input.ptr, request.input.length, null, &length),
+      Pkcs11Module.check(owner.functions.C_Sign(handle, request.input.ptr, request.input.length.to!c_ulong, null,
+        &length),
         "C_Sign");
       auto signature = new ubyte[length];
-      Pkcs11Module.check(owner.functions.C_Sign(handle, request.input.ptr, request.input.length, signature.ptr,
-        &length), "C_Sign");
+      Pkcs11Module.check(owner.functions.C_Sign(handle, request.input.ptr, request.input.length.to!c_ulong,
+        signature.ptr, &length), "C_Sign");
       return signature[0 .. length];
     });
   }
