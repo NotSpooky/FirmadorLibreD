@@ -20,6 +20,12 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 /* Cabeceras de OpenSSL (libcrypto) para ImportC; las envuelve src/firmador/crypto/openssl.d. */
 
 #include "firmador_pkgdefs.h"
+/* Deprecación sin mensaje, la forma que la propia cabecera usa con compiladores viejos.
+ * Con mensaje, ImportC marca también como obsoletos los struct opacos que aparecen por
+ * primera vez en esas firmas (EVP_MD_CTX…) cuando el módulo sólo se importa, como en
+ * Windows (dub.json). */
+#define OSSL_DEPRECATED(since) __attribute__((deprecated))
+#define OSSL_DEPRECATED_FOR(since, message) __attribute__((deprecated))
 #include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>

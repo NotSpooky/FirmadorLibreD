@@ -74,6 +74,7 @@ function Get-BuildLayout([string] $Root) {
     VcpkgMarker = Join-Path $Root 'vcpkg\puertos.txt'
     PkgConfigDir = Join-Path $triplet 'tools\pkgconf'
     Mupdf = Join-Path $Root 'mupdf'
+    MupdfMarker = Join-Path $Root 'mupdf\receta.txt'
   }
 }
 

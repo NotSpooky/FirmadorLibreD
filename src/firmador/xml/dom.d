@@ -32,6 +32,13 @@ import std.string : fromStringz, toStringz;
 
 import clibxml;
 
+// En Windows xmlFree es una variable de la DLL de libxml2, que sólo se alcanza por su
+// puntero __imp_xmlFree. ImportC descarta el __declspec(dllimport) de la cabecera; con
+// export, LDC la importa de la DLL. Esta declaración tiene prioridad sobre la de clibxml.
+version (Windows) {
+  export extern (C) extern __gshared xmlFreeFunc xmlFree;
+}
+
 /// Error de lectura o de estructura XML.
 class XmlException : Exception {
   mixin basicExceptionCtors;

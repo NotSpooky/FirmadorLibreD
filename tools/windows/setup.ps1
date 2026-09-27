@@ -158,13 +158,21 @@ function Install-Ldc {
 
 <#
 .SYNOPSIS
+  Indica si una dependencia ya se preparó con la receta (versión y opciones) que la marca
+  $Marker guardó al terminar; si la receta cambió, hay que volver a prepararla.
+#>
+function Test-Prepared([string] $Marker, [string] $Recipe) {
+  return (Test-Path -LiteralPath $Marker) -and ((Get-Content -LiteralPath $Marker -Raw).Trim() -eq $Recipe)
+}
+
+<#
+.SYNOPSIS
   Compila con vcpkg las bibliotecas de C y las deja en la carpeta de dependencias; borra
   vcpkg (con sus descargas y archivos intermedios) al terminar.
 #>
 function Install-VcpkgLibraries {
   $expected = "$($FirmadorVersions.Vcpkg) $($FirmadorVcpkgPorts -join ' ')"
-  if ((Test-Path -LiteralPath $layout.VcpkgMarker) -and
-      ((Get-Content -LiteralPath $layout.VcpkgMarker -Raw).Trim() -eq $expected)) {
+  if (Test-Prepared $layout.VcpkgMarker $expected) {
     Write-Host 'Las bibliotecas de vcpkg ya están.'
     return
   }
@@ -194,12 +202,18 @@ function Install-VcpkgLibraries {
   carpeta de dependencias sólo las cabeceras, libmupdf.lib y mupdf.pc.
 #>
 function Install-Mupdf {
-  $library = Join-Path $layout.Mupdf 'lib\libmupdf.lib'
-  if (Test-Path -LiteralPath $library) {
-    Write-Host "mupdf $($FirmadorVersions.Mupdf) ya está."
+  $version = $FirmadorVersions.Mupdf
+  # Sin optimización de todo el programa (/GL): esos objetos sólo los entiende el mismo
+  # MSVC que los compiló y obligan a link.exe a repetir el enlace con /LTCG.
+  $properties = @('/p:Configuration=Release', '/p:Platform=x64', '/p:PlatformToolset=v143',
+    '/p:WholeProgramOptimization=false')
+  $recipe = "$version $($properties -join ' ')"
+  if (Test-Prepared $layout.MupdfMarker $recipe) {
+    Write-Host "mupdf $version ya está."
     return
   }
-  $version = $FirmadorVersions.Mupdf
+  # Lo de una receta anterior (otra versión u otras opciones) no se mezcla con lo nuevo.
+  if (Test-Path -LiteralPath $layout.Mupdf) { Remove-Item -LiteralPath $layout.Mupdf -Recurse -Force }
   $archive = Save-Verified "https://mupdf.com/downloads/archive/mupdf-$version-source.tar.gz" $FirmadorChecksums.Mupdf
   New-Item -ItemType Directory -Force $layout.Work | Out-Null
   $source = Join-Path $layout.Work "mupdf-$version-source"
@@ -213,15 +227,14 @@ function Install-Mupdf {
     -find 'MSBuild\**\Bin\amd64\MSBuild.exe' | Select-Object -First 1
   if (-not $msbuild) { throw 'No se encontró MSBuild de Visual Studio Build Tools.' }
   # libmupdf.lib incluye las bibliotecas de las que depende (LinkLibraryDependencies).
-  Invoke-Native "Compilando mupdf $version" $msbuild @((Join-Path $source 'platform\win32\mupdf.sln'),
-    '/t:libmupdf', '/p:Configuration=Release', '/p:Platform=x64', '/p:PlatformToolset=v143', '/m', '/nologo',
-    '/verbosity:minimal')
+  Invoke-Native "Compilando mupdf $version" $msbuild (@((Join-Path $source 'platform\win32\mupdf.sln'),
+    '/t:libmupdf') + $properties + @('/m', '/nologo', '/verbosity:minimal'))
   $built = Join-Path $source 'platform\win32\x64\Release\libmupdf.lib'
   if (-not (Test-Path -LiteralPath $built)) { throw "La compilación de mupdf no dejó $built." }
   $pkgconfig = Join-Path $layout.Mupdf 'lib\pkgconfig'
   New-Item -ItemType Directory -Force $pkgconfig | Out-Null
   Copy-Item -LiteralPath (Join-Path $source 'include') -Destination $layout.Mupdf -Recurse -Force
-  Copy-Item -LiteralPath $built -Destination $library -Force
+  Copy-Item -LiteralPath $built -Destination (Join-Path $layout.Mupdf 'lib\libmupdf.lib') -Force
   @(
     'prefix=${pcfiledir}/../..'
     'libdir=${prefix}/lib'
@@ -233,6 +246,7 @@ function Install-Mupdf {
     'Cflags: -I${includedir}'
     'Libs: -L${libdir} -llibmupdf'
   ) | Set-Content -LiteralPath (Join-Path $pkgconfig 'mupdf.pc') -Encoding Ascii
+  Set-Content -LiteralPath $layout.MupdfMarker -Value $recipe -Encoding Ascii
   Remove-Item -LiteralPath $source -Recurse -Force
 }
 

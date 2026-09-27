@@ -21,6 +21,10 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  * src/firmador/xml. */
 
 #include "firmador_pkgdefs.h"
+/* Deprecación sin mensaje, como en copenssl.c: con mensaje, ImportC marca también como
+ * obsoletos los struct opacos de esas firmas (xmlAutomata…) cuando el módulo sólo se
+ * importa. */
+#define XML_DEPRECATED __attribute__((deprecated))
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include <libxml/xpath.h>
