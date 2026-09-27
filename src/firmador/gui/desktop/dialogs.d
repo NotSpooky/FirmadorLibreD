@@ -24,13 +24,14 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  * abren en el hilo de la ventana y entregan el resultado a una función; quien necesita
  * esperarlo desde otro hilo usa firmador.gui.desktop.uithread.waitOnUi.
  *
- * FirmadorDialog corrige dos comportamientos de dlangui: Escape cierra con la acción de
- * cancelar (dlangui la cambiaba por la acción por omisión) y cerrar la ventana cuenta
- * como cancelar, para que nadie quede esperando una respuesta que no llegará.
+ * FirmadorDialog corrige tres comportamientos de dlangui: Escape cierra con la acción de
+ * cancelar (dlangui la cambiaba por la acción por omisión), cerrar la ventana cuenta
+ * como cancelar, para que nadie quede esperando una respuesta que no llegará, y la
+ * ventana se agranda si quedó más chica que su contenido.
  */
 module firmador.gui.desktop.dialogs;
 
-import std.algorithm : map;
+import std.algorithm : map, max;
 import std.array : array;
 import std.format : format;
 import std.logger : error, info, warning;
@@ -147,6 +148,22 @@ class FirmadorDialog : Dialog {
   /// Si el diálogo puede cerrarse con esa acción (validaciones de los campos).
   protected bool accepts(const Action action) {
     return true;
+  }
+
+  /**
+   * dlangui pide para la ventana el tamaño medido del diálogo una sola vez, y en Windows
+   * SDL la deja unos píxeles más chica: el diálogo encoge el texto y corta su última
+   * línea. Si falta espacio, se vuelve a pedir sumando lo que faltó.
+   */
+  override void onShow() {
+    super.onShow();
+    if (_window is null) return;
+    int missingWidth = max(measuredWidth - _window.width, 0);
+    int missingHeight = max(measuredHeight - _window.height, 0);
+    if (missingWidth == 0 && missingHeight == 0) return;
+    info("El diálogo «", _window.windowCaption, "» midió ", measuredWidth, "x", measuredHeight, " y su ventana quedó en ",
+      _window.width, "x", _window.height, "; se agranda");
+    _window.resizeWindow(Point(measuredWidth + missingWidth, measuredHeight + missingHeight));
   }
 
   override bool onKeyEvent(KeyEvent event) {
