@@ -1,0 +1,69 @@
+# Comandos
+
+Todo se ejecuta desde la raíz del repositorio. Las bibliotecas que hacen falta para
+compilar están en el [README](README.md#compilación).
+
+
+## Compilar y probar
+
+| Comando | Qué hace |
+|---|---|
+| `dub build` | Compila `bin/firmador` (con información de depuración) |
+| `dub build --build=release` | Compila la versión optimizada, la que se empaqueta |
+| `dub test` | Ejecuta las pruebas unitarias (bloques `unittest`) |
+| `dub run -- [documento…]` | Compila y abre la ventana |
+| `sh tools/prebuild.sh` | Paso previo que dub ejecuta solo: cabeceras de C en `src/cinclude` y `.build/libfirmadorshim.a` |
+
+
+## Compilar en Windows
+
+Desde la carpeta del repositorio, en PowerShell. Los detalles están en el
+[README](README.md#windows).
+
+| Comando | Qué hace |
+|---|---|
+| `powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows\setup.ps1` | Como administrador: instala lo que falte (Chocolatey, Git, Build Tools, LLVM, 7-Zip, LDC, bibliotecas de vcpkg y mupdf) y compila |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows\build.ps1` | Compila `bin\firmador.exe` y copia a su lado las DLL que necesita, con el runtime de Visual C++ |
+| `… build.ps1 -Build debug` | Lo mismo, con información de depuración |
+| `… setup.ps1 -DepsRoot D:\firmador-deps` | Deja las dependencias en esa carpeta (sin espacios) en vez de `.build\windows`; `build.ps1` la recibe igual |
+
+
+## Ejecutar
+
+| Comando | Qué hace |
+|---|---|
+| `bin/firmador [documento…]` | Abre la ventana con esos documentos |
+| `bin/firmador --background` | Arranca con la ventana minimizada |
+| `bin/firmador -dargs entrada.pdf salida.pdf [almacen.p12]` | Firma desde la consola (PIN por la entrada estándar); también `-slotN`, `-timestamp`, `-visible-timestamp` |
+| `bin/firmador -dshell` | Atiende comandos por lotes (`help` los lista) |
+| `bin/firmador -Djnlp.remoteOrigin="http://localhost:8000#3516#False"` | Simula que una página lanza Firmador Remoto (como un enlace `firmador:`) |
+
+
+## Diagnosticar
+
+| Comando | Qué hace |
+|---|---|
+| `bin/firmador 2>&1 \| tee firmador.log` | Guarda la bitácora; su nivel es `advancedlogs=` en `config.properties` (`INFO`, `ALL`…) y `showlogs=true` muestra la pestaña de bitácoras |
+| `pgrep -x firmador \| xargs -r kill` | Cierra una instancia que quedó abierta (la siguiente le pasaría los documentos) |
+| `fuser -k 3516/tcp` | Libera el puerto de Firmador Remoto |
+| `flatpak run --command=sh io.github.notspooky.firmadorlibred` | Abre una consola dentro del sandbox del flatpak |
+
+
+## Empaquetar en Linux
+
+Los archivos están en `packaging/linux/`.
+
+| Comando | Qué hace |
+|---|---|
+| `packaging/linux/install.sh [prefijo]` | Instala `bin/firmador` ya compilado, la entrada del menú (documentos y esquema `firmador:`), AppStream e íconos en el prefijo (`/usr/local` si no se indica; `DESTDIR=…` para armar paquetes) |
+| `flatpak-builder --user --install --install-deps-from=flathub --force-clean build-dir packaging/linux/io.github.notspooky.firmadorlibred.yml` | Construye el flatpak y lo instala para el usuario (descarga el runtime y el SDK 26.08 si faltan) |
+| `flatpak-builder --repo=repository --install-deps-from=flathub --force-clean build-dir packaging/linux/io.github.notspooky.firmadorlibred.yml` | Construye el flatpak en el repositorio local `repository/` |
+| `flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo repository firmadorlibre.flatpak io.github.notspooky.firmadorlibred` | Arma el archivo `firmadorlibre.flatpak` para publicar, a partir de `repository/`; al instalarlo, flatpak baja el runtime de Flathub aunque ese remoto no esté configurado |
+| `flatpak install --user firmadorlibre.flatpak` | Instala ese archivo |
+| `flatpak run io.github.notspooky.firmadorlibred [argumentos…]` | Ejecuta el flatpak (también con `-dargs` o `-dshell`) |
+| `flatpak uninstall --user io.github.notspooky.firmadorlibred` | Desinstala el flatpak |
+| `desktop-file-validate packaging/linux/*.desktop` | Revisa la entrada del menú |
+| `appstreamcli validate --pedantic packaging/linux/*.metainfo.xml` | Revisa los datos de AppStream |
+
+Si `flatpak-builder` no está instalado, `flatpak run org.flatpak.Builder …` acepta los
+mismos argumentos; se instala con `flatpak install flathub org.flatpak.Builder`.
