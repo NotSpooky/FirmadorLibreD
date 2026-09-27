@@ -128,18 +128,33 @@ private final class PluginConsole : GuiInterface {
 }
 
 /**
- * En Windows el ejecutable es de ventana: los modos de consola se enganchan a la consola
- * de quien los lanzó para leer el PIN y escribir el resultado.
+ * En Windows el ejecutable es de ventana (lflags-windows en dub.json): los modos de consola
+ * se enganchan a la consola de quien los lanzó para leer el PIN y escribir el resultado.
+ * Las entradas y salidas que ya vienen redirigidas (tuberías o archivos de otro programa)
+ * se respetan; sólo las que no tienen destino pasan a la consola.
+ *
+ * Throws: Exception si no se puede abrir la consola para una de ellas.
  */
 private void attachParentConsole() @trusted {
   version (Windows) {
     import core.stdc.stdio : freopen, stderr, stdin, stdout;
-    import core.sys.windows.windows : AttachConsole;
+    import core.sys.windows.windows : AttachConsole, FILE_TYPE_UNKNOWN, GetFileType, GetStdHandle,
+      STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE;
+    import std.exception : enforce;
+    import std.typecons : tuple;
     enum uint attachParentProcess = cast(uint) -1;
-    if (AttachConsole(attachParentProcess)) {
-      freopen("CONIN$", "r", stdin);
-      freopen("CONOUT$", "w", stdout);
-      freopen("CONOUT$", "w", stderr);
+    auto streams = [
+      tuple(STD_INPUT_HANDLE, "entrada", "CONIN$", "r", stdin),
+      tuple(STD_OUTPUT_HANDLE, "salida", "CONOUT$", "w", stdout),
+      tuple(STD_ERROR_HANDLE, "salida de errores", "CONOUT$", "w", stderr),
+    ];
+    auto redirected = new bool[streams.length];
+    foreach (index, stream; streams) redirected[index] = GetFileType(GetStdHandle(stream[0])) != FILE_TYPE_UNKNOWN;
+    if (!AttachConsole(attachParentProcess)) return;
+    foreach (index, stream; streams) {
+      if (redirected[index]) continue;
+      enforce(freopen(stream[2].ptr, stream[3].ptr, stream[4]) !is null,
+        "No se pudo conectar la " ~ stream[1] ~ " estándar a la consola (" ~ stream[2] ~ ")");
     }
   }
 }

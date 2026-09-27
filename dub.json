@@ -74,6 +74,10 @@
   "dflags-windows": [
     "-mscrtlib=msvcrt"
   ],
+  "lflags-windows": [
+    "/SUBSYSTEM:WINDOWS",
+    "/ENTRY:mainCRTStartup"
+  ],
   "excludedSourceFiles-osx": [
     "src/c/csecret.c"
   ],

@@ -72,6 +72,12 @@ certificados), con respuestas `SUCCESS`/`ERROR` y JSON:
 firmador -dshell       # escriba «help» para ver los comandos
 ```
 
+En Windows el ejecutable es de ventana, así que no abre una consola al usarlo con el
+ratón. La consola no espera a que termine: para que no se mezcle con sus preguntas,
+láncelo con `start /wait /b firmador.exe -dargs …` (cmd) o
+`Start-Process -Wait -NoNewWindow firmador.exe -ArgumentList '-dargs', …` (PowerShell).
+Un programa que lo use con `-dshell` por tuberías no necesita nada de esto.
+
 ### Firmador Remoto
 
 Las páginas web autorizadas pueden pedir firmas al Firmador abierto en la computadora
