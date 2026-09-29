@@ -529,8 +529,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
   void progressStart(string title, string header) @trusted {
     runOnUi(() {
       if (progress !is null) progress.finish();
-      progress = new ProgressDialog(window, t("progress_dialog_title_default"), header);
-      progress.display();
+      progress = openProgress(header, () { progress = null; });
       progress.setHeader(title ~ " - " ~ header);
     });
   }
@@ -550,7 +549,6 @@ final class DesktopInterface : GuiInterface, ConnectionView {
   void progressEnd() @trusted {
     runOnUi(() {
       if (progress !is null) progress.finish();
-      progress = null;
     });
   }
 
@@ -701,14 +699,21 @@ final class DesktopInterface : GuiInterface, ConnectionView {
   /// Espera de una operación larga (LoadProgressDialogWorker).
   void showLoading(string title) @trusted {
     if (loading !is null) return;
-    loading = new ProgressDialog(window, t("progress_dialog_title_default"), title);
-    loading.display();
+    loading = openProgress(title, () { loading = null; });
   }
 
   void hideLoading() @trusted {
-    if (loading is null) return;
-    loading.finish();
-    loading = null;
+    if (loading !is null) loading.finish();
+  }
+
+  /**
+   * Muestra un diálogo de progreso; `forget` suelta la referencia que se guarda de él cuando
+   * se cierra, antes de que dlangui lo destruya (ProgressDialog).
+   */
+  private ProgressDialog openProgress(string header, void delegate() forget) {
+    auto dialog = new ProgressDialog(window, t("progress_dialog_title_default"), header);
+    dialog.display(forget);
+    return dialog;
   }
 
   /// Archivos y carpetas soltados sobre la ventana (processFiles).

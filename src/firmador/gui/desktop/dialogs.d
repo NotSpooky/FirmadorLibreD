@@ -589,13 +589,13 @@ void showSelectModeDialog(Window parent, void delegate(bool simplified) done) @t
 
 /**
  * Progreso de un lote de firmas (ProgressDialog): título, nota del paso y barra. Cerrarlo
- * sólo lo oculta; la firma sigue.
+ * sólo lo oculta; la firma sigue. Al quitarlo de la ventana, dlangui lo destruye y deja sus
+ * campos en su valor inicial, así que quien lo guarda debe soltarlo al cerrarse (display).
  */
 final class ProgressDialog : FirmadorDialog {
   private TextWidget header;
   private TextWidget note;
   private ProgressBarWidget bar;
-  private bool closed;
 
   this(Window parent, string title, string headerText) @trusted {
     super(title, parent, DialogFlag.Popup);
@@ -617,24 +617,23 @@ final class ProgressDialog : FirmadorDialog {
     addButtons([close_], 0, close_);
   }
 
-  /// Muestra el diálogo.
-  void display() @trusted {
-    open((const Action result) { closed = true; });
+  /// Muestra el diálogo; `closed` se llama al cerrarse, con finish o por el usuario.
+  void display(void delegate() closed) @trusted {
+    open((const Action result) { closed(); });
   }
 
   void setHeader(string text) @trusted {
-    if (!closed) header.text = text.toUTF32;
+    header.text = text.toUTF32;
   }
 
   void setProgress(int percent, string text) @trusted {
-    if (closed) return;
     bar.progress = percent <= 0 ? PROGRESS_INDETERMINATE : percent * PROGRESS_MAX / 100;
     note.text = text.toUTF32;
   }
 
-  /// Cierra el diálogo si sigue abierto.
+  /// Cierra el diálogo.
   void finish() @trusted {
-    if (!closed) close(cancelAction);
+    close(cancelAction);
   }
 }
 
