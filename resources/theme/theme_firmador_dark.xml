@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tema oscuro de Firmador: la estructura de theme_firmador.xml sobre el tema oscuro de
+     dlangui, con los drawables *_dark y los colores propios en su versión oscura. -->
+<theme id="theme_firmador_dark" parent="theme_dark"
+        fontSize="10pt"
+        fontFace="Segoe UI,Noto Sans,Cantarell,DejaVu Sans,Arial"
+        fontFamily="SansSerif"
+        textColor="#E3E5E8"
+        >
+    <color id="window_background" value="#1E1F22"/>
+    <color id="dialog_background" value="#2B2D31"/>
+    <color id="edit_background" value="#1A1B1E"/>
+
+    <color id="firmador_accent" value="#6EA8FE"/>
+    <color id="firmador_muted_text" value="#9AA0A6"/>
+    <color id="firmador_success_text" value="#7BC47F"/>
+    <color id="firmador_error_text" value="#F28B82"/>
+    <color id="firmador_row" value="#2B2D31"/>
+    <color id="firmador_row_selected" value="#1F3A5F"/>
+    <color id="firmador_page_area" value="#141517"/>
+    <color id="firmador_page_border" value="#000000"/>
+    <color id="firmador_page_shadow" value="#40000000"/>
+    <color id="firmador_signature_frame" value="#646464"/>
+    <color id="firmador_success_background" value="#1E3A2A"/>
+    <color id="firmador_success_foreground" value="#8FD19E"/>
+    <color id="firmador_error_background" value="#3D1F23"/>
+    <color id="firmador_error_foreground" value="#F1A7AE"/>
+    <color id="firmador_warning_background" value="#3D3418"/>
+    <color id="firmador_warning_foreground" value="#F2D378"/>
+    <color id="firmador_info_background" value="#1B3242"/>
+    <color id="firmador_info_foreground" value="#8CC8E8"/>
+
+    <style id="BUTTON"
+        backgroundImageId="firmador_button_dark"
+        padding="6pt,3pt,6pt,3pt"
+        focusRectColors="@null"
+        >
+        <state state_enabled="true" state_hovered="true" textColor="#FFFFFF"/>
+        <state state_enabled="false" textColor="#7D828A"/>
+    </style>
+    <!-- dlangui no hereda align, margins, padding ni textFlags del estilo padre: se repiten. -->
+    <style id="BUTTON_PRIMARY" parent="BUTTON"
+        align="Center"
+        margins="3pt,3pt,3pt,3pt"
+        padding="6pt,3pt,6pt,3pt"
+        backgroundImageId="firmador_button_primary_dark"
+        textColor="#FFFFFF"
+        fontWeight="bold"
+        >
+        <state state_enabled="true" state_hovered="true" textColor="#FFFFFF"/>
+        <state state_enabled="false" textColor="#9FB3D1"/>
+    </style>
+    <style id="BUTTON_LINK" parent="BUTTON"
+        align="Center"
+        margins="3pt,3pt,3pt,3pt"
+        padding="6pt,3pt,6pt,3pt"
+        backgroundImageId="firmador_button_link_dark"
+        textColor="#6EA8FE"
+        >
+        <state state_enabled="true" state_hovered="true" textColor="#9CC3FF"/>
+        <state state_enabled="false" textColor="#7D828A"/>
+    </style>
+    <style id="EDIT_LINE"
+        backgroundImageId="firmador_edit_dark"
+        padding="4pt,3pt,4pt,3pt"
+        />
+    <style id="EDIT_BOX"
+        backgroundImageId="firmador_edit_dark"
+        />
+    <style id="LOG_WIDGET"
+        backgroundImageId="firmador_edit_dark"
+        />
+    <style id="SCROLLBAR" backgroundColor="#26282C"/>
+    <!-- SCROLLBAR_BUTTON es el indicador (la parte que se arrastra); las flechas usan SCROLLBAR_BUTTON_TRANSPARENT. -->
+    <style id="SCROLLBAR_BUTTON" backgroundImageId="firmador_scroll_thumb_dark"/>
+    <style id="COMBO_BOX"
+        backgroundImageId="firmador_button_dark"
+        />
+    <style id="COMBO_BOX_BODY"
+        focusRectColors="@null"
+        />
+
+    <style id="TAB_UP"
+        backgroundImageId="#border,#3A3D42,0,0,0,1,#2B2D31"
+        >
+        <state state_selected="true" backgroundImageId="#border,#3A3D42,0,0,0,1,#2B2D31"/>
+    </style>
+    <style id="TAB_UP_BUTTON"
+        backgroundImageId="firmador_tab_dark"
+        padding="6pt,3pt,6pt,3pt"
+        />
+    <style id="TAB_UP_BUTTON_TEXT"
+        textColor="#9AA0A6"
+        >
+        <state state_selected="true" state_focused="true" textColor="#E3E5E8"/>
+        <state state_selected="true" textColor="#E3E5E8"/>
+        <state state_focused="true" textColor="#9AA0A6"/>
+        <state state_hovered="true" textColor="#E3E5E8"/>
+    </style>
+    <style id="TAB_HOST" backgroundColor="#1E1F22"/>
+    <style id="TAB_WIDGET" backgroundColor="#1E1F22"/>
+
+    <style id="FIRMADOR_TOOLBAR"
+        backgroundImageId="#border,#3A3D42,0,0,0,1,#2B2D31"
+        padding="4pt,3pt,4pt,3pt"
+        />
+    <style id="FIRMADOR_FOOTER"
+        backgroundImageId="#border,#3A3D42,0,1,0,0,#2B2D31"
+        padding="6pt,5pt,6pt,5pt"
+        />
+</theme>

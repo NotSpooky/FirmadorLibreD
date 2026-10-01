@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_selected="true" android:drawable="#border,#1A57B8,0,0,0,3,#FFFFFF"/>
+    <item android:state_hovered="true" android:drawable="#border,#D0D4DA,0,0,0,1,#E8EBEF"/>
+    <item android:drawable="#border,#D0D4DA,0,0,0,1,#F3F4F6"/>
+</selector>

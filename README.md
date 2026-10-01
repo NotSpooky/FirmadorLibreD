@@ -100,6 +100,10 @@ o LDC), `dub`, un compilador de C, `pkg-config` y las bibliotecas de desarrollo:
 | libsecret (llavero) | `libsecret` | `libsecret-1-dev` |
 | SDL2 y FreeType (ventana) | `sdl2 freetype2` | `libsdl2-dev libfreetype-dev` |
 
+Para usar el selector de archivos del escritorio (GNOME, KDE…) hace falta además
+`xdg-desktop-portal` con el de su escritorio, que casi todas las distribuciones ya
+instalan; sin él, Firmador usa su propio selector.
+
 Luego:
 
 ```sh

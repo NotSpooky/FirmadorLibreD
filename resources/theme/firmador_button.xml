@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false" android:drawable="#border,#D8DCE1,1,#F3F4F6"/>
+    <item android:state_pressed="true" android:drawable="#border,#8C959F,1,#E3E6EA"/>
+    <item android:state_focused="true" android:drawable="#border,#1A57B8,2,#FFFFFF"/>
+    <item android:state_hovered="true" android:drawable="#border,#9AA3AE,1,#F6F8FA"/>
+    <item android:drawable="#border,#C4C9D0,1,#FFFFFF"/>
+</selector>

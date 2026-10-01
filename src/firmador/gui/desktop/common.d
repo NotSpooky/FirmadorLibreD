@@ -20,15 +20,17 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 /**
  * Piezas comunes de los paneles de la ventana: textos traducidos para dlangui, botones
  * con su ayuda, títulos, filas elegibles, desplazamiento vertical, selectores de
- * archivos y carpetas, dónde guardar el documento firmado (showSaveDialog), las
+ * archivos y carpetas (los del sistema: firmador.gui.desktop.filepicker), dónde guardar
+ * el documento firmado (showSaveDialog), las
  * posiciones de los selectores y el selector de página.
  */
 module firmador.gui.desktop.common;
 
-import std.algorithm : countUntil, endsWith;
+import std.algorithm : countUntil;
 import std.array : replace;
 import std.conv : ConvException, to;
-import std.file : exists, FileException, isDir;
+import std.file : exists;
+import std.format : format;
 import std.path : baseName, dirName, extension, stripExtension;
 import std.string : strip, toLower;
 import std.utf : toUTF32, toUTF8;
@@ -37,7 +39,6 @@ import dlangui.core.events;
 import dlangui.core.stdaction;
 import dlangui.core.types;
 import dlangui.dialogs.dialog;
-import dlangui.dialogs.filedlg;
 import dlangui.platforms.common.platform : Window;
 import dlangui.widgets.controls;
 import dlangui.widgets.editors;
@@ -47,11 +48,14 @@ import dlangui.widgets.scrollbar;
 import dlangui.widgets.widget;
 
 import firmador.documents.document : Document;
+import firmador.gui.desktop.dialogs : showConfirmDialog;
+import firmador.gui.desktop.filepicker : nearestExistingDirectory, pickPaths, PickKind, PickRequest, usableDirectory;
 import firmador.gui.desktop.theme : ThemeColor, themeColor;
 import firmador.gui.desktop.uithread : reportUiFailure;
 import firmador.i18n : htmlToText, t;
 import firmador.settings : Settings;
 import firmador.settingsmanager : lastDirectory, rememberDirectory;
+import firmador.xml.dom : escapeXml;
 
 /**
  * Área con desplazamiento vertical que ajusta el contenido al ancho visible: el texto se
@@ -166,74 +170,50 @@ string withOutputExtension(string chosen, string outputExtension) pure @safe {
   return outputExtension.length && extension(chosen).length == 0 ? chosen ~ outputExtension : chosen;
 }
 
+/**
+ * Pedido al selector (firmador.gui.desktop.filepicker) que empieza en `directory` o, sin
+ * él, en la última carpeta usada (firmador.settingsmanager.lastDirectory); si esa carpeta
+ * ya no existe, en la más cercana de sus superiores que sí exista, y si no queda ninguna,
+ * donde el selector decida.
+ */
+private PickRequest pickRequest(PickKind kind, string title, string directory) @trusted {
+  return PickRequest(kind, title, nearestExistingDirectory!usableDirectory(directory.length ? directory : lastDirectory()));
+}
+
 /// Elige archivos para abrir, desde `directory` o la última carpeta usada; entrega las rutas (vacío si se cancela).
 void chooseFiles(Window parent, string title, bool multiple, string directory, void delegate(string[] paths) done)
     @trusted {
-  auto dialog = fileDialog(parent, title, FileDialogFlag.FileMustExist, directory);
-  dialog.allowMultipleFiles = multiple;
-  dialog.dialogResult = (Dialog source, const Action result) {
-    if (result is null || result.id != StandardAction.Open) return done(null);
-    string[] paths = multiple ? dialog.filenames : null;
-    if (paths.length == 0 && dialog.filename.length) paths = [dialog.filename];
+  auto request = pickRequest(PickKind.open, title, directory);
+  request.multiple = multiple;
+  pickPaths(parent, request, (string[] paths) {
     if (paths.length) rememberChosenDirectory(dirName(paths[0]));
     done(paths);
-  };
-  dialog.show();
+  });
 }
 
 /// Elige una carpeta, desde `directory` o la última usada; entrega la ruta (null si se cancela).
 void chooseDirectory(Window parent, string title, string directory, void delegate(string path) done) @trusted {
-  auto dialog = fileDialog(parent, title, FileDialogFlag.SelectDirectory, directory);
-  dialog.dialogResult = (Dialog source, const Action result) {
-    if (result is null || result.id != StandardAction.OpenDirectory) return done(null);
-    string chosen = dialog.filename;
-    while (chosen.length > 1 && (chosen.endsWith("/") || chosen.endsWith("\\"))) chosen = chosen[0 .. $ - 1];
-    if (chosen.length == 0) chosen = dialog.path;
-    rememberChosenDirectory(chosen);
-    done(chosen);
-  };
-  dialog.show();
-}
-
-/// Elige dónde guardar, proponiendo carpeta (o la última usada) y nombre; entrega la ruta (null si se cancela).
-void chooseSaveFile(Window parent, string title, string directory, string proposedName,
-    void delegate(string path) done) @trusted {
-  auto dialog = fileDialog(parent, title, FileDialogFlag.Save, directory);
-  dialog.filename = proposedName;
-  dialog.dialogResult = (Dialog source, const Action result) {
-    if (result is null || result.id != StandardAction.Save) return done(null);
-    string chosen = result.stringParam.length ? result.stringParam : dialog.filename;
-    rememberChosenDirectory(dirName(chosen));
-    done(chosen);
-  };
-  dialog.show();
+  pickPaths(parent, pickRequest(PickKind.directory, title, directory), (string[] paths) {
+    if (paths.length == 0) return done(null);
+    rememberChosenDirectory(paths[0]);
+    done(paths[0]);
+  });
 }
 
 /**
- * Diálogo de archivos modal y redimensionable del tipo dado. Empieza en `directory` o, sin
- * él, en la última carpeta usada (firmador.settingsmanager.lastDirectory); si esa carpeta
- * ya no existe, en la más cercana de sus superiores que sí exista, y si no queda ninguna,
- * donde dlangui decida (la carpeta actual o la personal).
+ * Elige dónde guardar, proponiendo carpeta (o la última usada), nombre y extensión de
+ * salida (con punto, o vacía); entrega la ruta tal como se eligió (null si se cancela).
  */
-private FileDialog fileDialog(Window parent, string title, uint kind, string directory) @trusted {
-  auto dialog = new FileDialog(UIString.fromRaw(title.toUTF32), parent, null,
-    DialogFlag.Modal | DialogFlag.Resizable | kind);
-  for (string candidate = directory.length ? directory : lastDirectory(); candidate.length;) {
-    bool usable;
-    try {
-      usable = exists(candidate) && isDir(candidate);
-    } catch (FileException ignored) {
-      // Se borró entre las dos consultas o no se puede leer: se prueba con la superior.
-    }
-    if (usable) {
-      dialog.path = candidate;
-      break;
-    }
-    string above = dirName(candidate);
-    if (above == candidate) break;
-    candidate = above;
-  }
-  return dialog;
+void chooseSaveFile(Window parent, string title, string directory, string proposedName, string outputExtension,
+    void delegate(string path) done) @trusted {
+  auto request = pickRequest(PickKind.save, title, directory);
+  request.proposedName = proposedName;
+  request.defaultExtension = outputExtension;
+  pickPaths(parent, request, (string[] paths) {
+    if (paths.length == 0) return done(null);
+    rememberChosenDirectory(dirName(paths[0]));
+    done(paths[0]);
+  });
 }
 
 /**
@@ -258,10 +238,19 @@ void chooseSignedOutput(Window parent, Document document, const Settings setting
   string suffix = settings.overwriteSourceFile ? "" : "-firmado";
   string outputExtension = document.signedExtension;
   chooseSaveFile(parent, t("guiswing_dialog_document_save"), dirName(document.pathname),
-    proposedSaveName(document.pathname, suffix, outputExtension), (string path) {
+    proposedSaveName(document.pathname, suffix, outputExtension), outputExtension, (string path) {
     if (path is null) return;
-    document.setPathToSave(withOutputExtension(path, outputExtension));
-    chosen();
+    string target = withOutputExtension(path, outputExtension);
+    void accept() {
+      document.setPathToSave(target);
+      chosen();
+    }
+    // El selector ya preguntó por el nombre que se escribió, no por el que queda al añadirle la extensión.
+    if (target == path || !exists(target)) return accept();
+    showConfirmDialog(parent, t("file_overwrite_title"), format(t("file_overwrite_confirm"), escapeXml(baseName(target))),
+      (bool replace) {
+      if (replace) accept();
+    });
   });
 }
 

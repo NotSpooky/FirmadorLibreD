@@ -19,8 +19,10 @@ finish-args:
   # Bibliotecas PKCS#11 de las tarjetas instaladas en el sistema, que se ven en
   # /run/host/usr/lib (firmador.cards.pkcs11library).
   - --filesystem=host-os:ro
-  # Documentos y ~/.config/firmadorlibre: los diálogos de archivos de dlangui no usan
-  # los portales.
+  # Documentos y ~/.config/firmadorlibre. Los selectores de archivos usan el portal, pero
+  # Firmador también escribe el firmado junto al original, recuerda la última carpeta,
+  # recorre la pestaña de carpetas y abre lo que se suelta en la ventana o llega por
+  # argumentos, y eso necesita las rutas reales.
   - --filesystem=home
   # Sello de tiempo, OCSP y CRL, conexiones, y Firmador Remoto (escucha en 127.0.0.1).
   - --share=network
