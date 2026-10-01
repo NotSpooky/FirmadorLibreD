@@ -20,6 +20,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 /* Cabeceras de PC/SC para ImportC; las usa src/firmador/cards/terminalwatcher.d para
  * enterarse de que se conectó o se sacó una tarjeta. */
 
+#include "importc_compat.h"
 #ifdef _WIN32
 #include "firmador_pkgdefs.h"
 #include <winscard.h>

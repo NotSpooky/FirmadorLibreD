@@ -20,6 +20,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 /* Cabeceras de mupdf y del puente src/shim/mupdfshim.c para ImportC; las envuelve
  * src/firmador/pdf/engine.d. */
 
+#include "importc_compat.h"
 #include "firmador_pkgdefs.h"
 
 /* mupdf/fitz/system.h deja inline como palabra clave sólo si está definido

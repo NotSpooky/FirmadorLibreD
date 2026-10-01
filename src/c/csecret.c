@@ -23,6 +23,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /* ImportC no conoce este intrínseco de GCC que usan las funciones en línea de GLib; -1
  * significa «tamaño desconocido», que es lo que GCC responde cuando no puede deducirlo. */
+#include "importc_compat.h"
 #define __builtin_object_size(pointer, type) ((size_t) -1)
 
 #include "firmador_pkgdefs.h"

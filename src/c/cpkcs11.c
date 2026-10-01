@@ -21,5 +21,6 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  * de p11-kit incluida en src/c/vendor (su licencia permite redistribuirla) para que la
  * compilación no dependa de que el sistema la tenga instalada. */
 
+#include "importc_compat.h"
 #include "firmador_pkgdefs.h"
 #include "vendor/pkcs11.h"

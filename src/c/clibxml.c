@@ -20,6 +20,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
 /* Cabeceras de libxml2 y libxslt para ImportC; las envuelven los módulos de
  * src/firmador/xml. */
 
+#include "importc_compat.h"
 #include "firmador_pkgdefs.h"
 /* Deprecación sin mensaje, como en copenssl.c: con mensaje, ImportC marca también como
  * obsoletos los struct opacos de esas firmas (xmlAutomata…) cuando el módulo sólo se
