@@ -35,11 +35,15 @@
 
 .PARAMETER Build
   Tipo de compilación de dub: release (optimizada, por omisión) o debug.
+
+.PARAMETER Test
+  Además corre las pruebas (dub test) con el mismo entorno, después de dejar las DLL en bin\.
 #>
 [CmdletBinding()]
 param(
   [string] $DepsRoot,
-  [ValidateSet('release', 'debug')] [string] $Build = 'release'
+  [ValidateSet('release', 'debug')] [string] $Build = 'release',
+  [switch] $Test
 )
 
 $ErrorActionPreference = 'Stop'
@@ -117,3 +121,13 @@ while ($pending.Count) {
 }
 Write-Host "Runtime de Visual C++ ($($runtime.Name)): $(($copiedRuntime.Keys | Sort-Object) -join ', ')"
 Write-Host "Listo: $(Join-Path $bin 'firmador.exe')" -ForegroundColor Green
+
+if ($Test) {
+  # El ejecutable de las pruebas queda en bin\, junto a las DLL que acaban de copiarse.
+  Push-Location $packageDir
+  try {
+    Invoke-Native 'Probando Firmador' $dub @('test', "--compiler=$ldc")
+  } finally {
+    Pop-Location
+  }
+}

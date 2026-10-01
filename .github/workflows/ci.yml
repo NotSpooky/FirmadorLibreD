@@ -1,0 +1,165 @@
+# Compila y prueba Firmador en Linux, Windows y macOS (Apple Silicon), y arma los paquetes
+# para publicar: el flatpak de Linux y el zip de Windows. Al subir una etiqueta de versión
+# (por ejemplo 0.3.0) crea un borrador de la publicación con ambos y sus SHA-256.
+#
+# Las acciones y las imágenes van fijadas por commit o digest, y los paquetes de Arch salen
+# de su archivo de hace 7 días: nada de lo que se instala tiene menos de 5 días.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['[0-9]*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux (pruebas)
+    runs-on: ubuntu-24.04
+    # Arch tiene la misma versión de mupdf (1.28) con que se desarrolla.
+    container: archlinux:base-devel-20260920.0.596911@sha256:8745817f349ed24373341ddb92776209eeec3f0364ea48f7f645ac5800d30a50
+    timeout-minutes: 45
+    steps:
+      - name: Paquetes del archivo de Arch de hace 7 días
+        run: |
+          snapshot=$(date -u -d '7 days ago' +%Y/%m/%d)
+          echo "Server = https://archive.archlinux.org/repos/$snapshot/\$repo/os/\$arch" > /etc/pacman.d/mirrorlist
+          pacman -Syy --noconfirm archlinux-keyring
+          pacman -Syuu --noconfirm --needed git dmd dub ldc mupdf libxml2 libxslt openssl curl pcsclite libsecret
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Pruebas (DMD)
+        run: dub test
+      - name: Compilación optimizada (LDC)
+        run: dub build --compiler=ldc2 --build=release
+
+  flatpak:
+    name: Linux (flatpak)
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08@sha256:6ed6921bb5a9e1a916989971844f159b854b7b225880c381fa34f7a158863039
+      options: --privileged
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8
+        with:
+          manifest-path: packaging/linux/io.github.notspooky.firmadorlibred.yml
+          bundle: firmadorlibre.flatpak
+          artifact-name: firmadorlibre-linux-x86_64
+
+  windows:
+    name: Windows
+    # windows-2025 trae Visual Studio 2026, y mupdf se compila con el conjunto de
+    # herramientas v143 de Visual Studio 2022 (tools/windows/setup.ps1).
+    runs-on: windows-2022
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Dependencias guardadas (LDC, vcpkg y mupdf)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build/windows
+          key: windows-deps-${{ hashFiles('tools/windows/common.ps1', 'tools/windows/setup.ps1') }}
+      - name: Dependencias
+        run: ./tools/windows/setup.ps1 -SkipBuild
+      - name: dlangui con los arreglos de Win32
+        if: vars.DLANGUI_REPOSITORY != ''
+        env:
+          DLANGUI_REPOSITORY: ${{ vars.DLANGUI_REPOSITORY }}
+          DLANGUI_REF: ${{ vars.DLANGUI_REF }}
+        run: |
+          $copy = Join-Path $env:RUNNER_TEMP 'dlangui'
+          git clone --depth 1 --branch $env:DLANGUI_REF "https://github.com/$env:DLANGUI_REPOSITORY.git" $copy
+          if ($LASTEXITCODE -ne 0) { throw "No se pudo clonar $env:DLANGUI_REPOSITORY ($env:DLANGUI_REF)" }
+          . ./tools/windows/common.ps1
+          $layout = Get-BuildLayout (Resolve-DepsRoot '' $PWD.Path)
+          & (Join-Path $layout.LdcBin 'dub.exe') add-local $copy 0.10.8
+          if ($LASTEXITCODE -ne 0) { throw "dub no pudo registrar $copy" }
+      - name: Aviso sin la copia de dlangui
+        if: vars.DLANGUI_REPOSITORY == ''
+        run: |
+          Write-Output ('::warning title=dlangui sin arreglos::Se compila con dlangui 0.10.8 del registro de dub, ' +
+            'sin los arreglos de Win32 (tamaño de diálogos, cursor, clics y activación). Defina las variables ' +
+            'DLANGUI_REPOSITORY y DLANGUI_REF del repositorio para usar la copia con los arreglos.')
+      - name: Compilación y pruebas
+        run: ./tools/windows/build.ps1 -Test
+      - name: Paquete
+        run: |
+          $files = @(Get-Item bin/firmador.exe, bin/curl-ca-bundle.crt) + @(Get-ChildItem bin -Filter *.dll)
+          Compress-Archive -Path $files.FullName -DestinationPath firmador-windows-x64.zip
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: firmador-windows-x64
+          path: firmador-windows-x64.zip
+          if-no-files-found: error
+
+  macos:
+    name: macOS (Apple Silicon)
+    runs-on: macos-26
+    # La versión para macOS todavía no se ha probado: su falla se ve, pero no detiene el resto.
+    continue-on-error: true
+    timeout-minutes: 45
+    env:
+      # Las fórmulas de la imagen del runner, sin actualizar Homebrew al instalar.
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Dependencias
+        run: brew install ldc dub mupdf libxml2 libxslt openssl@3 pkgconf
+      - name: pkg-config
+        # mupdf no instala mupdf.pc, que tools/prebuild.sh necesita; libxml2, libxslt y
+        # OpenSSL no se enlazan en el prefijo de Homebrew.
+        run: |
+          mupdf=$(brew --prefix mupdf)
+          mkdir -p "$RUNNER_TEMP/pkgconfig"
+          {
+            echo "prefix=$mupdf"
+            echo 'libdir=${prefix}/lib'
+            echo 'includedir=${prefix}/include'
+            echo
+            echo 'Name: mupdf'
+            echo 'Description: Library for rendering PDF documents'
+            echo "Version: $(brew list --versions mupdf | awk '{print $2}')"
+            echo 'Libs: -L${libdir} -lmupdf'
+            echo 'Cflags: -I${includedir}'
+          } > "$RUNNER_TEMP/pkgconfig/mupdf.pc"
+          paths="$RUNNER_TEMP/pkgconfig"
+          for formula in libxml2 libxslt openssl@3; do paths="$paths:$(brew --prefix "$formula")/lib/pkgconfig"; done
+          echo "PKG_CONFIG_PATH=$paths" >> "$GITHUB_ENV"
+      - name: Pruebas
+        run: dub test --compiler=ldc2
+      - name: Compilación optimizada
+        run: dub build --compiler=ldc2 --build=release
+
+  release:
+    name: Borrador de la publicación
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [linux, flatpak, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Borrador con los paquetes y sus SHA-256
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd dist
+          sha256sum -- * > SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --generate-notes ./*

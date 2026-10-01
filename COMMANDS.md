@@ -26,6 +26,8 @@ Desde la carpeta del repositorio, en PowerShell. Los detalles están en el
 | `powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows\build.ps1` | Compila `bin\firmador.exe` y copia a su lado las DLL que necesita, con el runtime de Visual C++ |
 | `… build.ps1 -Build debug` | Lo mismo, con información de depuración |
 | `… setup.ps1 -DepsRoot D:\firmador-deps` | Deja las dependencias en esa carpeta (sin espacios) en vez de `.build\windows`; `build.ps1` la recibe igual |
+| `… setup.ps1 -SkipBuild` | Sólo prepara las dependencias, sin compilar (para registrar antes otra copia de dlangui con `dub add-local`) |
+| `… build.ps1 -Test` | Compila y además corre las pruebas (`dub test`) con el mismo entorno |
 
 
 ## Ejecutar
@@ -67,3 +69,28 @@ Los archivos están en `packaging/linux/`.
 
 Si `flatpak-builder` no está instalado, `flatpak run org.flatpak.Builder …` acepta los
 mismos argumentos; se instala con `flatpak install flathub org.flatpak.Builder`.
+
+## Integración continua (GitHub Actions)
+
+`.github/workflows/ci.yml` corre en cada cambio a `main`, en cada pull request y a mano
+(«Run workflow» en la pestaña Actions):
+
+| Trabajo | Qué hace |
+|---|---|
+| Linux (pruebas) | `dub test` con DMD y compilación optimizada con LDC, en Arch con los paquetes de su archivo de hace 7 días |
+| Linux (flatpak) | Construye el flatpak con el manifiesto de `packaging/linux/`; lo deja como artefacto `firmadorlibre-linux-x86_64` |
+| Windows | `setup.ps1 -SkipBuild` y `build.ps1 -Test` en `windows-2022`; deja `firmador-windows-x64.zip` (lo de `bin\` sin `.pdb`). Las dependencias quedan guardadas entre ejecuciones mientras no cambien `common.ps1` ni `setup.ps1` |
+| macOS (Apple Silicon) | Pruebas y compilación con LDC y las bibliotecas de Homebrew; como esa versión aún no se ha probado, su falla no detiene lo demás |
+
+Al subir una etiqueta de versión (`git tag 0.3.0 && git push origin 0.3.0`), crea un
+borrador de la publicación con el flatpak, el zip de Windows y `SHA256SUMS`; se revisa y
+se publica desde la página de publicaciones.
+
+Variables del repositorio (Settings → Secrets and variables → Actions → Variables):
+
+| Variable | Valor |
+|---|---|
+| `DLANGUI_REPOSITORY` | Repositorio de la copia de dlangui con los arreglos de Win32, por ejemplo `NotSpooky/dlangui`; sin ella, el zip de Windows se compila con dlangui del registro y el trabajo avisa |
+| `DLANGUI_REF` | Rama o etiqueta de esa copia, por ejemplo `win32-fixes-0.10.8` |
+
+Para revisar el flujo antes de subirlo: `actionlint .github/workflows/ci.yml`.

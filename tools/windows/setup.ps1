@@ -37,9 +37,16 @@
 .PARAMETER DepsRoot
   Carpeta de las dependencias del proyecto, sin espacios. Por omisión, .build\windows
   dentro del repositorio.
+
+.PARAMETER SkipBuild
+  Sólo prepara las dependencias, sin compilar al final (por ejemplo, para registrar antes
+  otra copia de dlangui con dub add-local).
 #>
 [CmdletBinding()]
-param([string] $DepsRoot)
+param(
+  [string] $DepsRoot,
+  [switch] $SkipBuild
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -288,4 +295,4 @@ try {
 } finally {
   Remove-Scratch
 }
-& (Join-Path $PSScriptRoot 'build.ps1') -DepsRoot $layout.Root
+if (-not $SkipBuild) { & (Join-Path $PSScriptRoot 'build.ps1') -DepsRoot $layout.Root }
