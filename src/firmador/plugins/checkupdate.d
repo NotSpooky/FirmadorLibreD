@@ -244,7 +244,7 @@ private bool isWritable(string path) @trusted {
  * Throws: ZipFormatException si el ZIP está dañado; Exception si trae rutas inseguras o
  * no trae el paquete.
  */
-private void extractMacBundle(immutable(ubyte)[] zip, string contents) @trusted {
+private void extractMacBundle(const(ubyte)[] zip, string contents) @trusted {
   size_t copied;
   foreach (entry; readZip(zip)) {
     string relative = macBundleEntryPath(entry.name);

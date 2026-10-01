@@ -34,13 +34,15 @@ import std.logger : error, info;
 
 import firmador.launch : remoteOriginFromUrl;
 
+/// Manejador de eventos Apple; sin @nogc, porque el de enlaces copia el texto y lo registra.
+private alias AEEventHandler = extern (C) short function(const(AEDesc)* event, AEDesc* reply, void* reference) nothrow;
+
 private extern (C) nothrow @nogc {
   struct AEDesc {
     uint descriptorType;
     void* dataHandle;
   }
 
-  alias AEEventHandler = short function(const(AEDesc)* event, AEDesc* reply, void* reference);
   short AEInstallEventHandler(uint eventClass, uint eventId, AEEventHandler handler, void* reference, ubyte system);
   short AEGetParamPtr(const(AEDesc)* event, uint keyword, uint desiredType, uint* actualType, void* data,
     long maximumSize, long* actualSize);
