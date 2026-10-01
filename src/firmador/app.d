@@ -181,6 +181,13 @@ extern (C) int UIAppMain(string[] toolkitArguments) {
   Log.setLogLevel(ToolkitLogLevel.Warn);
   bool background;
   foreach (argument; windowArguments) if (argument.startsWith("--background")) background = true;
+  try {
+    import firmador.gui.desktop.theme : applyTheme;
+    applyTheme(currentSettings().themeMode);
+  } catch (Exception exception) {
+    error("No se pudo aplicar el tema de la ventana: ", exception.msg);
+    return 1;
+  }
   auto detector = new SmartCardDetector;
   auto desktop = new DesktopInterface(detector, null, background);
   auto plugins = new PluginManager(desktop);

@@ -47,6 +47,7 @@ import dlangui.widgets.scrollbar;
 import dlangui.widgets.widget;
 
 import firmador.documents.document : Document;
+import firmador.gui.desktop.theme : ThemeColor, themeColor;
 import firmador.gui.desktop.uithread : reportUiFailure;
 import firmador.i18n : htmlToText, t;
 import firmador.settings : Settings;
@@ -93,17 +94,13 @@ TextWidget boldTitle(string key) @trusted {
   return title;
 }
 
-/// Fondo de una fila de lista: resaltado si es la elegida.
-enum uint selectedRowColor = 0xDCE8F7;
-enum uint rowColor = 0xF4F4F4;
-
 /// Fila de una lista en la que se elige un elemento: de ancho completo, resaltada si es la elegida.
 HorizontalLayout selectableRow(bool selected, int horizontalPadding = 6) @trusted {
   auto row = new HorizontalLayout;
   row.layoutWidth = FILL_PARENT;
   row.padding = Rect(horizontalPadding, 6, horizontalPadding, 6);
   row.margins = Rect(0, 0, 0, 4);
-  row.backgroundColor = selected ? selectedRowColor : rowColor;
+  row.backgroundColor = themeColor(selected ? ThemeColor.rowSelected : ThemeColor.row);
   return row;
 }
 

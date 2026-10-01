@@ -221,7 +221,7 @@ final class SignPanel : VerticalLayout {
     auto settings = currentSettings();
 
     topBar = new HorizontalLayout("barra-superior");
-    topBar.padding = Rect(4, 4, 4, 4);
+    topBar.styleId = "FIRMADOR_TOOLBAR";
     topBar.addChild(new TextWidget(null, dt("signpanel_page")));
     pageSelector = new PageSelector("pagina");
     pageSelector.tooltipText = tip("signpanel_page_tooltip");
@@ -308,29 +308,38 @@ final class SignPanel : VerticalLayout {
 
     bottomBar = new VerticalLayout("barra-inferior");
     bottomBar.layoutWidth = FILL_PARENT;
-    bottomBar.padding = Rect(4, 4, 4, 4);
+    bottomBar.styleId = "FIRMADOR_FOOTER";
     auto mainRow = new HorizontalLayout;
     mainRow.layoutWidth = FILL_PARENT;
     fieldsColumn = new TableLayout("campos");
     fieldsColumn.colCount = 2;
     fieldsColumn.layoutWidth = FILL_PARENT;
+    fieldsColumn.maxWidth = 640;
     reasonField = addField("razon", "signpanel_reason", "signpanel_reason_tooltip", settings.reason);
     locationField = addField("lugar", "signpanel_place", "signpanel_place_tooltip", settings.place);
     contactField = addField("contacto", "signpanel_contact", "signpanel_contact_tooltip", settings.contact);
     mainRow.addChild(fieldsColumn);
     auto signRow = new HorizontalLayout;
-    signRow.margins = Rect(12, 0, 0, 0);
     cancelButton = makeButton("rechazar", "signpanel_cancel_btn", "signpanel_cancel_tooltip", () { confirmCancel(); });
     signButton = makeButton("firmar", "signpanel_sign_btn", "signpanel_sign_tooltip", () { requestSign(); });
-    signButton.fontWeight = 800;
+    signButton.styleId = "BUTTON_PRIMARY";
     signButton.minWidth = 140;
     collapseButton = makeButton("plegar", "signpanel_collapse_footer", "signpanel_collapse_footer", () {
       applyFooterState(!footerCollapsed);
     });
+    collapseButton.styleId = "BUTTON_LINK";
+    signRow.addChild(collapseButton);
     signRow.addChild(cancelButton);
     signRow.addChild(signButton);
-    signRow.addChild(collapseButton);
-    mainRow.addChild(signRow);
+    mainRow.addChild(new HSpacer);
+    // Una fila da a cada hijo toda su altura: los botones van en una columna que los centra.
+    auto signColumn = new VerticalLayout;
+    signColumn.layoutHeight = FILL_PARENT;
+    signColumn.margins = Rect(12, 0, 0, 0);
+    signColumn.addChild(new VSpacer);
+    signColumn.addChild(signRow);
+    signColumn.addChild(new VSpacer);
+    mainRow.addChild(signColumn);
     bottomBar.addChild(mainRow);
 
     secondaryActions = new HorizontalLayout("acciones");

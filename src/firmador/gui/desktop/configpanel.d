@@ -55,6 +55,7 @@ import firmador.crypto.openssl : WrongPasswordException;
 import firmador.gui.desktop.common;
 import firmador.gui.desktop.dialogs;
 import firmador.gui.desktop.secretfield : SecretField;
+import firmador.gui.desktop.theme : themeModes;
 import firmador.gui.desktop.pageview : zoomIndexFor, zoomSettingValues;
 import firmador.gui.desktop.signpanel : rotationLabels, rotationValues, zoomLabels;
 import firmador.gui.desktop.window : DesktopInterface;
@@ -71,7 +72,6 @@ immutable string[] fontPositions = ["RIGHT", "LEFT", "BOTTOM", "TOP", "ONLY IMAG
 immutable string[] signatureLevels = ["T", "LT", "LTA"];
 immutable string[] languages = ["es", "en"];
 immutable string[] windowStates = ["NORMAL", "MAXIMIZED_BOTH", "MAXIMIZED_HORIZ", "MAXIMIZED_VERT"];
-immutable string[] themeModes = ["system", "light", "dark"];
 
 /// País de cada idioma (countryByLanguage).
 string countryFor(string language) pure nothrow @safe {

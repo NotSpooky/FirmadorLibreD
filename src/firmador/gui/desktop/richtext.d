@@ -40,6 +40,8 @@ import dlangui.graphics.fonts;
 import dlangui.platforms.common.platform : Platform;
 import dlangui.widgets.widget;
 
+import firmador.gui.desktop.theme : ThemeColor, themeColor;
+
 /// Trozo de texto con un mismo formato.
 struct TextRun {
   dstring text;
@@ -449,8 +451,9 @@ final class RichText : Widget {
     auto saver = ClipRectSaver(buf, rc, alpha);
     applyPadding(rc);
     uint color = textColor;
+    uint linkColor = themeColor(ThemeColor.accent);
     foreach (piece; placed) {
-      uint pieceColor = piece.link.length ? 0x1A57B8 : color;
+      uint pieceColor = piece.link.length ? linkColor : color;
       FontRef pieceFont = fontFor(piece.style);
       pieceFont.drawText(buf, rc.left + piece.x, rc.top + piece.y, piece.text, pieceColor);
       if (piece.link.length) {

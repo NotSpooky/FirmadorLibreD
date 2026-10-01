@@ -59,6 +59,7 @@ import firmador.cards.detector : SmartCardDetector, UnsupportedArchitectureExcep
 import firmador.connections.connection : PinAndCode;
 import firmador.gui.desktop.richtext : RichText;
 import firmador.gui.desktop.secretfield : SecretField;
+import firmador.gui.desktop.theme : ThemeColor, themeColor;
 import firmador.gui.guiinterface : HostAuthorization;
 import firmador.i18n : t;
 import firmador.signers.detector : formatName, SignatureFormat;
@@ -496,7 +497,7 @@ private final class PinAndCodeDialog : FirmadorDialog {
     addChild(row);
     if (errorMessage.length) {
       auto errorText = new RichText("error", "<b>" ~ errorMessage ~ "</b>");
-      errorText.textColor = 0xB00020;
+      errorText.textColor = themeColor(ThemeColor.errorText);
       errorText.margins = Rect(0, 8, 0, 0);
       addChild(errorText);
     }
@@ -578,7 +579,7 @@ void showSelectModeDialog(Window parent, void delegate(bool simplified) done) @t
   dialog.addChild(complete);
   auto note = new TextWidget(null, t("select_mode_info").toUTF32);
   note.fontItalic = true;
-  note.textColor = 0x707070;
+  note.textColor = themeColor(ThemeColor.mutedText);
   note.margins = Rect(0, 16, 0, 12);
   dialog.addChild(note);
   dialog.addOkCancel();

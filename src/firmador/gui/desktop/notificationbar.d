@@ -32,6 +32,7 @@ import dlangui.widgets.layouts;
 import dlangui.widgets.widget;
 
 import firmador.gui.desktop.richtext : RichText;
+import firmador.gui.desktop.theme : ThemeColor, themeColor;
 import firmador.gui.guiinterface : NotificationType;
 
 /**
@@ -55,16 +56,28 @@ final class NotificationBar : VerticalLayout {
 
   /// Muestra el aviso con el color de su tipo; se oculta solo a los cinco segundos.
   void show(string html, NotificationType type) @trusted {
-    uint background, foreground;
+    ThemeColor background, foreground;
     final switch (type) {
-      case NotificationType.success: background = 0xD4EDDA; foreground = 0x155724; break;
-      case NotificationType.error: background = 0xF8D7DA; foreground = 0x721C24; break;
-      case NotificationType.warning: background = 0xFFF3CD; foreground = 0x856404; break;
-      case NotificationType.info: background = 0xD9EDF7; foreground = 0x0C5460; break;
+      case NotificationType.success:
+        background = ThemeColor.successBackground;
+        foreground = ThemeColor.successForeground;
+        break;
+      case NotificationType.error:
+        background = ThemeColor.errorBackground;
+        foreground = ThemeColor.errorForeground;
+        break;
+      case NotificationType.warning:
+        background = ThemeColor.warningBackground;
+        foreground = ThemeColor.warningForeground;
+        break;
+      case NotificationType.info:
+        background = ThemeColor.infoBackground;
+        foreground = ThemeColor.infoForeground;
+        break;
     }
-    backgroundColor = background;
-    frameColor = foreground;
-    message.textColor = foreground;
+    backgroundColor = themeColor(background);
+    frameColor = themeColor(foreground);
+    message.textColor = themeColor(foreground);
     message.setHtml(html);
     visibility = Visibility.Visible;
     if (hideTimer != 0) cancelTimer(hideTimer);

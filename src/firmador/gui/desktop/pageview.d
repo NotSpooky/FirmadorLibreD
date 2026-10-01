@@ -49,6 +49,7 @@ import dlangui.widgets.widget;
 
 import firmador.configuration : maxSignatureScale, minSignatureScale;
 import firmador.gui.desktop.common : indexIn;
+import firmador.gui.desktop.theme : ThemeColor, themeColor;
 import firmador.gui.desktop.uithread : runOnUi;
 import firmador.pdf.engine : PageGeometry, PageRaster, PdfAnnotation, PdfRect;
 import firmador.pdf.sigpreview : VisualRect, visualRect, visualSize;
@@ -168,6 +169,16 @@ Rect scaledBox(Rect page, float x, float y, float width, float height, float sca
  */
 int clampedScroll(int wanted, int contentSize, int viewportSize) pure nothrow @safe @nogc {
   return max(0, min(wanted, max(0, contentSize - viewportSize)));
+}
+
+/**
+ * Color del anillo `ring` (desde 1) de la sombra de una página: el de `base` con su opacidad
+ * dividida por el número de anillo. En dlangui el canal alfa es la transparencia (0 opaco).
+ */
+uint fadedShadow(uint base, int ring) pure nothrow @safe @nogc {
+  assert(ring >= 1, "los anillos de la sombra empiezan en 1");
+  uint opacity = (0xFF - (base >> 24)) / ring;
+  return ((0xFF - opacity) << 24) | (base & 0xFFFFFF);
 }
 
 /**
@@ -392,11 +403,17 @@ final class PageView : ScrollWidgetBase {
   private float renderScale;
   private Nullable!PageSource renderSource;
   private bool renderStopping;
+  /// Colores del tema (firmador.gui.desktop.theme), leídos al crear la vista.
+  private uint pageBorderColor, pageShadowColor, accentColor, signatureFrameColor;
 
   this(string ID = null) @trusted {
     super(ID, ScrollBarMode.Auto, ScrollBarMode.Auto);
     focusable = true;
-    backgroundColor = 0xE0E0E0;
+    backgroundColor = themeColor(ThemeColor.pageArea);
+    pageBorderColor = themeColor(ThemeColor.pageBorder);
+    pageShadowColor = themeColor(ThemeColor.pageShadow);
+    accentColor = themeColor(ThemeColor.accent);
+    signatureFrameColor = themeColor(ThemeColor.signatureFrame);
     renderLock = new Mutex;
     renderWakeup = new Condition(renderLock);
     auto worker = new Thread(&renderLoop);
@@ -652,6 +669,7 @@ final class PageView : ScrollWidgetBase {
       // Se dibujan las visibles y se piden también las de una pantalla antes y después.
       bool near = rc.bottom >= _clientRect.top - _clientRect.height && rc.top <= _clientRect.bottom + _clientRect.height;
       if (!near) continue;
+      drawPageShadow(buf, rc);
       if (auto image = page in cache) {
         buf.drawRescaled(rc, *image, Rect(0, 0, image.width, image.height));
       } else {
@@ -660,17 +678,30 @@ final class PageView : ScrollWidgetBase {
       bool current = (page in cacheScale) !is null && cacheScale[page] == scale;
       bool requested = (page in pending) !is null && pending[page] == scale;
       if (!current && !requested) wanted ~= page;
-      buf.drawFrame(rc, 0xBEBEBE, Rect(1, 1, 1, 1), 0xFFFFFFFF);
+      buf.drawFrame(rc, pageBorderColor, Rect(1, 1, 1, 1), 0xFFFFFFFF);
     }
     if (wanted.length) requestRenders(wanted);
     if (signatureShown && placement.page < pageSizes.length) {
       Rect box = signatureBox();
       buf.drawRescaled(box, signatureImage, Rect(0, 0, signatureImage.width, signatureImage.height));
-      uint frameColor = focused ? 0x1A57B8 : 0x646464;
+      uint frameColor = focused ? accentColor : signatureFrameColor;
       buf.drawFrame(box, frameColor, Rect(1, 1, 1, 1), 0xFFFFFFFF);
       buf.fillRect(resizeHandle(box), frameColor);
     }
     reportCurrentPage();
+  }
+
+  /**
+   * Sombra suave alrededor de una página: anillos de un píxel cada vez más transparentes,
+   * un poco más abajo que arriba. Se dibuja con el recorte de la vista, a diferencia de
+   * BoxShadowDrawable, que lo amplía y pintaría sobre las barras vecinas.
+   */
+  private void drawPageShadow(DrawBuf buf, Rect page) {
+    enum int rings = 4;
+    foreach (ring; 1 .. rings + 1) {
+      Rect outline = Rect(page.left - ring, page.top - ring + 1, page.right + ring, page.bottom + ring + 1);
+      buf.drawFrame(outline, fadedShadow(pageShadowColor, ring), Rect(1, 1, 1, 1), 0xFFFFFFFF);
+    }
   }
 
   private void reportCurrentPage() {
@@ -997,4 +1028,12 @@ unittest {
   auto fields = [VisualRect(0, 0, 100, 50), VisualRect(90, 0, 200, 50)];
   assert(fieldUnderBox(fields, 80, 10, 60, 20).get == fields[1]);
   assert(fieldUnderBox(fields, 400, 400, 60, 20).isNull);
+}
+
+@("should fade the page shadow by the ring number when drawing its outer rings")
+unittest {
+  // 0xB0 de transparencia es 0x4F de opacidad: 0x27 en el segundo anillo y 0x13 en el cuarto.
+  assert(fadedShadow(0xB0000000, 1) == 0xB0000000);
+  assert(fadedShadow(0xB0000000, 2) == 0xD8000000);
+  assert(fadedShadow(0xB0123456, 4) == 0xEC123456);
 }

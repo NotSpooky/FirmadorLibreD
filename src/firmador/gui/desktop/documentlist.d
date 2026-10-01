@@ -59,6 +59,7 @@ import firmador.documents.document : Document;
 import firmador.gui.desktop.common;
 import firmador.gui.desktop.dialogs;
 import firmador.gui.desktop.richtext : RichText;
+import firmador.gui.desktop.theme : ThemeColor, themeColor;
 import firmador.gui.desktop.uithread : runInBackground, runOnUi;
 import firmador.gui.desktop.window : DesktopInterface;
 import firmador.gui.guiinterface : NotificationType;
@@ -505,12 +506,12 @@ final class DocumentListPanel : HorizontalLayout {
         auto expiration = new TextWidget(null, (t("list_document_panel_expiration") ~ " " ~ document.expirationDate)
           .toUTF32);
         expiration.fontSize = 11;
-        expiration.textColor = 0x707070;
+        expiration.textColor = themeColor(ThemeColor.mutedText);
         side.addChild(expiration);
       }
     } else if (document.validated) {
       auto validated = new TextWidget(null, dt("list_document_panel_validated"));
-      validated.textColor = 0x2E7D32;
+      validated.textColor = themeColor(ThemeColor.successText);
       side.addChild(validated);
     }
     row.addChild(side);

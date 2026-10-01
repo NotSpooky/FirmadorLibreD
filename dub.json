@@ -22,7 +22,8 @@
     "src/c"
   ],
   "stringImportPaths": [
-    "resources"
+    "resources",
+    "resources/theme"
   ],
   "dependencies": {
     "dlangui": "==0.10.8"
