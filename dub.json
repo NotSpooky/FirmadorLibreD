@@ -18,7 +18,7 @@
     "src",
     "src/c"
   ],
-  "cSourcePaths-posix": [
+  "cSourcePaths-linux": [
     "src/c"
   ],
   "stringImportPaths": [
@@ -79,9 +79,6 @@
   "lflags-windows": [
     "/SUBSYSTEM:WINDOWS",
     "/ENTRY:wmainCRTStartup"
-  ],
-  "excludedSourceFiles-osx": [
-    "src/c/csecret.c"
   ],
   "buildTypes": {
     "release": {
