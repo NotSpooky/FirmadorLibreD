@@ -191,6 +191,8 @@ final class SignPanel : VerticalLayout {
   private PageView pages;
   private PageSelector pageSelector;
   private ComboBox zoomBox;
+  /// Mientras replaceZoomItems cambia las opciones, para no tomar por elegido el índice que emite.
+  private bool replacingZoomItems;
   private ComboBox rotationBox;
   private Button positionButton;
   private HorizontalLayout sizeGroup;
@@ -236,7 +238,8 @@ final class SignPanel : VerticalLayout {
     zoomBox.tooltipText = tip("signpanel_zoom_tooltip");
     zoomBox.selectedItemIndex = zoomIndexFor(settings.previewZoom);
     zoomBox.itemClick = (Widget source, int index) {
-      pages.setZoom(zoomAt(index));
+      // La última opción puede ser la escala de Ctrl y la rueda, que ya es la que se ve.
+      if (!replacingZoomItems && index < zoomLabels().length) selectZoomOption(index);
       return true;
     };
     topBar.addChild(zoomBox);
@@ -283,6 +286,7 @@ final class SignPanel : VerticalLayout {
     pages = new PageView("paginas");
     pages.fillParent();
     pages.setZoom(zoomAt(zoomBox.selectedItemIndex));
+    pages.onWheelZoom = (int percent) { showWheelZoom(percent); };
     pages.onSnappedToField = () {
       host.showNotification(t("signpanel_snapped_to_field"), NotificationType.info);
     };
@@ -382,6 +386,34 @@ final class SignPanel : VerticalLayout {
       field.contentChange = (EditableContent content) { scheduleSignaturePreview(); };
     }
     applyControls(SignControls.init);
+  }
+
+  /// Elige una de las opciones fijas del selector de escala y quita la de Ctrl y la rueda, si la había.
+  private void selectZoomOption(int index) {
+    replaceZoomItems(zoomLabels(), index);
+    pages.setZoom(zoomAt(index));
+  }
+
+  /**
+   * Muestra en el selector de escala el porcentaje elegido con Ctrl y la rueda, como una
+   * opción más al final, hasta que se elija otra (selectZoomOption).
+   */
+  private void showWheelZoom(int percent) {
+    dstring[] labels = zoomLabels();
+    replaceZoomItems(labels ~ format("%d%%", percent).toUTF32, cast(int) labels.length);
+  }
+
+  /**
+   * Cambia las opciones del selector de escala y deja elegida la de `index`. ComboBox.items
+   * vuelve a elegir la primera opción y emite itemClick, que aquí no es una elección del
+   * usuario: sin replacingZoomItems, el manejador volvería a cambiar las opciones sin fin.
+   */
+  private void replaceZoomItems(dstring[] labels, int index) {
+    assert(index >= 0 && index < labels.length, format("Índice de escala %d fuera de las %d opciones", index, labels.length));
+    replacingZoomItems = true;
+    scope (exit) replacingZoomItems = false;
+    zoomBox.items = labels;
+    zoomBox.selectedItemIndex = index;
   }
 
   private EditLine addField(string id, string labelKey, string tooltipKey, string value) {
@@ -492,8 +524,7 @@ final class SignPanel : VerticalLayout {
     locationField.text = settings.place.toUTF32;
     contactField.text = settings.contact.toUTF32;
     rotationBox.selectedItemIndex = indexIn(rotationValues, settings.signRotation);
-    zoomBox.selectedItemIndex = zoomIndexFor(settings.previewZoom);
-    pages.setZoom(zoomAt(zoomBox.selectedItemIndex));
+    selectZoomOption(zoomIndexFor(settings.previewZoom));
     if (current !is null) {
       placeConfiguredSignature(settings);
       scheduleSignaturePreview();

@@ -32,10 +32,10 @@ module firmador.gui.desktop.pageview;
 import core.sync.condition : Condition;
 import core.sync.mutex : Mutex;
 import core.thread : Thread;
-import std.algorithm : max, min, remove;
+import std.algorithm : clamp, max, min, remove;
 import std.conv : to;
 import std.logger : error, warning;
-import std.math : round;
+import std.math : pow, round;
 import std.sumtype : match, SumType;
 import std.typecons : Nullable;
 
@@ -88,6 +88,20 @@ Zoom zoomAt(int index) pure nothrow @safe {
   if (index < 0 || index == fullPageIndex) return Zoom(ZoomMode.fullPage);
   if (index == 0) return Zoom(ZoomMode.autoWidth);
   return Zoom(ZoomMode.fixed, zoomPercents[min(index - 2, cast(int) zoomPercents.length - 1)] / 100f);
+}
+
+/// Factor de cada muesca de la rueda con Ctrl y límites del zoom que da (1 = 100 %), los del selector.
+enum float wheelZoomStep = 1.25;
+enum float minWheelZoom = 0.25;
+enum float maxWheelZoom = 4;
+
+/**
+ * Factor de escala tras `steps` muescas de la rueda con Ctrl (positivas acercan) desde
+ * `current`: wheelZoomStep por muesca, redondeado a un porcentaje entero y dentro de
+ * minWheelZoom y maxWheelZoom.
+ */
+float wheelZoomFactor(float current, int steps) pure nothrow @safe @nogc {
+  return clamp(round(current * pow(wheelZoomStep, steps) * 100) / 100, minWheelZoom, maxWheelZoom);
 }
 
 /// Margen alrededor de las páginas y separación entre ellas, en píxeles.
@@ -359,6 +373,8 @@ final class PageView : ScrollWidgetBase {
   void delegate(float scale) onSignatureResized;
   /// El recuadro se ajustó a un campo de firma vacío al soltarlo (snapIntoEmptyField).
   void delegate() onSnappedToField;
+  /// Se acercó o alejó con Ctrl y la rueda; recibe el porcentaje de la nueva escala fija.
+  void delegate(int percent) onWheelZoom;
   /// Cambió la escala de las páginas (zoom o tamaño de la vista); recibe los píxeles por punto nuevos.
   void delegate(float scale) onScaleChanged;
 
@@ -606,6 +622,23 @@ final class PageView : ScrollWidgetBase {
     super.updateScrollBars();
   }
 
+  /**
+   * Acerca o aleja `steps` muescas (wheelZoomFactor) desde la escala que se ve, sea cual sea
+   * el modo, y desplaza la vista para que el punto bajo el puntero (`x`, `y`) quede donde estaba.
+   */
+  private void zoomWithWheel(int x, int y, int steps) {
+    float pixelsPerPoint = SCREEN_DPI / 96f;
+    float factor = wheelZoomFactor(scale / pixelsPerPoint, steps);
+    float ratio = factor * pixelsPerPoint / scale;
+    int pointerX = x - _clientRect.left, pointerY = y - _clientRect.top;
+    int anchorX = _visibleScrollableArea.left + pointerX, anchorY = _visibleScrollableArea.top + pointerY;
+    zoom = Zoom(ZoomMode.fixed, factor);
+    computeLayout();
+    scrollBy(cast(int) round(anchorX * ratio) - pointerX - _visibleScrollableArea.left,
+      cast(int) round(anchorY * ratio) - pointerY - _visibleScrollableArea.top);
+    if (onWheelZoom !is null) onWheelZoom(cast(int) round(factor * 100));
+  }
+
   private void scrollBy(int dx, int dy) {
     int left = clampedScroll(_visibleScrollableArea.left + dx, contentWidth, _clientRect.width);
     int top = clampedScroll(_visibleScrollableArea.top + dy, contentHeight, _clientRect.height);
@@ -777,7 +810,13 @@ final class PageView : ScrollWidgetBase {
   }
 
   override bool onMouseEvent(MouseEvent event) {
-    if (event.action == MouseAction.Wheel) return super.onMouseEvent(event);
+    if (event.action == MouseAction.Wheel) {
+      if ((event.flags & MouseFlag.Control) && !source.isNull) {
+        zoomWithWheel(event.x, event.y, event.wheelDelta);
+        return true;
+      }
+      return super.onMouseEvent(event);
+    }
     bool inClient = event.x >= _clientRect.left && event.x < _clientRect.right && event.y >= _clientRect.top
       && event.y < _clientRect.bottom;
     if (event.action == MouseAction.ButtonDown && event.button == MouseButton.Left && inClient) {
@@ -1036,4 +1075,14 @@ unittest {
   assert(fadedShadow(0xB0000000, 1) == 0xB0000000);
   assert(fadedShadow(0xB0000000, 2) == 0xD8000000);
   assert(fadedShadow(0xB0123456, 4) == 0xEC123456);
+}
+
+@("should step the wheel zoom by whole percents and stop at the selector limits")
+unittest {
+  assert(wheelZoomFactor(1, 1) == 1.25f);
+  assert(wheelZoomFactor(1, -1) == 0.8f);
+  // 0.33 (página completa en una ventana chica) × 1.25 = 0.4125, que se redondea a 41 %.
+  assert(wheelZoomFactor(0.33, 1) == 0.41f);
+  assert(wheelZoomFactor(3.5, 2) == maxWheelZoom);
+  assert(wheelZoomFactor(0.3, -3) == minWheelZoom);
 }
