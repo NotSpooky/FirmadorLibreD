@@ -155,7 +155,7 @@ string portalRequestPath(string uniqueName, string token) pure @safe {
  */
 void pickPaths(Window parent, PickRequest request, void delegate(string[] paths) done) @trusted {
   version (Windows) {
-    done(windowsPick(parent, request));
+    done(windowsPick(request));
   } else version (linux) {
     portalPickAsync(parent, request, done);
   } else {
@@ -499,16 +499,17 @@ version (Windows) {
   }
 
   /**
-   * IFileOpenDialog o IFileSaveDialog, modal sobre la ventana. Show tiene su propio ciclo
-   * de mensajes, así que corre en el hilo de la ventana.
+   * IFileOpenDialog o IFileSaveDialog, modal sobre la ventana activa del hilo, que es la de
+   * Firmador donde se pidió el selector (sin ella, el diálogo se abre sin dueña). Show tiene
+   * su propio ciclo de mensajes, así que corre en el hilo de la ventana. No se llega a la
+   * ventana por dlangui.platforms.windows.winapp: importarla enlaza su arranque, que llama
+   * a UIAppMain de firmador.app, y las pruebas se compilan sin ese módulo.
    */
-  private string[] windowsPick(Window parent, PickRequest request) @trusted {
-    import dlangui.platforms.windows.winapp : Win32Window;
+  private string[] windowsPick(PickRequest request) @trusted {
+    import core.sys.windows.winuser : GetActiveWindow;
     import std.exception : enforce;
     import std.format : format;
     import std.utf : toUTF16z;
-    auto owner = cast(Win32Window) parent;
-    enforce(owner !is null, "El selector de archivos de Windows necesita la ventana de Firmador como dueña");
     HRESULT started = CoInitializeEx(null, COINIT.COINIT_APARTMENTTHREADED);
     enforce(started >= 0 || started == RPC_E_CHANGED_MODE,
       format("No se pudo iniciar COM para el selector de archivos (0x%08X)", started));
@@ -547,7 +548,7 @@ version (Windows) {
     if (saving && request.defaultExtension.length > 1) {
       check(dialog.SetDefaultExtension(request.defaultExtension[1 .. $].toUTF16z), "fijar la extensión");
     }
-    HRESULT shown = dialog.Show(owner.windowHandle);
+    HRESULT shown = dialog.Show(GetActiveWindow());
     if (shown == cancelledByUser) return null;
     check(shown, "mostrar el diálogo");
     if (request.kind == PickKind.open) {

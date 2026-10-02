@@ -1,6 +1,7 @@
 # Compila y prueba Firmador en Linux, Windows y macOS (Apple Silicon), y arma los paquetes
-# para publicar: el flatpak de Linux y el zip de Windows. Al subir una etiqueta de versión
-# (por ejemplo 0.3.0) crea un borrador de la publicación con ambos y sus SHA-256.
+# firmador_<sistema>_<versión>.<extensión>: el flatpak de Linux y los zip de Windows y macOS.
+# La versión es v_0_4_0 para la etiqueta 0.4.0 y dev_<commit> en lo demás. Al subir una
+# etiqueta crea un borrador de la publicación con los tres paquetes y sus SHA-256.
 #
 # Las acciones y las imágenes van fijadas por commit o digest, y los paquetes de Arch salen
 # de su archivo de hace 7 días: nada de lo que se instala tiene menos de 5 días.
@@ -21,6 +22,22 @@ permissions:
   contents: read
 
 jobs:
+  version:
+    name: Versión de los paquetes
+    runs-on: ubuntu-24.04
+    outputs:
+      label: ${{ steps.label.outputs.label }}
+    steps:
+      - id: label
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ "$REF_TYPE" = tag ]; then label="v_${REF_NAME//./_}"; else label="dev_${SHA::7}"; fi
+          echo "Versión de los paquetes: $label"
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+
   linux:
     name: Linux (pruebas)
     runs-on: ubuntu-24.04
@@ -42,6 +59,7 @@ jobs:
 
   flatpak:
     name: Linux (flatpak)
+    needs: version
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08@sha256:6ed6921bb5a9e1a916989971844f159b854b7b225880c381fa34f7a158863039
@@ -52,11 +70,12 @@ jobs:
       - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8
         with:
           manifest-path: packaging/linux/io.github.notspooky.firmadorlibred.yml
-          bundle: firmadorlibre.flatpak
-          artifact-name: firmadorlibre-linux-x86_64
+          bundle: firmador_linux_${{ needs.version.outputs.label }}.flatpak
+          artifact-name: firmador_linux_${{ needs.version.outputs.label }}
 
   windows:
     name: Windows
+    needs: version
     # windows-2025 trae Visual Studio 2026, y mupdf se compila con el conjunto de
     # herramientas v143 de Visual Studio 2022 (tools/windows/setup.ps1).
     runs-on: windows-2022
@@ -95,20 +114,21 @@ jobs:
       - name: Compilación y pruebas
         run: ./tools/windows/build.ps1 -Test
       - name: Paquete
+        env:
+          PACKAGE: firmador_windows_${{ needs.version.outputs.label }}
         run: |
           $files = @(Get-Item bin/firmador.exe, bin/curl-ca-bundle.crt) + @(Get-ChildItem bin -Filter *.dll)
-          Compress-Archive -Path $files.FullName -DestinationPath firmador-windows-x64.zip
+          Compress-Archive -Path $files.FullName -DestinationPath "$env:PACKAGE.zip"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: firmador-windows-x64
-          path: firmador-windows-x64.zip
+          name: firmador_windows_${{ needs.version.outputs.label }}
+          path: firmador_windows_${{ needs.version.outputs.label }}.zip
           if-no-files-found: error
 
   macos:
     name: macOS (Apple Silicon)
+    needs: version
     runs-on: macos-26
-    # La versión para macOS todavía no se ha probado: su falla se ve, pero no detiene el resto.
-    continue-on-error: true
     timeout-minutes: 45
     env:
       # Las fórmulas de la imagen del runner, sin actualizar Homebrew al instalar.
@@ -142,11 +162,21 @@ jobs:
         run: dub test --compiler=ldc2
       - name: Compilación optimizada
         run: dub build --compiler=ldc2 --build=release
+      - name: Paquete
+        # El ejecutable usa las bibliotecas de Homebrew instaladas arriba.
+        env:
+          PACKAGE: firmador_macos_${{ needs.version.outputs.label }}
+        run: zip -j "$PACKAGE.zip" bin/firmador
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: firmador_macos_${{ needs.version.outputs.label }}
+          path: firmador_macos_${{ needs.version.outputs.label }}.zip
+          if-no-files-found: error
 
   release:
     name: Borrador de la publicación
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [linux, flatpak, windows]
+    needs: [linux, flatpak, windows, macos]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

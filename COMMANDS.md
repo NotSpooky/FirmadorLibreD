@@ -78,13 +78,18 @@ mismos argumentos; se instala con `flatpak install flathub org.flatpak.Builder`.
 | Trabajo | Qué hace |
 |---|---|
 | Linux (pruebas) | `dub test` con DMD y compilación optimizada con LDC, en Arch con los paquetes de su archivo de hace 7 días |
-| Linux (flatpak) | Construye el flatpak con el manifiesto de `packaging/linux/`; lo deja como artefacto `firmadorlibre-linux-x86_64` |
-| Windows | `setup.ps1 -SkipBuild` y `build.ps1 -Test` en `windows-2022`; deja `firmador-windows-x64.zip` (lo de `bin\` sin `.pdb`). Las dependencias quedan guardadas entre ejecuciones mientras no cambien `common.ps1` ni `setup.ps1` |
-| macOS (Apple Silicon) | Pruebas y compilación con LDC y las bibliotecas de Homebrew; como esa versión aún no se ha probado, su falla no detiene lo demás |
+| Linux (flatpak) | Construye el flatpak con el manifiesto de `packaging/linux/` |
+| Windows | `setup.ps1 -SkipBuild` y `build.ps1 -Test` en `windows-2022`; empaqueta lo de `bin\` sin `.pdb`. Las dependencias quedan guardadas entre ejecuciones mientras no cambien `common.ps1` ni `setup.ps1` |
+| macOS (Apple Silicon) | Pruebas y compilación con LDC y las bibliotecas de Homebrew, que el ejecutable necesita instaladas |
 
-Al subir una etiqueta de versión (`git tag 0.3.0 && git push origin 0.3.0`), crea un
-borrador de la publicación con el flatpak, el zip de Windows y `SHA256SUMS`; se revisa y
-se publica desde la página de publicaciones.
+Los paquetes se llaman `firmador_<linux|windows|macos>_<versión>.<flatpak|zip>`, con la versión
+`v_0_4_0` para la etiqueta `0.4.0` y `dev_<commit>` en las demás ejecuciones. Se descargan:
+
+| Desde | Cómo |
+|---|---|
+| Una ejecución | Pestaña Actions → la ejecución → «Artifacts», al pie (GitHub los entrega dentro de un zip; duran 90 días) |
+| La consola | `gh run download <id-de-la-ejecución>` (`gh run list` muestra los id) |
+| Una versión | `git tag 0.4.0 && git push origin 0.4.0` crea un borrador en Releases con los tres paquetes y `SHA256SUMS`; se revisa y se publica desde ahí |
 
 Variables del repositorio (Settings → Secrets and variables → Actions → Variables):
 
