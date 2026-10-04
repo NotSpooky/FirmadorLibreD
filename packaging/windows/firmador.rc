@@ -1,0 +1,6 @@
+/* Recursos de Windows de firmador.exe: el ícono de la versión Java (build/windows/firmador.ico
+ * de https://codeberg.org/firmador/firmador), que el Explorador y la barra de tareas muestran
+ * para el ejecutable. tools/prebuild.sh lo compila con llvm-rc a .build/firmador.res, que dub.json
+ * le pasa al enlazador (lflags-windows). */
+
+1 ICON "firmador.ico"

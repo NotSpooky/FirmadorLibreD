@@ -22,8 +22,9 @@
 # ImportC necesita, según pkg-config, y compila con el compilador de C del sistema el
 # puente con mupdf (src/shim/mupdfshim.c), que usa setjmp/longjmp y por eso no puede
 # compilarse con ImportC. En Windows lo compila clang para MSVC con el runtime de C en DLL
-# (/MD), como libmupdf.lib y las bibliotecas de vcpkg (tools/windows/build.ps1). CC y AR
-# cambian el compilador y el archivador. Ver COMMANDS.md.
+# (/MD), como libmupdf.lib y las bibliotecas de vcpkg (tools/windows/build.ps1), y compila
+# con llvm-rc los recursos del ejecutable (packaging/windows/firmador.rc, su ícono). CC, AR y
+# RC cambian el compilador, el archivador y el compilador de recursos. Ver COMMANDS.md.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,6 +36,7 @@ cc="${CC:-cc}"
 ar="${AR:-ar}"
 compile_flags="-fPIC"
 archive_flags=""
+windows=false
 case "$(uname -s)" in
   Linux*) packages="$packages libpcsclite libsecret-1" ;;
   Darwin*) ;;
@@ -44,6 +46,7 @@ case "$(uname -s)" in
     compile_flags="-fms-runtime-lib=dll"
     # link.exe lee el formato COFF de las bibliotecas de MSVC.
     archive_flags="--format=coff"
+    windows=true
     ;;
   *) packages="$packages libpcsclite" ;;
 esac
@@ -105,3 +108,9 @@ done
 rm -f "$out/libfirmadorshim.a"
 # shellcheck disable=SC2086
 "$ar" rcs $archive_flags "$out/libfirmadorshim.a" "$out/mupdfshim.o"
+
+# El ícono de firmador.exe: dub.json le pasa el .res al enlazador (lflags-windows). Sin
+# preprocesar, el .rc no necesita las cabeceras del SDK de Windows.
+if [ "$windows" = true ]; then
+  "${RC:-llvm-rc}" -no-preprocess -fo "$out/firmador.res" "$root/packaging/windows/firmador.rc"
+fi

@@ -161,6 +161,11 @@ final class DesktopInterface : GuiInterface, ConnectionView {
       })) {
       return false;
     }
+    // El ícono de las ventanas de la versión Java (firmadorsystray.png, de 32 × 32 como el que
+    // dibuja dlangui): lo toman la ventana principal y los diálogos, también en la barra de tareas.
+    import dlangui.graphics.resources : embeddedResourceList, embedResources;
+    embeddedResourceList.addResources(embedResources!(["firmador_window_icon.png"])());
+    Platform.instance.defaultWindowIcon = "firmador_window_icon";
     window = Platform.instance.createWindow((remoteOrigin !is null ? "Firmador remoto" : "Firmador").toUTF32, null,
       WindowFlag.Resizable, 1100, 800);
     registerUiWindow(window);

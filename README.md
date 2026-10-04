@@ -209,6 +209,7 @@ firmador/
 │                            certificados de la jerarquía nacional, plantillas
 ├── tools/prebuild.sh        Prepara las cabeceras de C y el puente con mupdf
 ├── packaging/linux/         Flatpak, entrada del menú, AppStream, íconos e instalador
+├── packaging/windows/       Ícono del ejecutable de Windows
 └── src/
     ├── c/, shim/            Enlaces a bibliotecas de C (ImportC) y puente con mupdf
     └── firmador/

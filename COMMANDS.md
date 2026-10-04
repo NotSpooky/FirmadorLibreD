@@ -12,7 +12,7 @@ compilar están en el [README](README.md#compilación).
 | `dub build --build=release` | Compila la versión optimizada, la que se empaqueta |
 | `dub test` | Ejecuta las pruebas unitarias (bloques `unittest`) |
 | `dub run -- [documento…]` | Compila y abre la ventana |
-| `sh tools/prebuild.sh` | Paso previo que dub ejecuta solo: cabeceras de C en `src/cinclude` y `.build/libfirmadorshim.a` |
+| `sh tools/prebuild.sh` | Paso previo que dub ejecuta solo: cabeceras de C en `src/cinclude`, `.build/libfirmadorshim.a` y, en Windows, el ícono del `.exe` en `.build/firmador.res` (`CC`, `AR` y `RC` cambian el compilador, el archivador y el compilador de recursos) |
 
 
 ## Compilar en Windows

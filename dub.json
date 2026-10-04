@@ -78,7 +78,8 @@
   ],
   "lflags-windows": [
     "/SUBSYSTEM:WINDOWS",
-    "/ENTRY:wmainCRTStartup"
+    "/ENTRY:wmainCRTStartup",
+    "$PACKAGE_DIR/.build/firmador.res"
   ],
   "buildTypes": {
     "release": {
