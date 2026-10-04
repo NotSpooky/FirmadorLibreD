@@ -292,11 +292,16 @@ final class DirectoryPanel : HorizontalLayout {
 
 @("should mirror the folder structure and number repeated names when signing a directory")
 unittest {
-  auto files = [DirectoryFile("a.pdf", ".pdf"), DirectoryFile("sub/b.xml", ".xml"), DirectoryFile("A.pdf", ".pdf"),
-    DirectoryFile("c.docx", ".docx")];
-  assert(directoryOutputPaths("/doc", files, "/doc-firmado", DirectoryOutput.destination)
-    == ["/doc-firmado/a.pdf", "/doc-firmado/sub/b.xml", "/doc-firmado/A(1).pdf", "/doc-firmado/c.docx"]);
-  assert(directoryOutputPaths("/doc", files[0 .. 2], null, DirectoryOutput.besideOriginal)
-    == ["/doc/a-Firmado.pdf", "/doc/sub/b-Firmado.xml"]);
-  assert(signedDirectoryFor("/home/ana/contratos") == "/home/ana/contratos-firmado");
+  import std.array : replace;
+  import std.path : dirSeparator;
+  // Las rutas se escriben con / y se pasan al separador del sistema (\ en Windows).
+  string native(string path) { return path.replace("/", dirSeparator); }
+  auto files = [DirectoryFile("a.pdf", ".pdf"), DirectoryFile(native("sub/b.xml"), ".xml"),
+    DirectoryFile("A.pdf", ".pdf"), DirectoryFile("c.docx", ".docx")];
+  assert(directoryOutputPaths(native("/doc"), files, native("/doc-firmado"), DirectoryOutput.destination)
+    == [native("/doc-firmado/a.pdf"), native("/doc-firmado/sub/b.xml"), native("/doc-firmado/A(1).pdf"),
+      native("/doc-firmado/c.docx")]);
+  assert(directoryOutputPaths(native("/doc"), files[0 .. 2], null, DirectoryOutput.besideOriginal)
+    == [native("/doc/a-Firmado.pdf"), native("/doc/sub/b-Firmado.xml")]);
+  assert(signedDirectoryFor(native("/home/ana/contratos")) == native("/home/ana/contratos-firmado"));
 }

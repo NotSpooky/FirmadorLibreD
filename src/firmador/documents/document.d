@@ -344,8 +344,12 @@ string signedFileName(string original, string signedExtension) pure @safe {
 
 @("should name the signed file next to the original with the format extension")
 unittest {
-  assert(signedFileName("/home/a/contrato.pdf", ".pdf") == "/home/a/contrato-firmado.pdf");
-  assert(signedFileName("/home/a/datos.json", ".json") == "/home/a/datos-firmado.json");
-  assert(signedFileName("/home/a/sin", ".asice") == "/home/a/sin-firmado.asice");
+  import std.array : replace;
+  import std.path : dirSeparator;
+  // Las rutas se escriben con / y se pasan al separador del sistema (\ en Windows).
+  string native(string path) { return path.replace("/", dirSeparator); }
+  assert(signedFileName(native("/home/a/contrato.pdf"), ".pdf") == native("/home/a/contrato-firmado.pdf"));
+  assert(signedFileName(native("/home/a/datos.json"), ".json") == native("/home/a/datos-firmado.json"));
+  assert(signedFileName(native("/home/a/sin"), ".asice") == native("/home/a/sin-firmado.asice"));
   assert(signedFileName("factura.xml", ".xml") == "factura-firmado.xml");
 }
