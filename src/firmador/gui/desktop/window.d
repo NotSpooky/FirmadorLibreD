@@ -84,6 +84,20 @@ import firmador.settingsmanager : configFilePath, currentSettings, settingsLoadP
 import firmador.util.desktop : desktopNotification;
 import firmador.util.singleinstance;
 
+version (Windows) version (unittest) {
+  /**
+   * UIAppMain del ejecutable de pruebas de Windows, al que dub test deja sin firmador.app. El
+   * enlazador de MSVC trae winapp.obj de dlangui.lib si las pruebas usan algo que sólo quedó
+   * en ese objeto (como una plantilla que LDC emitió allí), y su arranque (myWinMain) pide
+   * UIAppMain aunque nunca corra: las pruebas arrancan por el main del ejecutable de pruebas.
+   *
+   * Throws: AssertError siempre; llamarla sería un error de compilación de las pruebas.
+   */
+  extern (C) int UIAppMain(string[] args) {
+    assert(false, "El ejecutable de pruebas no abre la ventana: no debía llamarse UIAppMain");
+  }
+}
+
 /// Ventana de Firmador.
 final class DesktopInterface : GuiInterface, ConnectionView {
   /// Ventana de dlangui.

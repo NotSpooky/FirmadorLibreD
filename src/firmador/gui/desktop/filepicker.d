@@ -501,9 +501,7 @@ version (Windows) {
   /**
    * IFileOpenDialog o IFileSaveDialog, modal sobre la ventana activa del hilo, que es la de
    * Firmador donde se pidió el selector (sin ella, el diálogo se abre sin dueña). Show tiene
-   * su propio ciclo de mensajes, así que corre en el hilo de la ventana. No se llega a la
-   * ventana por dlangui.platforms.windows.winapp: importarla enlaza su arranque, que llama
-   * a UIAppMain de firmador.app, y las pruebas se compilan sin ese módulo.
+   * su propio ciclo de mensajes, así que corre en el hilo de la ventana.
    */
   private string[] windowsPick(PickRequest request) @trusted {
     import core.sys.windows.winuser : GetActiveWindow;
