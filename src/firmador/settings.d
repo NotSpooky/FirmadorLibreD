@@ -38,7 +38,7 @@ import std.typecons : Nullable;
 import std.uni : icmp;
 
 import firmador.configuration : defaultRemotePort, remotePortRange, dummyPluginName, checkUpdatePluginName,
-  documentSignLogsPluginName;
+  documentSignLogsPluginName, maxUiFontSize, minUiFontSize;
 import firmador.i18n : t, translate;
 
 /// Nivel de firma AdES (baseline) que se aplica a cada formato.
@@ -166,6 +166,8 @@ final class Settings {
   string language = "es";
   string country = "CR";
   string themeMode = "system";
+  /// Tamaño de la letra de la ventana, en puntos (límites en configuration.d).
+  int uiFontSize = 11;
 
   bool extendDocument = false;
   bool isVisibleSignature = false;
@@ -524,7 +526,7 @@ private enum string[2][] propertyKeys = [
   ["previewZoom", "previewzoom"], ["pAdESLevel", "padesLevel"], ["xAdESLevel", "xadesLevel"],
   ["cAdESLevel", "cadesLevel"], ["jAdESLevel", "jadesLevel"], ["sofficePath", "sofficePath"],
   ["language", "language"], ["country", "country"], ["startwindowstate", "startwindowstate"],
-  ["themeMode", "themeMode"], ["showTrayNotifications", "showTrayNotifications"],
+  ["themeMode", "themeMode"], ["uiFontSize", "uiFontSize"], ["showTrayNotifications", "showTrayNotifications"],
   ["max_number_process_doc", "max_number_process_doc"], ["imageOpacity", "imageOpacity"],
   ["startFimadorRemote", "startFimadorRemote"],
   ["allowOriginPort", "allowOriginPort"], ["preferredBrowser", "preferredBrowser"],
@@ -539,7 +541,8 @@ private enum string[2][] propertyKeys = [
  * Returns: el texto de «pdfimgscalefactor» si no es un decimal válido (se usa 1), para que
  *   quien llama lo registre; null si es válido.
  * Throws: ConvException si un número entero no se puede leer, como parseInt en Java;
- *   Exception si la opacidad de la imagen no está entre 0 y 100.
+ *   Exception si la opacidad de la imagen no está entre 0 y 100 o el tamaño de la letra de
+ *   la ventana no está entre minUiFontSize y maxUiFontSize.
  */
 string applyProperties(Settings conf, const string[string] props) pure @safe {
   string get(string key, string fallback) {
@@ -565,6 +568,8 @@ string applyProperties(Settings conf, const string[string] props) pure @safe {
   }}
   enforce(conf.imageOpacity >= 0 && conf.imageOpacity <= 100,
     format("imageOpacity debe ser un porcentaje de 0 a 100, no %d", conf.imageOpacity));
+  enforce(conf.uiFontSize >= minUiFontSize && conf.uiFontSize <= maxUiFontSize,
+    format("uiFontSize debe estar entre %d y %d puntos, no %d", minUiFontSize, maxUiFontSize, conf.uiFontSize));
   string advancedLogsRaw = get("advancedlogs", conf.advancedLogs);
   conf.advancedLogs = icmp(advancedLogsRaw, "true") == 0 ? "ALL"
     : icmp(advancedLogsRaw, "false") == 0 ? "INFO" : advancedLogsRaw;
@@ -733,6 +738,16 @@ unittest {
   assertThrown(applyProperties(new Settings(), ["imageOpacity": "-1"]));
 }
 
+@("should read the window font size and reject one outside the configured limits")
+unittest {
+  import std.conv : to;
+  import std.exception : assertThrown;
+  auto conf = new Settings();
+  assert(applyProperties(conf, ["uiFontSize": "14"]) is null && conf.uiFontSize == 14);
+  assertThrown(applyProperties(new Settings(), ["uiFontSize": (minUiFontSize - 1).to!string]));
+  assertThrown(applyProperties(new Settings(), ["uiFontSize": (maxUiFontSize + 1).to!string]));
+}
+
 @("should reproduce the settings when writing and reading config.properties again")
 unittest {
   auto conf = new Settings();
@@ -753,7 +768,8 @@ unittest {
   static foreach (entry; propertyKeys) {{
     alias Type = typeof(__traits(getMember, Settings, entry[0]));
     static if (is(Type == bool)) __traits(getMember, changed, entry[0]) = !__traits(getMember, changed, entry[0]);
-    else static if (is(Type == int)) __traits(getMember, changed, entry[0]) = 42;
+    // Uno más que el valor por omisión: distinto y dentro de los límites que se validan al leer.
+    else static if (is(Type == int)) __traits(getMember, changed, entry[0]) += 1;
     else __traits(getMember, changed, entry[0]) = "valor de " ~ entry[0];
   }}
   auto reread = new Settings();

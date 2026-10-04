@@ -53,7 +53,7 @@ import dlangui.widgets.scrollbar : AbstractSlider, SliderWidget;
 import dlangui.widgets.widget;
 
 import firmador.cards.pkcs12store : normalizeStorePath, Pkcs12CardMetadata, Pkcs12CredentialStore, readPkcs12Metadata;
-import firmador.configuration : configApplyDelayMilliseconds, configHistoryLimit;
+import firmador.configuration : configApplyDelayMilliseconds, configHistoryLimit, maxUiFontSize, minUiFontSize;
 import firmador.crypto.openssl : WrongPasswordException;
 import firmador.gui.desktop.common;
 import firmador.gui.desktop.dialogs;
@@ -175,8 +175,8 @@ final class ConfigPanel : VerticalLayout {
   private PercentSlider imageOpacity;
   /// El porcentaje de imageOpacity, a su lado.
   private TextWidget imageOpacityLabel;
-  private ComboBox font, fontPosition, rotation, zoom, language, windowState, themeMode, logLevel, padesLevel,
-    xadesLevel, cadesLevel, jadesLevel;
+  private ComboBox font, fontPosition, rotation, zoom, language, windowState, themeMode, uiFontSize, logLevel,
+    padesLevel, xadesLevel, cadesLevel, jadesLevel;
   private string[] pkcs12Files;
   private VerticalLayout pkcs12List;
   private CheckBox[string] pluginChecks;
@@ -248,6 +248,17 @@ final class ConfigPanel : VerticalLayout {
   }
 
   /**
+   * Agranda o achica la letra de la ventana `step` puntos (Ctrl y más o menos, desde
+   * firmador.gui.desktop.window) moviendo su selector: se guarda, se aplica y se deshace como
+   * cualquier cambio de la pestaña. No pasa de minUiFontSize ni de maxUiFontSize.
+   */
+  void stepUiFontSize(int step) @trusted {
+    int index = clamp(uiFontSize.selectedItemIndex + step, 0, maxUiFontSize - minUiFontSize);
+    // ComboBox avisa el cambio de índice con itemClick, que lo aplica (watchChanges).
+    uiFontSize.selectedItemIndex = index;
+  }
+
+  /**
    * Guarda lo escrito en un campo de texto que todavía esperaba al temporizador (al cerrar la
    * ventana).
    *
@@ -277,7 +288,7 @@ final class ConfigPanel : VerticalLayout {
   }
 
   private EditLine field(TableLayout table, string labelKey) {
-    return row(table, t(labelKey), new EditLine);
+    return row(table, t(labelKey), new TextField);
   }
 
   private ComboBox combo(TableLayout table, string label, const(dstring)[] items) {
@@ -297,7 +308,7 @@ final class ConfigPanel : VerticalLayout {
   /// Campo de ruta con botón para elegir un archivo.
   private EditLine pathField(TableLayout table, string label, string dialogKey) {
     auto rowLayout = new HorizontalLayout;
-    auto edit = new EditLine;
+    auto edit = new TextField;
     edit.layoutWidth = FILL_PARENT;
     rowLayout.addChild(edit);
     rowLayout.addChild(makeButton(null, "configpanel_choose", null, () {
@@ -368,6 +379,12 @@ final class ConfigPanel : VerticalLayout {
     language = combo(table, t("configpanel_language"), plain(languages));
     windowState = combo(table, t("configpanel_windowstate"), plain(windowStates));
     themeMode = combo(table, t("configpanel_theme_mode"), plain(themeModes));
+    dstring[] fontSizeLabels;
+    foreach (points; minUiFontSize .. maxUiFontSize + 1) fontSizeLabels ~= format("%d pt", points).toUTF32;
+    uiFontSize = combo(table, t("configpanel_ui_font_size"), fontSizeLabels);
+    version (OSX) enum string zoomModifier = "⌘";
+    else enum string zoomModifier = "Ctrl";
+    uiFontSize.tooltipText = format(t("configpanel_ui_font_size_tooltip"), zoomModifier, zoomModifier).toUTF32;
     return panel;
   }
 
@@ -530,6 +547,7 @@ final class ConfigPanel : VerticalLayout {
     select(language, languages, settings.language);
     select(windowState, windowStates, settings.startwindowstate);
     select(themeMode, themeModes, settings.themeMode);
+    uiFontSize.selectedItemIndex = clamp(settings.uiFontSize, minUiFontSize, maxUiFontSize) - minUiFontSize;
     select(padesLevel, signatureLevels, settings.pAdESLevel);
     select(xadesLevel, signatureLevels, settings.xAdESLevel);
     select(cadesLevel, signatureLevels, settings.cAdESLevel);
@@ -576,8 +594,8 @@ final class ConfigPanel : VerticalLayout {
         return true;
       };
     }
-    ComboBox[] combos = [font, fontPosition, rotation, zoom, language, windowState, themeMode, logLevel, padesLevel,
-      xadesLevel, cadesLevel, jadesLevel];
+    ComboBox[] combos = [font, fontPosition, rotation, zoom, language, windowState, themeMode, uiFontSize, logLevel,
+      padesLevel, xadesLevel, cadesLevel, jadesLevel];
     foreach (box; combos) box.itemClick = (Widget source, int index) { applyChange(); return true; };
     // Al arrastrarlo llegan muchos valores seguidos: se aplica como lo escrito, al detenerse.
     imageOpacity.onChange = (int percent) {
@@ -828,6 +846,7 @@ final class ConfigPanel : VerticalLayout {
     settings.country = countryFor(settings.language);
     settings.startwindowstate = valueAt(windowStates, windowState.selectedItemIndex);
     settings.themeMode = valueAt(themeModes, themeMode.selectedItemIndex);
+    settings.uiFontSize = minUiFontSize + uiFontSize.selectedItemIndex;
     settings.pAdESLevel = valueAt(signatureLevels, padesLevel.selectedItemIndex, 2);
     settings.xAdESLevel = valueAt(signatureLevels, xadesLevel.selectedItemIndex, 2);
     settings.cAdESLevel = valueAt(signatureLevels, cadesLevel.selectedItemIndex, 2);

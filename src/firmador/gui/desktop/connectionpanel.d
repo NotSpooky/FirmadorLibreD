@@ -111,8 +111,7 @@ final class ConnectionPanel : VerticalLayout {
     }));
     addChild(logHeader);
     log = new LogWidget("registro");
-    log.maxHeight = heightForLines(log, 8);
-    addChild(resizable(log, 5));
+    addChild(resizable(log, 5, 8));
   }
 
   /// Repinta la lista y el detalle.
@@ -172,7 +171,7 @@ final class ConnectionPanel : VerticalLayout {
     auto settings = currentSettings();
     auto title = new TextWidget(null, connection.name.toUTF32);
     title.fontWeight = 800;
-    title.fontSize = 18;
+    title.fontSize = makePercentSize(135);
     details.addChild(title);
     if (connection.userLogged().length) {
       details.addChild(new TextWidget(null, dt("connection_panel_logged_user")));

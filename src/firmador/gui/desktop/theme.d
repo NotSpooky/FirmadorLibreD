@@ -22,12 +22,14 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  * theme_firmador_dark.xml según el ajuste themeMode y, con «system», el modo del sistema
  * (registro de Windows, portal de freedesktop en Linux, defaults en macOS). Los dos temas
  * heredan de los de dlangui y definen los colores propios (ThemeColor) que usan los controles
- * que dibujan por su cuenta; al compilar se comprueba que ambos archivos los definan.
+ * que dibujan por su cuenta; al compilar se comprueba que ambos archivos los definan. El tamaño
+ * de la letra no está en los temas: sale del ajuste uiFontSize (applyUiFontSize).
  */
 module firmador.gui.desktop.theme;
 
 import std.algorithm : canFind;
 import std.exception : enforce;
+import std.format : format;
 import std.logger : info, warning;
 import std.traits : EnumMembers;
 import std.typecons : Nullable;
@@ -114,12 +116,14 @@ Nullable!bool darkFromColorScheme(uint colorScheme) pure nothrow @safe @nogc {
 }
 
 /**
- * Incorpora los recursos del tema y aplica el que corresponde a `mode` (themeMode). Va
- * antes de crear la primera ventana: los colores de ThemeColor se leen al construir los controles.
+ * Incorpora los recursos del tema y aplica el que corresponde a `mode` (themeMode), con la
+ * letra de `fontPoints` (uiFontSize). Va antes de crear la primera ventana: los colores de
+ * ThemeColor se leen al construir los controles.
  *
- * Throws: Exception si dlangui no pudo cargar el tema (cae en su tema por omisión sin avisar).
+ * Throws: Exception si dlangui no pudo cargar el tema (cae en su tema por omisión sin avisar)
+ *   o el tamaño de la letra está fuera de los límites de configuration.d.
  */
-void applyTheme(string mode) @trusted {
+void applyTheme(string mode, int fontPoints) @trusted {
   import dlangui.graphics.resources : embeddedResourceList, embedResources;
   import dlangui.platforms.common.platform : Platform;
   import dlangui.widgets.styles : currentTheme;
@@ -131,6 +135,27 @@ void applyTheme(string mode) @trusted {
   Platform.instance.uiTheme = id;
   enforce(currentTheme !is null && currentTheme.id == id, "dlangui no pudo cargar el tema " ~ id
     ~ " de resources/theme");
+  applyUiFontSize(fontPoints);
+}
+
+/**
+ * Cambia la letra del tema vigente a `points` puntos, que dlangui escala a los DPI de la
+ * pantalla. Los estilos que no fijan su tamaño lo heredan; los controles ya creados lo toman
+ * con Window.dispatchThemeChanged (firmador.gui.desktop.window).
+ *
+ * Throws: Exception si `points` está fuera de minUiFontSize..maxUiFontSize (configuration.d).
+ */
+void applyUiFontSize(int points) @trusted {
+  import dlangui.core.types : makePointSize;
+  import dlangui.widgets.styles : currentTheme;
+  import firmador.configuration : maxUiFontSize, minUiFontSize;
+  enforce(points >= minUiFontSize && points <= maxUiFontSize, format(
+    "El tamaño de la letra de la ventana (%d) debe estar entre %d y %d puntos", points, minUiFontSize, maxUiFontSize));
+  enforce(currentTheme !is null, "No hay un tema de dlangui al que cambiarle la letra");
+  currentTheme.fontSize = makePointSize(points);
+  // Cada estilo guarda su fuente: se vacían todas para que tomen el tamaño nuevo.
+  currentTheme.onThemeChanged();
+  info("Letra de la ventana: ", points, " pt");
 }
 
 /// Color propio del tema aplicado (applyTheme).

@@ -184,7 +184,7 @@ final class DocumentListPanel : HorizontalLayout {
     left.fillParent();
     left.layoutWeight = 3;
     auto search = new HorizontalLayout;
-    auto searchField = new EditLine("buscar");
+    auto searchField = new TextField("buscar");
     searchField.minWidth = 220;
     searchField.tooltipText = tip("list_document_search_field_tooltip");
     auto runSearch = () {
@@ -467,7 +467,7 @@ final class DocumentListPanel : HorizontalLayout {
     info.layoutWidth = FILL_PARENT;
     auto name = new TextWidget(null, document.name.toUTF32);
     name.fontWeight = 800;
-    name.fontSize = 16;
+    name.fontSize = makePercentSize(120);
     info.addChild(name);
     if (document.isVirtual) {
       info.addChild(new TextWidget(null, (t("list_document_panel_origin") ~ document.origin).toUTF32));
@@ -505,7 +505,7 @@ final class DocumentListPanel : HorizontalLayout {
       if (document.expirationDate.length && document.expirationDate != "null") {
         auto expiration = new TextWidget(null, (t("list_document_panel_expiration") ~ " " ~ document.expirationDate)
           .toUTF32);
-        expiration.fontSize = 11;
+        expiration.fontSize = makePercentSize(85);
         expiration.textColor = themeColor(ThemeColor.mutedText);
         side.addChild(expiration);
       }

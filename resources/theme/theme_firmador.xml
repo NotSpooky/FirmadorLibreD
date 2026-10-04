@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Tema claro de Firmador sobre el de dlangui: controles planos, Segoe UI en Windows (la
      lista de fuentes va sin espacios tras las comas, Windows no los recorta) y los colores
-     propios de firmador.gui.desktop.theme. theme_firmador_dark.xml repite la estructura. -->
+     propios de firmador.gui.desktop.theme. theme_firmador_dark.xml repite la estructura. El
+     tamaño de la letra lo pone firmador.gui.desktop.theme según el ajuste uiFontSize. -->
 <theme id="theme_firmador" parent="theme_default"
-        fontSize="10pt"
         fontFace="Segoe UI,Noto Sans,Cantarell,DejaVu Sans,Arial"
         fontFamily="SansSerif"
         textColor="#1F2328"

@@ -209,7 +209,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     auto selection = new HorizontalLayout("seleccion");
     selection.layoutWidth = FILL_PARENT;
     selection.addChild(new TextWidget(null, dt("document_selection_label")));
-    fileField = new EditLine("archivo", dt("document_selection_filefield"));
+    fileField = new TextField("archivo", dt("document_selection_filefield"));
     fileField.readOnly = true;
     fileField.layoutWidth = FILL_PARENT;
     fileField.tooltipText = tip("document_selection_filefield_tooltip");
@@ -250,7 +250,17 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     if (settings.showLogs) showLogTab();
     root.addChild(tabs);
     notifications = new NotificationBar;
-    window.mainWidget = new NotificationOverlay(root, notifications);
+    auto overlay = new NotificationOverlay(root, notifications);
+    // Ctrl y más o menos (⌘ en macOS) cambian la letra de la ventana como el selector de
+    // Configuración. Llegan aquí desde cualquier control salvo la vista previa del PDF, que los
+    // toma antes para su escala.
+    overlay.keyEvent = (Widget source, KeyEvent event) {
+      int step = event.action == KeyAction.KeyDown ? fontZoomStep(event.keyCode, event.flags) : 0;
+      if (step == 0) return false;
+      configPanel.stepUiFontSize(step);
+      return true;
+    };
+    window.mainWidget = overlay;
     tabs.selectTab(0, true);
     connectionPanel.refreshAll();
 
@@ -351,11 +361,22 @@ final class DesktopInterface : GuiInterface, ConnectionView {
   }
 
   /**
-   * Lleva a la ventana la configuración vigente (updateConfig): muestra u oculta la pestaña
-   * de bitácoras y pasa a la de firmar lo que cambió respecto de `previous`.
+   * Lleva a la ventana la configuración vigente (updateConfig): cambia el tamaño de la letra,
+   * muestra u oculta la pestaña de bitácoras y pasa a la de firmar lo que cambió respecto de
+   * `previous`.
+   *
+   * Throws: Exception si el tamaño de la letra está fuera de los límites de configuration.d.
    */
   void applySettings(const Settings previous) @trusted {
     auto settings = currentSettings();
+    if (settings.uiFontSize != previous.uiFontSize) {
+      import firmador.gui.desktop.theme : applyUiFontSize;
+      applyUiFontSize(settings.uiFontSize);
+      // Los controles ya creados vacían su fuente y se vuelven a medir con la nueva.
+      window.dispatchThemeChanged();
+      window.mainWidget.requestLayout();
+      window.invalidate();
+    }
     if (settings.showLogs && logPanel is null) {
       showLogTab();
     } else if (!settings.showLogs && logPanel !is null) {

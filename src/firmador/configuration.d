@@ -118,6 +118,10 @@ enum long configApplyDelayMilliseconds = 500;
 /// Cambios de Configuración que se pueden deshacer.
 enum size_t configHistoryLimit = 100;
 
+/// Límites del tamaño de la letra de la ventana, en puntos (Settings.uiFontSize).
+enum int minUiFontSize = 8;
+enum int maxUiFontSize = 20;
+
 /// Longitud máxima del PIN que se lee por la entrada estándar (modo -dargs).
 enum size_t maxPinLength = 128;
 

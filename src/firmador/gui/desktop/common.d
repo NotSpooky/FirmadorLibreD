@@ -293,32 +293,84 @@ int heightForLines(EditBox box, int lines) @trusted {
 }
 
 /**
+ * Paso del tamaño que pide una tecla: +1 con Ctrl (⌘ en macOS) y más, −1 con Ctrl y menos, 0
+ * con cualquier otra. Vale el «+» del teclado principal (también «=», donde el «+» va con
+ * Mayús), el «−» y los del teclado numérico, con los códigos que da dlangui: los de Windows
+ * (VK_*) en Win32 o, con SDL, 0x10000 más el código de SDL de las teclas que no traduce. Lo usan
+ * la ventana (letra de la interfaz, firmador.gui.desktop.window) y la vista previa (su escala,
+ * firmador.gui.desktop.pageview).
+ * Params:
+ *   keyCode = KeyEvent.keyCode.
+ *   flags = KeyEvent.flags.
+ * Returns: +1, −1 o 0.
+ */
+int fontZoomStep(uint keyCode, uint flags) pure nothrow @safe @nogc {
+  import dlangui.core.config : BACKEND_SDL, BACKEND_WIN32;
+  version (OSX) enum uint modifier = KeyFlag.Command;
+  else enum uint modifier = KeyFlag.Control;
+  if ((flags & modifier) == 0 || (flags & KeyFlag.Alt) != 0) return 0;
+  static if (BACKEND_WIN32) {
+    import core.sys.windows.winuser : VK_ADD, VK_OEM_MINUS, VK_OEM_PLUS, VK_SUBTRACT;
+    static immutable uint[] plus = [VK_OEM_PLUS, VK_ADD], minus = [VK_OEM_MINUS, VK_SUBTRACT];
+  } else static if (BACKEND_SDL) {
+    import bindbc.sdl : SDLK_EQUALS, SDLK_KP_MINUS, SDLK_KP_PLUS, SDLK_MINUS, SDLK_PLUS;
+    static immutable uint[] plus = [0x10000 | SDLK_PLUS, 0x10000 | SDLK_EQUALS, 0x10000 | SDLK_KP_PLUS],
+      minus = [0x10000 | SDLK_MINUS, 0x10000 | SDLK_KP_MINUS];
+  } else {
+    static assert(false, "fontZoomStep no conoce los códigos de tecla de este backend de dlangui");
+  }
+  foreach (code; plus) if (keyCode == code) return 1;
+  foreach (code; minus) if (keyCode == code) return -1;
+  return 0;
+}
+
+/// Campo de texto de una línea que deja pasar a la ventana los atajos de fontZoomStep: el EditLine de dlangui se queda con todas las teclas.
+class TextField : EditLine {
+  this(string id = null, dstring text = null) @trusted {
+    super(id, text);
+  }
+
+  override bool onKeyEvent(KeyEvent event) {
+    if (fontZoomStep(event.keyCode, event.flags) != 0) return false;
+    return super.onKeyEvent(event);
+  }
+}
+
+/**
  * Pone `box` sobre un asa (ResizeGrip) que cambia su alto al arrastrarla con el ratón o con
  * las flechas arriba y abajo; empieza con `lines` líneas a la vista y no baja de ellas.
  * Params:
  *   box = cuadro de texto de varias líneas, con el tema de theme.d ya aplicado.
  *   lines = líneas a la vista al principio y como mínimo.
+ *   maxLines = líneas hasta las que crece con su contenido mientras no se use el asa; 0 sin tope.
  * Returns: el contenedor del cuadro y el asa, que va donde iría el cuadro.
  */
-VerticalLayout resizable(EditBox box, int lines) @trusted {
+VerticalLayout resizable(EditBox box, int lines, int maxLines = 0) @trusted {
+  assert(maxLines == 0 || maxLines >= lines, format("El tope de %d líneas es menor que el mínimo de %d", maxLines,
+    lines));
   box.layoutWidth = FILL_PARENT;
-  box.minHeight = heightForLines(box, lines);
   auto container = new VerticalLayout;
   container.layoutWidth = FILL_PARENT;
   container.addChild(box);
-  container.addChild(new ResizeGrip(box));
+  container.addChild(new ResizeGrip(box, lines, maxLines));
   return container;
 }
 
 /// Asa bajo un cuadro de texto de varias líneas que cambia su alto (resizable).
 final class ResizeGrip : Widget {
   private EditBox box;
+  private int lines, maxLines;
+  /// Si ya se usó el asa: desde entonces el alto es el elegido y no hay tope.
+  private bool resized;
   private bool dragging;
   private int dragStartY, dragStartHeight;
 
-  this(EditBox box) @trusted {
+  this(EditBox box, int lines, int maxLines) @trusted {
     super(null);
     this.box = box;
+    this.lines = lines;
+    this.maxLines = maxLines;
+    fitLines();
     layoutWidth = FILL_PARENT;
     minHeight = makePointSize(7);
     focusable = true;
@@ -367,8 +419,22 @@ final class ResizeGrip : Widget {
 
   /// Fija el alto del cuadro sin bajar de su mínimo; ya no lo limita el tope que tuviera por su contenido.
   private void resizeBox(int height) {
+    resized = true;
     box.maxHeight = SIZE_UNSPECIFIED;
     box.layoutHeight = max(height, box.minHeight);
+    box.requestLayout();
+  }
+
+  /// Alto mínimo (y tope, si no se usó el asa) en líneas de la letra actual del cuadro.
+  private void fitLines() {
+    box.minHeight = heightForLines(box, lines);
+    if (maxLines && !resized) box.maxHeight = heightForLines(box, maxLines);
+  }
+
+  /// Con otro tamaño de letra (applyUiFontSize), las mismas líneas miden otro alto.
+  override void onThemeChanged() {
+    super.onThemeChanged();
+    fitLines();
     box.requestLayout();
   }
 
@@ -400,7 +466,7 @@ final class PageSelector : HorizontalLayout {
     super(id);
     auto previous = new Button(null, "−"d);
     previous.click = (Widget source) { set(value_ - 1, true); return true; };
-    field = new EditLine(id ~ "-valor", "1"d);
+    field = new TextField(id ~ "-valor", "1"d);
     field.minWidth = 56;
     field.enterKey = (EditWidgetBase source) { parseField(); return true; };
     field.focusChange = (Widget source, bool focused) { if (!focused) parseField(); return true; };
@@ -455,4 +521,24 @@ unittest {
   assert(pageIndexFor(-1, 5) == 4 && pageIndexFor(2, 5) == 1 && pageIndexFor(1, 0) == 0);
   // Página configurada: 0 es la última y una fuera de rango queda en la más cercana.
   assert(pageIndexFor(0, 5) == 4 && pageIndexFor(9, 5) == 4 && pageIndexFor(-9, 5) == 0);
+}
+
+@("should step the size with Ctrl and plus or minus on both keyboards and ignore other keys or modifiers")
+unittest {
+  import dlangui.core.config : BACKEND_WIN32;
+  version (OSX) enum uint modifier = KeyFlag.Command;
+  else enum uint modifier = KeyFlag.Control;
+  static if (BACKEND_WIN32) {
+    enum uint equalsKey = 0xBB, padPlus = 0x6B, minusKey = 0xBD, padMinus = 0x6D;
+  } else {
+    // SDL: 0x10000 más el código de SDL; los del teclado numérico llevan el bit 30.
+    enum uint equalsKey = 0x10000 | '=', padPlus = 0x10000 | 0x40000057, minusKey = 0x10000 | '-',
+      padMinus = 0x10000 | 0x40000056;
+  }
+  assert(fontZoomStep(equalsKey, modifier) == 1 && fontZoomStep(padPlus, modifier) == 1);
+  // Con Mayús sigue siendo el «+» (en teclados donde va sobre el «=»).
+  assert(fontZoomStep(equalsKey, modifier | KeyFlag.Shift) == 1);
+  assert(fontZoomStep(minusKey, modifier) == -1 && fontZoomStep(padMinus, modifier) == -1);
+  assert(fontZoomStep(minusKey, 0) == 0 && fontZoomStep(minusKey, modifier | KeyFlag.Alt) == 0);
+  assert(fontZoomStep(KeyCode.KEY_Z, modifier) == 0);
 }

@@ -2,7 +2,6 @@
 <!-- Tema oscuro de Firmador: la estructura de theme_firmador.xml sobre el tema oscuro de
      dlangui, con los drawables *_dark y los colores propios en su versión oscura. -->
 <theme id="theme_firmador_dark" parent="theme_dark"
-        fontSize="10pt"
         fontFace="Segoe UI,Noto Sans,Cantarell,DejaVu Sans,Arial"
         fontFamily="SansSerif"
         textColor="#E3E5E8"

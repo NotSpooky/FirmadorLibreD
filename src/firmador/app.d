@@ -183,7 +183,8 @@ extern (C) int UIAppMain(string[] toolkitArguments) {
   foreach (argument; windowArguments) if (argument.startsWith("--background")) background = true;
   try {
     import firmador.gui.desktop.theme : applyTheme;
-    applyTheme(currentSettings().themeMode);
+    auto settings = currentSettings();
+    applyTheme(settings.themeMode, settings.uiFontSize);
   } catch (Exception exception) {
     error("No se pudo aplicar el tema de la ventana: ", exception.msg);
     return 1;

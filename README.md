@@ -51,6 +51,10 @@ Para firmar hace falta la tarjeta de firma digital con su lector y los controlad
 [Soporte Firma Digital](https://soportefirmadigital.com/sfdj/dl.aspx), o un almacén
 PKCS#12 (`.p12`/`.pfx`) agregado en *Configuración → Opciones avanzadas*.
 
+Ctrl y más o menos (⌘ en macOS) agrandan o achican la letra de la ventana, igual que su
+selector en *Configuración*; en la vista previa del documento cambian su escala, como Ctrl y
+la rueda del ratón.
+
 `--background` arranca con la ventana minimizada. Si Firmador ya está abierto, abrirlo
 otra vez le pasa los documentos a la ventana existente.
 

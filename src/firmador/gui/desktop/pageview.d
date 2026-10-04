@@ -48,7 +48,7 @@ import dlangui.widgets.scrollbar;
 import dlangui.widgets.widget;
 
 import firmador.configuration : maxSignatureScale, minSignatureScale;
-import firmador.gui.desktop.common : indexIn;
+import firmador.gui.desktop.common : fontZoomStep, indexIn;
 import firmador.gui.desktop.theme : ThemeColor, themeColor;
 import firmador.gui.desktop.uithread : runOnUi;
 import firmador.pdf.engine : PageGeometry, PageRaster, PdfAnnotation, PdfRect;
@@ -871,6 +871,13 @@ final class PageView : ScrollWidgetBase {
 
   override bool onKeyEvent(KeyEvent event) {
     if (event.action != KeyAction.KeyDown) return super.onKeyEvent(event);
+    // Ctrl y más o menos cambian la escala como Ctrl y la rueda, alrededor del centro de la vista;
+    // fuera de la vista previa cambian la letra de la ventana (firmador.gui.desktop.window).
+    int zoomStep = fontZoomStep(event.keyCode, event.flags);
+    if (zoomStep != 0) {
+      if (!source.isNull) zoomWithWheel(_clientRect.middlex, _clientRect.middley, zoomStep);
+      return true;
+    }
     float step = (event.flags & KeyFlag.Shift) ? 10 : 1;
     switch (event.keyCode) {
       case KeyCode.LEFT: if (!signatureShown) break; moveSignature(placement.page, placement.x - step, placement.y); return true;

@@ -370,6 +370,13 @@ final class RichText : Widget {
     setHtml(html);
   }
 
+  /// Con otro tamaño de letra (applyUiFontSize), las líneas se vuelven a cortar.
+  override void onThemeChanged() {
+    super.onThemeChanged();
+    laidOutWidth = -1;
+    requestLayout();
+  }
+
   /// Cambia el contenido.
   void setHtml(string html) @trusted {
     blocks = parseRichText(html is null ? "" : html);

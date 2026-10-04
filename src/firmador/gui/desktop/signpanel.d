@@ -418,7 +418,7 @@ final class SignPanel : VerticalLayout {
 
   private EditLine addField(string id, string labelKey, string tooltipKey, string value) {
     fieldsColumn.addChild(new TextWidget(null, dt(labelKey)));
-    auto field = new EditLine(id, value.toUTF32);
+    auto field = new TextField(id, value.toUTF32);
     field.tooltipText = tip(tooltipKey);
     field.layoutWidth = FILL_PARENT;
     field.minWidth = 240;
