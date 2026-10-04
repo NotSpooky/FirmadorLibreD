@@ -112,8 +112,8 @@ final class ConnectionPanel : VerticalLayout {
     addChild(logHeader);
     log = new LogWidget("registro");
     log.layoutWidth = FILL_PARENT;
-    log.minHeight = 90;
-    log.maxHeight = 140;
+    log.minHeight = heightForLines(log, 5);
+    log.maxHeight = heightForLines(log, 8);
     addChild(log);
   }
 

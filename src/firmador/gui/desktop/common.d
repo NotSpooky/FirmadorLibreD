@@ -273,6 +273,24 @@ int pageIndexFor(int value, int pages) pure nothrow @safe @nogc {
   return index < 0 ? 0 : index >= pages ? pages - 1 : index;
 }
 
+/**
+ * Alto de `box` con `lines` líneas de su letra a la vista, para minHeight o maxHeight. Cuenta
+ * el relleno (el del estilo o el del borde de fondo) y los márgenes, que dlangui suma al medir.
+ * Sale de la letra, que dlangui escala a los DPI de la pantalla (en Windows, los del sistema):
+ * un alto fijo en píxeles no alcanza ni para una línea si la pantalla está escalada.
+ * Params:
+ *   box = cuadro de texto de varias líneas, con el tema de theme.d ya aplicado.
+ *   lines = cantidad de líneas a la vista.
+ * Returns: el alto en píxeles.
+ */
+int heightForLines(EditBox box, int lines) @trusted {
+  assert(lines > 0, format("El cuadro de texto %s necesita al menos una línea a la vista, no %d", box.id, lines));
+  auto font = box.font;
+  assert(!font.isNull, format("El cuadro de texto %s no tiene letra: falta aplicar el tema", box.id));
+  Rect padding = box.padding, margins = box.margins;
+  return lines * font.height + padding.top + padding.bottom + margins.top + margins.bottom;
+}
+
 /// Selector de página con botones; da la vuelta al pasar de la primera o de la última.
 final class PageSelector : HorizontalLayout {
   /// Se llama cuando el usuario cambia la página.

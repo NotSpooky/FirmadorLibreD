@@ -268,7 +268,7 @@ final class ConfigPanel : VerticalLayout {
     dateFormat = field(table, "configpanel_date_format");
     dateFormat.tooltipText = tip("configpanel_must_be_compatible_with_java_date_formats");
     defaultSignMessage = row(table, t("configpanel_signature_message"), new EditBox);
-    defaultSignMessage.minHeight = 70;
+    defaultSignMessage.minHeight = heightForLines(defaultSignMessage, 4);
     defaultSignMessage.tooltipText = tip("configpanel_default_sign_message_help");
     pageNumber = field(table, "configpanel_initial_page");
     signX = field(table, "configpanel_initial_position_x");
@@ -332,7 +332,7 @@ final class ConfigPanel : VerticalLayout {
     panel.addChild(allowOriginPort);
     auto remote = form(panel);
     allowedOrigins = row(remote, t("configpanel_allowed_hosts"), new EditBox);
-    allowedOrigins.minHeight = 90;
+    allowedOrigins.minHeight = heightForLines(allowedOrigins, 5);
 
     section(panel, "configpanel_section_preview_apps");
     auto apps = form(panel);
