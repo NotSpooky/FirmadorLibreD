@@ -92,7 +92,9 @@ Las páginas web autorizadas pueden pedir firmas al Firmador abierto en la compu
 ## Compilación
 
 Se necesita un compilador de D ([DMD](https://dlang.org/download.html) 2.113 o posterior,
-o LDC), `dub`, un compilador de C, `pkg-config` y las bibliotecas de desarrollo:
+o LDC), `dub`, `git` (dub descarga con él la copia de dlangui con los arreglos para Windows,
+[NotSpooky/dlangui](https://github.com/NotSpooky/dlangui)), un compilador de C, `pkg-config` y
+las bibliotecas de desarrollo:
 
 | Biblioteca | Arch / Manjaro | Debian / Ubuntu |
 |---|---|---|

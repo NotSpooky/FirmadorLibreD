@@ -1,7 +1,9 @@
 # Flatpak de Firmador Libre. Compila lo que el runtime no trae (el cliente de pcsc-lite y
 # mupdf) y luego Firmador con DMD, sin red: las dependencias de dub (dub.selections.json)
-# llegan como fuentes git fijadas por commit. DMD sólo existe para x86_64. Cómo
-# construirlo e instalarlo: COMMANDS.md.
+# llegan como fuentes git fijadas por commit. dlangui es la copia con los arreglos de Win32
+# (NotSpooky/dlangui), una dependencia git de dub.json: su fuente va directo a la carpeta
+# donde dub la buscaría tras clonarla, con el commit de dub.json. DMD sólo existe para
+# x86_64. Cómo construirlo e instalarlo: COMMANDS.md.
 id: io.github.notspooky.firmadorlibred
 runtime: org.freedesktop.Platform
 runtime-version: '26.08'
@@ -99,7 +101,6 @@ modules:
       - dub add-local .dub-packages/bindbc-loader 1.1.5
       - dub add-local .dub-packages/bindbc-opengl 1.1.2
       - dub add-local .dub-packages/bindbc-sdl 1.4.8
-      - dub add-local .dub-packages/dlangui 0.10.8
       - dub add-local .dub-packages/dsfml 2.1.1
       - dub add-local .dub-packages/glx-d 1.1.0
       - dub add-local .dub-packages/icontheme 1.2.3
@@ -158,11 +159,12 @@ modules:
         tag: v1.4.8
         commit: 49ddafae262fe7ebf5abc0dedb92661c30082bd2
         dest: .dub-packages/bindbc-sdl
+      # El mismo commit que dub.json y dub.selections.json, en $DUB_HOME/packages/dlangui/<commit>/dlangui.
       - type: git
-        url: https://github.com/buggins/dlangui.git
-        tag: v0.10.8
-        commit: b5546ee80bca1ccd7b4736c6239bf9c942117d0d
-        dest: .dub-packages/dlangui
+        url: https://github.com/NotSpooky/dlangui.git
+        branch: win32-fixes-0.10.8
+        commit: 7389666fb2b2175b71320e4ed9f5874aeceedde7
+        dest: .dub-home/packages/dlangui/7389666fb2b2175b71320e4ed9f5874aeceedde7/dlangui
       - type: git
         url: https://github.com/Jebbs/DSFML.git
         tag: v2.1.1

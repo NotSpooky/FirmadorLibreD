@@ -12,6 +12,7 @@ compilar están en el [README](README.md#compilación).
 | `dub build --build=release` | Compila la versión optimizada, la que se empaqueta |
 | `dub test` | Ejecuta las pruebas unitarias (bloques `unittest`) |
 | `dub run -- [documento…]` | Compila y abre la ventana |
+| Cambiar de dlangui | Es la copia con los arreglos de Win32 (`NotSpooky/dlangui`, rama `win32-fixes-0.10.8`), una dependencia git que dub clona: se cambia el commit en `dub.json`, `dub.selections.json` y el manifiesto de flatpak (la fuente de dlangui y su carpeta) |
 | `sh tools/prebuild.sh` | Paso previo que dub ejecuta solo: cabeceras de C en `src/cinclude`, `.build/libfirmadorshim.a` y, en Windows, el ícono del `.exe` en `.build/firmador.res` (`CC`, `AR` y `RC` cambian el compilador, el archivador y el compilador de recursos) |
 
 
@@ -26,7 +27,7 @@ Desde la carpeta del repositorio, en PowerShell. Los detalles están en el
 | `powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows\build.ps1` | Compila `bin\firmador.exe` y copia a su lado las DLL que necesita, con el runtime de Visual C++ |
 | `… build.ps1 -Build debug` | Lo mismo, con información de depuración |
 | `… setup.ps1 -DepsRoot D:\firmador-deps` | Deja las dependencias en esa carpeta (sin espacios) en vez de `.build\windows`; `build.ps1` la recibe igual |
-| `… setup.ps1 -SkipBuild` | Sólo prepara las dependencias, sin compilar (para registrar antes otra copia de dlangui con `dub add-local`) |
+| `… setup.ps1 -SkipBuild` | Sólo prepara las dependencias, sin compilar |
 | `… build.ps1 -Test` | Compila y además corre las pruebas (`dub test`) con el mismo entorno |
 
 
@@ -90,12 +91,5 @@ Los paquetes se llaman `firmador_<linux|windows|macos>_<versión>.<flatpak|zip>`
 | Una ejecución | Pestaña Actions → la ejecución → «Artifacts», al pie (GitHub los entrega dentro de un zip; duran 90 días) |
 | La consola | `gh run download <id-de-la-ejecución>` (`gh run list` muestra los id) |
 | Una versión | `git tag 0.4.0 && git push origin 0.4.0` crea un borrador en Releases con los tres paquetes y `SHA256SUMS`; se revisa y se publica desde ahí |
-
-Variables del repositorio (Settings → Secrets and variables → Actions → Variables):
-
-| Variable | Valor |
-|---|---|
-| `DLANGUI_REPOSITORY` | Repositorio de la copia de dlangui con los arreglos de Win32, por ejemplo `NotSpooky/dlangui`; sin ella, el zip de Windows se compila con dlangui del registro y el trabajo avisa |
-| `DLANGUI_REF` | Rama o etiqueta de esa copia, por ejemplo `win32-fixes-0.10.8` |
 
 Para revisar el flujo antes de subirlo: `actionlint .github/workflows/ci.yml`.

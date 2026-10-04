@@ -92,25 +92,6 @@ jobs:
           key: windows-deps-${{ hashFiles('tools/windows/common.ps1', 'tools/windows/setup.ps1') }}
       - name: Dependencias
         run: ./tools/windows/setup.ps1 -SkipBuild
-      - name: dlangui con los arreglos de Win32
-        if: vars.DLANGUI_REPOSITORY != ''
-        env:
-          DLANGUI_REPOSITORY: ${{ vars.DLANGUI_REPOSITORY }}
-          DLANGUI_REF: ${{ vars.DLANGUI_REF }}
-        run: |
-          $copy = Join-Path $env:RUNNER_TEMP 'dlangui'
-          git clone --depth 1 --branch $env:DLANGUI_REF "https://github.com/$env:DLANGUI_REPOSITORY.git" $copy
-          if ($LASTEXITCODE -ne 0) { throw "No se pudo clonar $env:DLANGUI_REPOSITORY ($env:DLANGUI_REF)" }
-          . ./tools/windows/common.ps1
-          $layout = Get-BuildLayout (Resolve-DepsRoot '' $PWD.Path)
-          & (Join-Path $layout.LdcBin 'dub.exe') add-local $copy 0.10.8
-          if ($LASTEXITCODE -ne 0) { throw "dub no pudo registrar $copy" }
-      - name: Aviso sin la copia de dlangui
-        if: vars.DLANGUI_REPOSITORY == ''
-        run: |
-          Write-Output ('::warning title=dlangui sin arreglos::Se compila con dlangui 0.10.8 del registro de dub, ' +
-            'sin los arreglos de Win32 (tamaño de diálogos, cursor, clics y activación). Defina las variables ' +
-            'DLANGUI_REPOSITORY y DLANGUI_REF del repositorio para usar la copia con los arreglos.')
       - name: Compilación y pruebas
         run: ./tools/windows/build.ps1 -Test
       - name: Paquete
