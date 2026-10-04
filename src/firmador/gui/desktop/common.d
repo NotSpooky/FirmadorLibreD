@@ -26,7 +26,7 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.gui.desktop.common;
 
-import std.algorithm : countUntil;
+import std.algorithm : countUntil, max;
 import std.array : replace;
 import std.conv : ConvException, to;
 import std.file : exists;
@@ -39,6 +39,7 @@ import dlangui.core.events;
 import dlangui.core.stdaction;
 import dlangui.core.types;
 import dlangui.dialogs.dialog;
+import dlangui.graphics.drawbuf : DrawBuf;
 import dlangui.platforms.common.platform : Window;
 import dlangui.widgets.controls;
 import dlangui.widgets.editors;
@@ -289,6 +290,102 @@ int heightForLines(EditBox box, int lines) @trusted {
   assert(!font.isNull, format("El cuadro de texto %s no tiene letra: falta aplicar el tema", box.id));
   Rect padding = box.padding, margins = box.margins;
   return lines * font.height + padding.top + padding.bottom + margins.top + margins.bottom;
+}
+
+/**
+ * Pone `box` sobre un asa (ResizeGrip) que cambia su alto al arrastrarla con el ratón o con
+ * las flechas arriba y abajo; empieza con `lines` líneas a la vista y no baja de ellas.
+ * Params:
+ *   box = cuadro de texto de varias líneas, con el tema de theme.d ya aplicado.
+ *   lines = líneas a la vista al principio y como mínimo.
+ * Returns: el contenedor del cuadro y el asa, que va donde iría el cuadro.
+ */
+VerticalLayout resizable(EditBox box, int lines) @trusted {
+  box.layoutWidth = FILL_PARENT;
+  box.minHeight = heightForLines(box, lines);
+  auto container = new VerticalLayout;
+  container.layoutWidth = FILL_PARENT;
+  container.addChild(box);
+  container.addChild(new ResizeGrip(box));
+  return container;
+}
+
+/// Asa bajo un cuadro de texto de varias líneas que cambia su alto (resizable).
+final class ResizeGrip : Widget {
+  private EditBox box;
+  private bool dragging;
+  private int dragStartY, dragStartHeight;
+
+  this(EditBox box) @trusted {
+    super(null);
+    this.box = box;
+    layoutWidth = FILL_PARENT;
+    minHeight = makePointSize(7);
+    focusable = true;
+    trackHover = true;
+    tooltipText = tip("resize_grip_tooltip");
+  }
+
+  override uint getCursorType(int x, int y) {
+    return CursorType.SizeNS;
+  }
+
+  override bool onMouseEvent(MouseEvent event) {
+    if (event.action == MouseAction.ButtonDown && event.button == MouseButton.Left) {
+      dragging = true;
+      dragStartY = event.y;
+      dragStartHeight = box.height;
+      setFocus();
+      return true;
+    }
+    if (event.action == MouseAction.Move && dragging) {
+      resizeBox(dragStartHeight + event.y - dragStartY);
+      return true;
+    }
+    if (dragging && (event.action == MouseAction.ButtonUp || event.action == MouseAction.Cancel)) {
+      dragging = false;
+      return true;
+    }
+    return super.onMouseEvent(event);
+  }
+
+  /// Las flechas arriba y abajo cambian el alto de a una línea.
+  override bool onKeyEvent(KeyEvent event) {
+    if (event.action == KeyAction.KeyDown && event.modifiers == 0) {
+      int line = box.font.height;
+      if (event.keyCode == KeyCode.UP) {
+        resizeBox(box.height - line);
+        return true;
+      }
+      if (event.keyCode == KeyCode.DOWN) {
+        resizeBox(box.height + line);
+        return true;
+      }
+    }
+    return super.onKeyEvent(event);
+  }
+
+  /// Fija el alto del cuadro sin bajar de su mínimo; ya no lo limita el tope que tuviera por su contenido.
+  private void resizeBox(int height) {
+    box.maxHeight = SIZE_UNSPECIFIED;
+    box.layoutHeight = max(height, box.minHeight);
+    box.requestLayout();
+  }
+
+  /// Dos rayas cortas en el medio, del color de acento con el foco o el ratón encima.
+  override void onDraw(DrawBuf buf) {
+    super.onDraw(buf);
+    Rect area = _pos;
+    applyMargins(area);
+    applyPadding(area);
+    bool active = focused || (state & State.Hovered) != 0;
+    uint color = themeColor(active ? ThemeColor.accent : ThemeColor.mutedText);
+    int halfWidth = pointsToPixels(9);
+    int thickness = max(1, pointsToPixels(1));
+    int x = area.middlex, y = area.middley;
+    buf.fillRect(Rect(x - halfWidth, y - thickness * 2, x + halfWidth, y - thickness), color);
+    buf.fillRect(Rect(x - halfWidth, y + thickness, x + halfWidth, y + thickness * 2), color);
+  }
 }
 
 /// Selector de página con botones; da la vuelta al pasar de la primera o de la última.

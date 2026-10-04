@@ -24,15 +24,18 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  * (texto según la fuente, imagen estirada, relleno de 5 puntos, texto centrado en vertical
  * y alineado a la izquierda), para que las firmas y la previsualización
  * (firmador.gui.desktop.signpreview) queden donde quedaban. El origen es la esquina
- * superior izquierda de la página, como en DSS.
+ * superior izquierda de la página, como en DSS. Además, la imagen puede encajarse sin
+ * deformarla en una caja dada (VisibleSignatureInput.imageBounds), ir centrada detrás del
+ * texto (SignerTextPosition.overImage) y dibujarse translúcida (imageAlpha).
  */
 module firmador.pdf.appearance;
 
-import std.algorithm : map, splitter;
+import std.algorithm : map, min, splitter;
 import std.array : appender, array;
 import std.format : format;
 import std.math : abs;
 import std.string : indexOf;
+import std.typecons : Nullable;
 
 import firmador.pdf.engine : PdfRect;
 import firmador.settings : Rgba, SignerTextPosition, SignatureRotation, FontFamily, FontStyle;
@@ -68,6 +71,13 @@ struct VisibleSignatureInput {
   Rgba backgroundColor = Rgba(255, 255, 255, 0);
   bool hasImage;
   ImageSize image;
+  /**
+   * Caja (ancho y alto en puntos) en que la imagen se encaja sin deformarse (fitWithin); sin
+   * ella se dibuja con el tamaño que dan los píxeles y la resolución de `image`, como en DSS.
+   */
+  Nullable!(float[2]) imageBounds;
+  /// Opacidad de la imagen (255 = opaca); el texto no la usa.
+  ubyte imageAlpha = 255;
   /// Origen del campo desde la esquina superior izquierda de la página, en puntos.
   float originX = 0;
   float originY = 0;
@@ -123,6 +133,41 @@ float lineHeight(const FontMetrics metrics, float fontSize) pure nothrow @safe @
 }
 
 /**
+ * Ancho y alto en puntos de la caja del texto con su relleno: la línea más larga y una
+ * altura de línea por cada una.
+ * Params:
+ *   lines = líneas del texto (javaLines).
+ *   metrics = métricas de la fuente.
+ *   fontSize = tamaño de la letra en puntos.
+ *   encode = convierte cada línea a los códigos de la fuente.
+ * Returns: [ancho, alto].
+ */
+float[2] textBoxSize(const string[] lines, const FontMetrics metrics, float fontSize,
+    scope ubyte[] delegate(string) pure @safe encode) pure @safe {
+  float longest = 0;
+  foreach (line; lines) {
+    float measured = lineWidth(metrics, encode(line), fontSize);
+    if (measured > longest) longest = measured;
+  }
+  return [longest + textPadding * 2, lineHeight(metrics, fontSize) * lines.length + textPadding * 2];
+}
+
+/**
+ * Tamaño de `size` escalado sin deformarlo para que quepa justo en `bounds`: toca sus
+ * bordes en un sentido y queda dentro en el otro. Agranda lo que es más pequeño.
+ * Params:
+ *   size = ancho y alto a escalar, mayores que cero.
+ *   bounds = ancho y alto de la caja, mayores que cero.
+ * Returns: [ancho, alto] escalados.
+ */
+float[2] fitWithin(float[2] size, float[2] bounds) pure @safe {
+  assert(size[0] > 0 && size[1] > 0, format("No se puede encajar un tamaño vacío: %s", size));
+  assert(bounds[0] > 0 && bounds[1] > 0, format("No se puede encajar en una caja vacía: %s", bounds));
+  float factor = min(bounds[0] / size[0], bounds[1] / size[1]);
+  return [size[0] * factor, size[1] * factor];
+}
+
+/**
  * Diseño completo del campo (build de SignatureFieldDimensionAndPositionBuilder).
  * `encode` convierte cada línea a los códigos de la fuente.
  */
@@ -146,6 +191,11 @@ SignatureLayout computeLayout(const VisibleSignatureInput input, scope ubyte[] d
     layout.imageHeight = input.image.height;
     imageWidth = input.image.width * (72f / input.image.dpiX);
     imageHeight = input.image.height * (72f / input.image.dpiY);
+    if (!input.imageBounds.isNull) {
+      float[2] fitted = fitWithin([imageWidth, imageHeight], input.imageBounds.get);
+      imageWidth = fitted[0];
+      imageHeight = fitted[1];
+    }
   }
   float width = imageWidth;
   float height = imageHeight;
@@ -153,14 +203,9 @@ SignatureLayout computeLayout(const VisibleSignatureInput input, scope ubyte[] d
   if (hasText) {
     layout.lines = javaLines(input.text);
     float padding = textPadding;
-    float textSize = input.fontSize;
-    float longest = 0;
-    foreach (line; layout.lines) {
-      float measured = lineWidth(input.metrics, encode(line), textSize);
-      if (measured > longest) longest = measured;
-    }
-    float textBoxHeight = lineHeight(input.metrics, textSize) * layout.lines.length + padding * 2;
-    float textBoxWidth = longest + padding * 2;
+    float[2] textBox = textBoxSize(layout.lines, input.metrics, input.fontSize, encode);
+    float textBoxWidth = textBox[0];
+    float textBoxHeight = textBox[1];
     final switch (input.position) {
       case SignerTextPosition.left:
         width += input.hasImage || width == 0 ? textBoxWidth : 0;
@@ -189,6 +234,14 @@ SignatureLayout computeLayout(const VisibleSignatureInput input, scope ubyte[] d
         layout.imageBoxY = height - imageHeight;
         layout.textBoxX = 0;
         layout.imageBoxX = 0;
+        break;
+      case SignerTextPosition.overImage:
+        width = width > textBoxWidth ? width : textBoxWidth;
+        height = height > textBoxHeight ? height : textBoxHeight;
+        layout.textBoxX = (width - textBoxWidth) / 2;
+        layout.textBoxY = (height - textBoxHeight) / 2;
+        layout.imageBoxX = (width - imageWidth) / 2;
+        layout.imageBoxY = (height - imageHeight) / 2;
         break;
     }
     layout.textBoxWidth = textBoxWidth;
@@ -265,7 +318,8 @@ struct AppearanceContent {
 
 /**
  * Flujo de contenido de la apariencia (draw de NativePdfBoxVisibleSignatureDrawer):
- * rotación, fondo del texto, texto e imagen, en ese orden.
+ * rotación, fondo del texto, imagen y texto, en ese orden, para que la imagen centrada
+ * quede entre el fondo y el texto.
  */
 AppearanceContent appearanceContent(const SignatureLayout layout, const VisibleSignatureInput input,
     scope ubyte[] delegate(string) pure @safe encode, string fontResource, string imageResource) pure @safe {
@@ -305,6 +359,14 @@ AppearanceContent appearanceContent(const SignatureLayout layout, const VisibleS
     output ~= format("%s %s %s %s re\nf\n", number(layout.textBoxX), number(layout.textBoxY),
       number(layout.textBoxWidth), number(layout.textBoxHeight));
     if (background.alpha < 255) output ~= format("/%s gs\n", alphaState(255));
+  }
+  if (input.hasImage) {
+    output ~= "q\n";
+    if (input.imageAlpha < 255) output ~= format("/%s gs\n", alphaState(input.imageAlpha));
+    output ~= format("%s 0 0 %s %s %s cm\n/%s Do\nQ\n", number(layout.imageWidth), number(layout.imageHeight),
+      number(layout.imageX), number(layout.imageY), imageResource);
+  }
+  if (layout.lines.length) {
     // setText
     output ~= "BT\n";
     output ~= format("/%s %s Tf\n", fontResource, number(input.fontSize));
@@ -319,10 +381,6 @@ AppearanceContent appearanceContent(const SignatureLayout layout, const VisibleS
     }
     output ~= "ET\n";
     if (input.textColor.alpha < 255) output ~= format("/%s gs\n", alphaState(255));
-  }
-  if (input.hasImage) {
-    output ~= format("q\n%s 0 0 %s %s %s cm\n/%s Do\nQ\n", number(layout.imageWidth), number(layout.imageHeight),
-      number(layout.imageX), number(layout.imageY), imageResource);
   }
   result.content = output[];
   return result;
@@ -561,6 +619,56 @@ unittest {
   assert(layout.textBoxX == 72);
   assert(abs(layout.imageBoxY - (layout.boxHeight - 36) / 2) < 0.001);
   assert(layout.annotationRect == PdfRect(100, 792 - 50 - layout.boxHeight, 100 + layout.boxWidth, 792 - 50));
+}
+
+@("should fit the image in the text box keeping its proportions when bounds are given")
+unittest {
+  VisibleSignatureInput input;
+  input.text = "LINEA UNO\nDOS";
+  input.fontSize = 10;
+  input.metrics = helveticaLike();
+  input.hasImage = true;
+  input.pageBox = PdfRect(0, 0, 612, 792);
+  float[2] textBox = textBoxSize(javaLines(input.text), input.metrics, input.fontSize, (line) => encodeForTest(line));
+  input.imageBounds = textBox;
+  // Una imagen ancha (72 x 36 puntos) se achica al ancho del texto, 55, y queda a la mitad de alto.
+  input.image = ImageSize(96, 48, 96, 96);
+  auto wide = computeLayout(input, (line) => encodeForTest(line));
+  assert(abs(wide.imageWidth - 55) < 0.001 && abs(wide.imageHeight - 27.5) < 0.001);
+  assert(abs(wide.boxWidth - 110) < 0.001 && abs(wide.boxHeight - wide.textBoxHeight) < 0.001);
+  assert(abs(wide.imageY - (wide.boxHeight - 27.5) / 2) < 0.001);
+  // Un ícono pequeño (7,5 puntos) crece hasta el alto del texto, y arriba del texto suma ese alto.
+  input.image = ImageSize(10, 10, 96, 96);
+  input.position = SignerTextPosition.top;
+  auto icon = computeLayout(input, (line) => encodeForTest(line));
+  assert(abs(icon.imageWidth - textBox[1]) < 0.001 && abs(icon.imageHeight - textBox[1]) < 0.001);
+  assert(abs(icon.boxWidth - 55) < 0.001 && abs(icon.boxHeight - textBox[1] * 2) < 0.001);
+}
+
+@("should center a translucent image behind the text and draw it between the background and the text")
+unittest {
+  VisibleSignatureInput input;
+  input.text = "LINEA UNO\nDOS";
+  input.fontSize = 10;
+  input.metrics = helveticaLike();
+  input.position = SignerTextPosition.overImage;
+  input.hasImage = true;
+  input.image = ImageSize(10, 10, 96, 96);
+  input.imageAlpha = 56;
+  input.pageBox = PdfRect(0, 0, 612, 792);
+  float[2] textBox = textBoxSize(javaLines(input.text), input.metrics, input.fontSize, (line) => encodeForTest(line));
+  input.imageBounds = textBox;
+  auto layout = computeLayout(input, (line) => encodeForTest(line));
+  // La caja es la del texto (55 x 33,12) y la imagen, cuadrada a su alto, queda en el medio.
+  assert(abs(layout.boxWidth - 55) < 0.001 && abs(layout.boxHeight - textBox[1]) < 0.001);
+  assert(layout.textBoxX == 0 && layout.textBoxY == 0);
+  assert(abs(layout.imageX - (55 - textBox[1]) / 2) < 0.001 && abs(layout.imageY) < 0.001);
+  auto drawn = appearanceContent(layout, input, (line) => encodeForTest(line), "F1", "Img1");
+  string content = drawn.content;
+  assert(content.indexOf(" re\nf\n") < content.indexOf("/Img1 Do") && content.indexOf("/Img1 Do") < content.indexOf("BT\n"));
+  // El estado de la imagen (56/255, el 22 %) va dentro de su q … Q y no alcanza al texto.
+  assert(drawn.alphaValues.length == 3 && abs(drawn.alphaValues[2] - 56 / 255f) < 0.0001);
+  assert(content.indexOf("q\n/GS3 gs\n") >= 0);
 }
 
 @("should rotate the box around the page when the page itself is rotated")

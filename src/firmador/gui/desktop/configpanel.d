@@ -21,16 +21,17 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  * Pestaña de configuración (ConfigPanel, Pkcs12ConfigPanel y PluginManagerPlugin): las
  * opciones básicas (modo, firma visible, datos y apariencia de la firma, idioma) y las
  * avanzadas (niveles AdES, biblioteca PKCS#11, almacenes PKCS#12, Firmador Remoto,
- * vista previa y programas externos, bitácoras y plugins). Guardar escribe
- * config.properties; aplicar sin guardar sólo cambia la sesión; restaurar vuelve a los
- * valores por omisión.
+ * vista previa y programas externos, bitácoras y plugins). Cada cambio se guarda en
+ * config.properties y se aplica en el acto (el de un campo de texto, poco después de la
+ * última tecla); Ctrl+Z deshace el último y Ctrl+Y o Ctrl+Mayús+Z lo rehace (en macOS, con
+ * ⌘). Restaurar vuelve a los valores por omisión, también con la opción de deshacerlo.
  *
- * Los valores se validan al guardar: un número o un color que no se puede leer se informa
- * con el campo y no se aplica nada.
+ * Un número o un color que no se puede leer se informa debajo de los campos y no se aplica
+ * nada hasta corregirlo.
  */
 module firmador.gui.desktop.configpanel;
 
-import std.algorithm : canFind, map, remove;
+import std.algorithm : canFind, clamp, map, remove;
 import std.array : array, join, replace;
 import std.conv : ConvException, to;
 import std.exception : enforce;
@@ -40,7 +41,7 @@ import std.path : baseName;
 import std.string : strip;
 import std.utf : toUTF32, toUTF8;
 
-import dlangui.core.events : Action;
+import dlangui.core.events : Action, KeyAction, KeyCode, KeyEvent, KeyFlag, ScrollAction, ScrollEvent;
 import dlangui.core.stdaction : StandardAction;
 import dlangui.core.types;
 import dlangui.widgets.combobox;
@@ -48,27 +49,34 @@ import dlangui.widgets.controls;
 import dlangui.widgets.editors;
 import dlangui.widgets.layouts;
 import dlangui.widgets.scroll;
+import dlangui.widgets.scrollbar : AbstractSlider, SliderWidget;
 import dlangui.widgets.widget;
 
-import firmador.cards.pkcs12store : normalizeStorePath, Pkcs12CredentialStore, readPkcs12Metadata;
+import firmador.cards.pkcs12store : normalizeStorePath, Pkcs12CardMetadata, Pkcs12CredentialStore, readPkcs12Metadata;
+import firmador.configuration : configApplyDelayMilliseconds, configHistoryLimit;
 import firmador.crypto.openssl : WrongPasswordException;
 import firmador.gui.desktop.common;
 import firmador.gui.desktop.dialogs;
 import firmador.gui.desktop.secretfield : SecretField;
-import firmador.gui.desktop.theme : themeModes;
+import firmador.gui.desktop.theme : ThemeColor, themeColor, themeModes;
 import firmador.gui.desktop.pageview : zoomIndexFor, zoomSettingValues;
 import firmador.gui.desktop.signpanel : rotationLabels, rotationValues, zoomLabels;
 import firmador.gui.desktop.window : DesktopInterface;
 import firmador.gui.guiinterface : NotificationType;
 import firmador.i18n : t;
 import firmador.plugins.plugin : knownPluginNames;
-import firmador.settings : parseColor, Settings, splitHosts;
+import firmador.settings : parseColor, Settings, settingsToProperties, splitHosts;
 import firmador.settingsmanager : currentSettings, replaceCurrentSettings, writeSettings;
 import firmador.signers.common : rootCause;
 
 /// Opciones de los selectores (las mismas listas de la versión Java).
 immutable string[] logLevels = ["OFF", "SEVERE", "WARNING", "INFO", "CONFIG", "FINE", "FINER", "FINEST", "ALL"];
-immutable string[] fontPositions = ["RIGHT", "LEFT", "BOTTOM", "TOP", "ONLY IMAGE"];
+/// Posiciones del texto respecto de la imagen (Settings.fontAlignment).
+immutable string[] fontPositions = ["CENTER", "RIGHT", "LEFT", "BOTTOM", "TOP", "ONLY IMAGE"];
+/// Texto de cada una de fontPositions, que dice dónde queda la imagen: a la izquierda con el texto a la derecha.
+immutable string[] fontPositionKeys = ["configpanel_image_position_center", "configpanel_image_position_left",
+  "configpanel_image_position_right", "configpanel_image_position_top", "configpanel_image_position_bottom",
+  "configpanel_image_only"];
 immutable string[] signatureLevels = ["T", "LT", "LTA"];
 immutable string[] languages = ["es", "en"];
 immutable string[] windowStates = ["NORMAL", "MAXIMIZED_BOTH", "MAXIMIZED_HORIZ", "MAXIMIZED_VERT"];
@@ -123,6 +131,34 @@ float scaleField(string text, string fieldName) pure @safe {
   }
 }
 
+/// Si dos configuraciones escriben lo mismo en config.properties: aplicar una sobre la otra no cambia nada.
+bool sameStoredSettings(const Settings left, const Settings right) pure @safe {
+  return settingsToProperties(left, null, null) == settingsToProperties(right, null, null);
+}
+
+/// Configuración a la que vuelve deshacer o rehacer un cambio de la pestaña.
+private struct ConfigSnapshot {
+  Settings settings;
+  /// Identidad de sus almacenes PKCS#12, que el registro olvida al quitarlos de la lista.
+  Pkcs12CardMetadata[] stores;
+}
+
+/// `history` con `entry` al final, sin pasar de configHistoryLimit: se descartan los más viejos.
+private ConfigSnapshot[] withEntry(ConfigSnapshot[] history, ConfigSnapshot entry) pure @safe {
+  auto result = history ~ entry;
+  return result.length > configHistoryLimit ? result[$ - configHistoryLimit .. $] : result;
+}
+
+/// Resultado de pasar los controles a la configuración vigente (ConfigPanel.applyControls).
+private enum ApplyOutcome { applied, unchanged, invalid }
+
+/// Copia completa de unos ajustes (Settings.assign), tomada con su candado.
+private Settings copyOf(Settings settings) @trusted {
+  auto copy = new Settings();
+  synchronized (settings) copy.assign(settings);
+  return copy;
+}
+
 /// Pestaña de configuración.
 final class ConfigPanel : VerticalLayout {
   private DesktopInterface host;
@@ -134,14 +170,28 @@ final class ConfigPanel : VerticalLayout {
   private CheckBox simplifiedMode, withoutVisibleSign, showLogs, overwriteSourceFile, startRemote,
     startRemoteBasic, allowOriginPort, showTrayNotifications;
   private EditLine reason, place, contact, dateFormat, pageNumber, signX, signY, fontSize,
-    fontColor, backgroundColor, imagePath, imageWidth, imageHeight, sofficePath, preferredBrowser, scaleFactor,
-    pkcs11Library;
+    fontColor, backgroundColor, imagePath, sofficePath, preferredBrowser, scaleFactor, pkcs11Library;
   private EditBox defaultSignMessage, allowedOrigins;
+  private PercentSlider imageOpacity;
+  /// El porcentaje de imageOpacity, a su lado.
+  private TextWidget imageOpacityLabel;
   private ComboBox font, fontPosition, rotation, zoom, language, windowState, themeMode, logLevel, padesLevel,
     xadesLevel, cadesLevel, jadesLevel;
   private string[] pkcs12Files;
   private VerticalLayout pkcs12List;
   private CheckBox[string] pluginChecks;
+  /// Ayuda de que los cambios se guardan solos, o el problema de un campo que no se puede leer.
+  private TextWidget statusText;
+  /// Configuración de antes de cada cambio aplicado, la más reciente al final.
+  private ConfigSnapshot[] undoHistory;
+  /// Configuración que quitó cada deshacer, la más reciente al final; un cambio nuevo la vacía.
+  private ConfigSnapshot[] redoHistory;
+  /// Temporizador que aplica lo escrito en un campo de texto poco después de la última tecla (0 si no hay).
+  private ulong applyTimer;
+  /// Mientras load pone valores en los controles, para no tomarlos por cambios del usuario.
+  private bool loading;
+  /// Atajos de deshacer y rehacer; en macOS, dlangui los agrega también con ⌘ en vez de Ctrl.
+  private Action undoShortcut, redoShortcut;
 
   this(DesktopInterface host) @trusted {
     super("configuracion");
@@ -162,15 +212,19 @@ final class ConfigPanel : VerticalLayout {
     content.addChild(advanced);
     scroll = new VerticalScroll("configuracion-scroll", content);
     addChild(scroll);
-    auto buttons = new HorizontalLayout;
-    buttons.addChild(makeButton("restaurar", "configpanel_restore", null, () {
-      load(new Settings());
-      host.showNotification(t("configpanel_restore_done"), NotificationType.success);
-    }));
-    buttons.addChild(makeButton("aplicar", "configpanel_apply_without_saving", null, () { apply(false); }));
-    buttons.addChild(makeButton("guardar", "configpanel_save", null, () { apply(true); }));
-    addChild(buttons);
+    undoShortcut = new Action(0, KeyCode.KEY_Z, KeyFlag.Control);
+    redoShortcut = new Action(0, KeyCode.KEY_Z, KeyFlag.Control | KeyFlag.Shift).addAccelerator(KeyCode.KEY_Y,
+      KeyFlag.Control);
+    auto footer = new HorizontalLayout;
+    footer.layoutWidth = FILL_PARENT;
+    statusText = new MultilineTextWidget("configuracion-estado");
+    statusText.layoutWidth = FILL_PARENT;
+    footer.addChild(statusText);
+    footer.addChild(makeButton("restaurar", "configpanel_restore", null, () { confirmRestore(); }));
+    addChild(footer);
     load(currentSettings());
+    watchChanges();
+    showProblem(null);
     showView();
   }
 
@@ -180,9 +234,27 @@ final class ConfigPanel : VerticalLayout {
     switchButton.text = dt(showingAdvanced ? "configpanel_basic_options" : "configpanel_advanced_options");
   }
 
-  /// Vuelve a leer la configuración vigente (tras autorizar un origen, por ejemplo).
+  /**
+   * Vuelve a mostrar la configuración vigente, que cambió otra parte de la ventana (al
+   * autorizar un origen, por ejemplo). Descarta lo escrito que esperaba al temporizador, que
+   * traería el valor viejo de lo que cambió, y el historial, porque deshacer lo revertiría.
+   */
   void reload() @trusted {
+    cancelPendingApply();
+    undoHistory = null;
+    redoHistory = null;
     load(currentSettings());
+    showProblem(null);
+  }
+
+  /**
+   * Guarda lo escrito en un campo de texto que todavía esperaba al temporizador (al cerrar la
+   * ventana).
+   *
+   * Throws: Exception si no se pudo guardar config.properties.
+   */
+  void applyPendingChanges() @trusted {
+    if (applyTimer != 0) recordChange();
   }
 
   // Armado --------------------------------------------------------------------------
@@ -267,22 +339,30 @@ final class ConfigPanel : VerticalLayout {
     contact = field(table, "configpanel_contact");
     dateFormat = field(table, "configpanel_date_format");
     dateFormat.tooltipText = tip("configpanel_must_be_compatible_with_java_date_formats");
-    defaultSignMessage = row(table, t("configpanel_signature_message"), new EditBox);
-    defaultSignMessage.minHeight = heightForLines(defaultSignMessage, 4);
+    defaultSignMessage = new EditBox;
+    row(table, t("configpanel_signature_message"), resizable(defaultSignMessage, 4));
     defaultSignMessage.tooltipText = tip("configpanel_default_sign_message_help");
     pageNumber = field(table, "configpanel_initial_page");
     signX = field(table, "configpanel_initial_position_x");
     signY = field(table, "configpanel_initial_position_y");
     fontSize = field(table, "configpanel_font_size");
     font = combo(table, t("configpanel_font"), plain(signatureFonts()));
-    fontPosition = combo(table, t("configpanel_font_position"), plain(fontPositions));
+    fontPosition = combo(table, t("configpanel_image_position"), fontPositionKeys.map!(key => dt(key)).array);
     fontColor = field(table, "configpanel_font_color");
     fontColor.tooltipText = tip("configpanel_use_the_word_transparent_if_you_do_not_want_a_color");
     backgroundColor = field(table, "configpanel_background_color");
     backgroundColor.tooltipText = tip("configpanel_use_the_word_transparent_if_you_do_not_want_a_background_color");
     imagePath = pathField(table, t("configpanel_signature_image"), "configpanel_select_an_image");
-    imageWidth = field(table, "configpanel_signature_image_width");
-    imageHeight = field(table, "configpanel_signature_image_height");
+    auto opacityRow = new HorizontalLayout;
+    imageOpacity = new PercentSlider("opacidad-imagen");
+    imageOpacity.layoutWidth = FILL_PARENT;
+    imageOpacity.tooltipText = dt("configpanel_image_opacity");
+    opacityRow.addChild(imageOpacity);
+    imageOpacityLabel = new TextWidget(null, ""d);
+    imageOpacityLabel.minWidth = 48;
+    imageOpacityLabel.margins = Rect(8, 0, 0, 0);
+    opacityRow.addChild(imageOpacityLabel);
+    row(table, t("configpanel_image_opacity"), opacityRow);
     rotation = combo(table, t("configpanel_sign_rotation"), rotationLabels());
     zoom = combo(table, t("configpanel_preview_zoom"), zoomLabels());
     language = combo(table, t("configpanel_language"), plain(languages));
@@ -323,16 +403,13 @@ final class ConfigPanel : VerticalLayout {
     section(panel, "configpanel_section_remote");
     startRemote = new CheckBox("iniciar-remoto", dt("configpanel_start_fimador_remote"));
     startRemote.tooltipText = tip("configpanel_start_fimador_remote_tooltip");
-    // Es la misma opción que la casilla de la vista básica.
-    startRemote.checkChange = (Widget source, bool checked) { startRemoteBasic.checked = checked; return true; };
-    startRemoteBasic.checkChange = (Widget source, bool checked) { startRemote.checked = checked; return true; };
     panel.addChild(startRemote);
     allowOriginPort = new CheckBox("puerto-del-sitio", dt("configpanel_allow_origin_port"));
     allowOriginPort.tooltipText = tip("configpanel_allow_origin_port_tooltip");
     panel.addChild(allowOriginPort);
     auto remote = form(panel);
-    allowedOrigins = row(remote, t("configpanel_allowed_hosts"), new EditBox);
-    allowedOrigins.minHeight = heightForLines(allowedOrigins, 5);
+    allowedOrigins = new EditBox;
+    row(remote, t("configpanel_allowed_hosts"), resizable(allowedOrigins, 5));
 
     section(panel, "configpanel_section_preview_apps");
     auto apps = form(panel);
@@ -398,6 +475,7 @@ final class ConfigPanel : VerticalLayout {
         store.save();
         pkcs12Files ~= path;
         refreshPkcs12();
+        applyChange();
         showMessageDialog(window, t("pkcs12_config_label"), format(t("pkcs12_config_added_ok"),
           meta.commonName.length ? meta.commonName : baseName(path)));
       } catch (WrongPasswordException exception) {
@@ -421,6 +499,8 @@ final class ConfigPanel : VerticalLayout {
 
   /// Pone en los campos los valores de unos ajustes.
   private void load(const Settings settings) {
+    loading = true;
+    scope (exit) loading = false;
     simplifiedMode.checked = settings.isSimplifiedMode();
     withoutVisibleSign.checked = settings.withoutVisibleSign;
     showLogs.checked = settings.showLogs;
@@ -443,8 +523,8 @@ final class ConfigPanel : VerticalLayout {
     fontColor.text = settings.fontColor.toUTF32;
     backgroundColor.text = settings.backgroundColor.toUTF32;
     imagePath.text = settings.image.toUTF32;
-    imageWidth.text = settings.signImageWidth.to!dstring;
-    imageHeight.text = settings.signImageHeight.to!dstring;
+    imageOpacity.value = settings.imageOpacity;
+    showOpacity(settings.imageOpacity);
     select(rotation, rotationValues, settings.signRotation);
     zoom.selectedItemIndex = zoomIndexFor(settings.previewZoom);
     select(language, languages, settings.language);
@@ -465,49 +545,242 @@ final class ConfigPanel : VerticalLayout {
     foreach (name, check; pluginChecks) check.checked = settings.activePlugins.canFind(name);
   }
 
+  // Cambios en el acto e historial ---------------------------------------------------
+
   /**
-   * Pasa los campos a la configuración vigente (chargeSettings) y, con `save`, la escribe.
-   * Si algún valor no se puede leer o no se puede guardar, se informa y no se cambia nada.
+   * Aplica cada cambio de los controles: el de un campo de texto poco después de la última
+   * tecla o al salir de él, los demás en el acto. En los campos de texto, los atajos de
+   * deshacer y rehacer usan el historial de la pestaña en vez del propio de cada campo, para
+   * que haya uno solo.
    */
-  private void apply(bool save) {
-    auto settings = currentSettings();
-    string previousLanguage = settings.language;
-    string previousTheme = settings.themeMode;
-    // Los campos se leen y se guardan desde una copia completa; sólo si todo sale bien se
-    // cambian los ajustes vigentes, que comparten los documentos abiertos.
-    auto candidate = new Settings();
-    synchronized (settings) candidate.assign(settings);
-    try {
-      fill(candidate);
-    } catch (Exception exception) {
-      showMessageDialog(window, t("guiswing_show_error_dialog_title"), exception.msg);
-      return;
+  private void watchChanges() {
+    EditWidgetBase[] texts = [reason, place, contact, dateFormat, defaultSignMessage, pageNumber, signX, signY,
+      fontSize, fontColor, backgroundColor, imagePath, pkcs11Library, allowedOrigins, scaleFactor, sofficePath,
+      preferredBrowser];
+    foreach (text; texts) {
+      text.contentChange = (EditableContent content) { scheduleApply(); };
+      text.focusChange = (Widget source, bool focused) {
+        if (!focused && applyTimer != 0) applyChange();
+        return true;
+      };
+      text.keyEvent = (Widget source, KeyEvent event) => historyKey(event);
     }
+    CheckBox[] checks = [simplifiedMode, withoutVisibleSign, showLogs, overwriteSourceFile, startRemote,
+      startRemoteBasic, allowOriginPort, showTrayNotifications] ~ pluginChecks.values;
+    foreach (check; checks) {
+      check.checkChange = (Widget source, bool checked) {
+        // Las dos casillas de Firmador Remoto son la misma opción, en la vista básica y en la avanzada.
+        if (source is startRemote) startRemoteBasic.checked = checked;
+        else if (source is startRemoteBasic) startRemote.checked = checked;
+        applyChange();
+        return true;
+      };
+    }
+    ComboBox[] combos = [font, fontPosition, rotation, zoom, language, windowState, themeMode, logLevel, padesLevel,
+      xadesLevel, cadesLevel, jadesLevel];
+    foreach (box; combos) box.itemClick = (Widget source, int index) { applyChange(); return true; };
+    // Al arrastrarlo llegan muchos valores seguidos: se aplica como lo escrito, al detenerse.
+    imageOpacity.onChange = (int percent) {
+      showOpacity(percent);
+      scheduleApply();
+    };
+  }
+
+  private void showOpacity(int percent) {
+    imageOpacityLabel.text = format("%d %%", percent).toUTF32;
+  }
+
+  /// Aplica lo escrito poco después de la última tecla (configApplyDelayMilliseconds).
+  private void scheduleApply() {
+    if (loading) return;
+    cancelPendingApply();
+    applyTimer = setTimer(configApplyDelayMilliseconds);
+  }
+
+  private void cancelPendingApply() {
+    if (applyTimer == 0) return;
+    cancelTimer(applyTimer);
+    applyTimer = 0;
+  }
+
+  override bool onTimer(ulong id) {
+    if (id != applyTimer) return super.onTimer(id);
+    applyTimer = 0;
+    applyChange();
+    return false;
+  }
+
+  /// Los atajos de deshacer y rehacer llegan aquí desde cualquier control de la pestaña que no sea un campo de texto.
+  override bool onKeyEvent(KeyEvent event) {
+    return historyKey(event) || super.onKeyEvent(event);
+  }
+
+  /// También sin un control enfocado, mientras la pestaña se ve (dlangui no reparte teclas a las ocultas).
+  override @property bool wantsKeyTracking() {
+    return true;
+  }
+
+  /// Deshace o rehace con el atajo. Returns: si la tecla era uno de los atajos.
+  private bool historyKey(KeyEvent event) {
+    if (event.action != KeyAction.KeyDown) return false;
+    // Rehacer primero: dlangui también toma Ctrl+Mayús+Z por el Ctrl+Z de deshacer.
+    if (redoShortcut.checkAccelerator(event.keyCode, event.flags)) {
+      stepHistory(redoHistory, undoHistory);
+      return true;
+    }
+    if (undoShortcut.checkAccelerator(event.keyCode, event.flags)) {
+      stepHistory(undoHistory, redoHistory);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Aplica un cambio del usuario y lo deja en el historial; si no se pudo guardar, lo muestra.
+   *
+   * Returns: si cambió la configuración.
+   */
+  private bool applyChange() {
+    if (loading) return false;
     try {
-      writeSettings(candidate, save);
+      return recordChange() == ApplyOutcome.applied;
+    } catch (Exception exception) {
+      host.showError(exception);
+      return false;
+    }
+  }
+
+  /**
+   * applyControls de un cambio del usuario: lo que había queda para deshacerlo, y lo que se
+   * había deshecho ya no se puede rehacer.
+   *
+   * Throws: Exception si no se pudo guardar config.properties.
+   */
+  private ApplyOutcome recordChange() {
+    ConfigSnapshot previous;
+    auto outcome = applyControls(null, previous);
+    if (outcome == ApplyOutcome.applied) {
+      undoHistory = withEntry(undoHistory, previous);
+      redoHistory = null;
+    }
+    return outcome;
+  }
+
+  /**
+   * Deshace o rehace un cambio: muestra y aplica la configuración más reciente de `source` y
+   * deja la que había en `destination`. Antes aplica lo escrito que esperaba al temporizador,
+   * que así es lo primero que se deshace; si un campo no es válido, sólo vuelve a mostrar la
+   * configuración vigente, sin lo escrito.
+   */
+  private void stepHistory(ref ConfigSnapshot[] source, ref ConfigSnapshot[] destination) {
+    try {
+      if (recordChange() == ApplyOutcome.invalid) {
+        load(currentSettings());
+        showProblem(null);
+        return;
+      }
     } catch (Exception exception) {
       host.showError(exception);
       return;
     }
+    if (source.length == 0) return;
+    ConfigSnapshot target = source[$ - 1];
+    source = source[0 .. $ - 1];
+    load(target.settings);
+    try {
+      ConfigSnapshot previous;
+      if (applyControls(target.stores, previous) == ApplyOutcome.applied) destination = withEntry(destination, previous);
+      // Las filas de los almacenes muestran la identidad que se acaba de devolver al registro.
+      refreshPkcs12();
+    } catch (Exception exception) {
+      // No cambió nada: el paso queda para intentarlo otra vez.
+      source ~= target;
+      load(currentSettings());
+      host.showError(exception);
+    }
+  }
+
+  /**
+   * Pasa los controles a la configuración vigente si cambian algo (chargeSettings): la
+   * guarda, devuelve al registro de almacenes PKCS#12 las identidades de `stores`, deja en él
+   * sólo los almacenes de la lista y actualiza la ventana. Un valor que no se puede leer se
+   * muestra debajo de los campos y no cambia nada.
+   *
+   * Params:
+   *   stores = identidades que se vuelven a registrar (al deshacer la quita de un almacén).
+   *   previous = recibe la configuración que había, para deshacer el cambio.
+   * Returns: si se aplicó, si no cambiaba nada o si un campo no es válido.
+   * Throws: Exception si no se pudo escribir config.properties; entonces no cambia nada.
+   */
+  private ApplyOutcome applyControls(Pkcs12CardMetadata[] stores, out ConfigSnapshot previous) {
+    cancelPendingApply();
+    auto settings = currentSettings();
+    // Los campos se leen en una copia completa; sólo si todo sale bien se cambian los ajustes
+    // vigentes, que comparten los documentos abiertos.
+    auto candidate = copyOf(settings);
+    try {
+      fill(candidate);
+    } catch (Exception exception) {
+      showProblem(exception.msg);
+      return ApplyOutcome.invalid;
+    }
+    showProblem(null);
+    if (sameStoredSettings(candidate, settings)) return ApplyOutcome.unchanged;
+    previous = snapshotOf(settings);
+    string previousLanguage = settings.language;
+    string previousTheme = settings.themeMode;
+    writeSettings(candidate, true);
     synchronized (settings) settings.assign(candidate);
     replaceCurrentSettings(settings);
     auto store = Pkcs12CredentialStore.instance();
+    foreach (meta; stores) store.put(meta);
     store.retainOnly(settings.pKCS12File);
     try {
       store.save();
     } catch (Exception exception) {
-      // Los ajustes ya están guardados; el almacén conserva en el archivo los que se quitaron.
+      // Los ajustes ya están guardados; el archivo del registro conserva los almacenes que tenía.
       host.showError(exception);
     }
     settings.updateConfig();
-    host.applySettings();
-    bool restartNeeded = previousLanguage != settings.language || previousTheme != settings.themeMode;
-    if (restartNeeded) {
-      showMessageDialog(window, t("guiswing_show_error_dialog_title"), t(save ? "configpanel_language_applied_on_restart"
-        : "configpanel_language_not_applied_save_and_restart"));
+    host.applySettings(previous.settings);
+    if (previousLanguage != settings.language || previousTheme != settings.themeMode) {
+      host.showNotification(t("configpanel_language_applied_on_restart"), NotificationType.info);
     }
-    host.showNotification(t(save ? "configpanel_save_done" : "configpanel_applywithoutsave"), NotificationType.success);
-    info(save ? "Configuración guardada desde la ventana" : "Configuración aplicada sin guardar");
+    info("Configuración guardada y aplicada desde la ventana");
+    return ApplyOutcome.applied;
+  }
+
+  /// Configuración vigente con la identidad de sus almacenes PKCS#12, para volver a ella.
+  private static ConfigSnapshot snapshotOf(Settings settings) {
+    auto copy = copyOf(settings);
+    auto store = Pkcs12CredentialStore.instance();
+    Pkcs12CardMetadata[] stores;
+    foreach (path; copy.pKCS12File) {
+      if (auto meta = store.get(path)) stores ~= *meta;
+    }
+    return ConfigSnapshot(copy, stores);
+  }
+
+  /// Muestra el problema de un campo, o sin él la ayuda de que los cambios se guardan solos.
+  private void showProblem(string problem) {
+    if (problem is null) {
+      statusText.text = format(t("configpanel_autosave_hint"), undoShortcut.acceleratorText,
+        redoShortcut.acceleratorText).toUTF32;
+      statusText.textColor = themeColor(ThemeColor.mutedText);
+    } else {
+      statusText.text = problem.toUTF32;
+      statusText.textColor = themeColor(ThemeColor.errorText);
+    }
+  }
+
+  /// Vuelve a los valores por omisión tras confirmarlo; se guardan en el acto y se pueden deshacer.
+  private void confirmRestore() {
+    showConfirmDialog(window, t("configpanel_restore"), format(t("configpanel_restore_confirm"),
+      undoShortcut.acceleratorText), (bool accepted) {
+      if (!accepted) return;
+      load(new Settings());
+      if (applyChange()) host.showNotification(t("configpanel_restore_done"), NotificationType.success);
+    });
   }
 
   /// Lee los campos en `settings`, validando números y colores.
@@ -530,8 +803,7 @@ final class ConfigPanel : VerticalLayout {
     settings.signXf.nullify();
     settings.signYf.nullify();
     settings.fontSize = integerField(fontSize.text.toUTF8, t("configpanel_font_size"));
-    settings.signImageWidth = integerField(imageWidth.text.toUTF8, t("configpanel_signature_image_width"));
-    settings.signImageHeight = integerField(imageHeight.text.toUTF8, t("configpanel_signature_image_height"));
+    settings.imageOpacity = imageOpacity.position;
     settings.font = valueAt(signatureFonts(), font.selectedItemIndex);
     settings.fontAlignment = valueAt(fontPositions, fontPosition.selectedItemIndex);
     string textColor = fontColor.text.toUTF8.strip;
@@ -590,6 +862,7 @@ final class ConfigPanel : VerticalLayout {
     remove_.click = (Widget source) {
       pkcs12Files = pkcs12Files.remove!(existing => existing == path);
       refreshPkcs12();
+      applyChange();
       return true;
     };
     rowLayout.addChild(remove_);
@@ -597,6 +870,70 @@ final class ConfigPanel : VerticalLayout {
     return rowLayout;
   }
 
+}
+
+/**
+ * Deslizador de porcentaje, de 0 a 100, que también se mueve con el teclado: las flechas de
+ * a 1, Re Pág y Av Pág de a 10, Inicio y Fin a los extremos. Los clics a los lados del
+ * indicador también lo mueven de a 10.
+ */
+private final class PercentSlider : SliderWidget {
+  /// Se llama con el porcentaje cada vez que el usuario lo cambia.
+  void delegate(int percent) onChange;
+  /**
+   * Último porcentaje avisado o puesto con `value`. Al arrastrar, SliderWidget cambia la
+   * posición antes de avisar, así que el cambio se mide contra este y no contra `position`.
+   */
+  private int lastValue;
+
+  this(string id) @trusted {
+    super(id, Orientation.Horizontal);
+    // La posición llega hasta maxValue - pageSize, y SliderWidget deja pageSize en 1.
+    minValue = 0;
+    maxValue = 101;
+    focusable = true;
+    scrollEvent = (AbstractSlider source, ScrollEvent event) {
+      int target = event.position;
+      if (event.action == ScrollAction.PageUp) target -= 10;
+      else if (event.action == ScrollAction.PageDown) target += 10;
+      target = clamp(target, 0, 100);
+      // sendScrollEvent toma la posición del evento después de este manejador.
+      event.position = target;
+      report(target);
+      return true;
+    };
+  }
+
+  /// Pone el porcentaje sin avisarlo (al mostrar la configuración).
+  void value(int percent) {
+    lastValue = clamp(percent, 0, 100);
+    position = lastValue;
+  }
+
+  /// Avisa el porcentaje si cambió desde el último aviso.
+  private void report(int percent) {
+    if (percent == lastValue) return;
+    lastValue = percent;
+    if (onChange !is null) onChange(percent);
+  }
+
+  override bool onKeyEvent(KeyEvent event) {
+    if (event.action != KeyAction.KeyDown || event.modifiers != 0) return super.onKeyEvent(event);
+    int target = position;
+    switch (event.keyCode) with (KeyCode) {
+      case LEFT, DOWN: target -= 1; break;
+      case RIGHT, UP: target += 1; break;
+      case PAGEDOWN: target -= 10; break;
+      case PAGEUP: target += 10; break;
+      case HOME: target = 0; break;
+      case END: target = 100; break;
+      default: return super.onKeyEvent(event);
+    }
+    target = clamp(target, 0, 100);
+    position = target;
+    report(target);
+    return true;
+  }
 }
 
 @("should read integers, decimal scales with comma and report the field name when invalid")

@@ -45,7 +45,14 @@ import firmador.i18n : t, translate;
 enum SignatureLevel { b, t, lt, lta }
 
 /// Posición del texto respecto de la imagen en la firma visible (SignerTextPosition de DSS).
-enum SignerTextPosition { left, right, top, bottom }
+enum SignerTextPosition {
+  left,
+  right,
+  top,
+  bottom,
+  /// Encima de la imagen, que va centrada detrás del texto.
+  overImage,
+}
 
 /// Rotación de la firma visible (VisualSignatureRotation de DSS).
 enum SignatureRotation { automatic, none, rotate90, rotate180, rotate270 }
@@ -99,9 +106,8 @@ final class Settings {
   string dateFormatEn = "MM/dd/yyyy hh:mm:ss a";
   string defaultSignMessage;
   int fontSize = 7;
-  /// Tamaño de la imagen dentro de la firma; 0 deja el tamaño natural.
-  int signImageWidth = 0;
-  int signImageHeight = 0;
+  /// Opacidad de la imagen de la firma, en porcentaje (0 a 100); el texto siempre es opaco.
+  int imageOpacity = 22;
   /**
    * Fuente de la firma visible. Desde Firmador Remoto también puede ser
    * «base64:nombre:datos» o «file:nombre:ruta» con una fuente TrueType.
@@ -124,7 +130,11 @@ final class Settings {
   float signScale = 1;
   /// Imagen de la firma: ruta, URI file: o, desde Firmador Remoto, data:image/png;base64,….
   string image = null;
-  string fontAlignment = "RIGHT";
+  /**
+   * Posición del texto respecto de la imagen (getFontAlignment): RIGHT, LEFT, BOTTOM, TOP,
+   * CENTER (encima de la imagen) u ONLY IMAGE.
+   */
+  string fontAlignment = "CENTER";
   string signRotation = "AUTOMATIC";
   /// Escala inicial de la previsualización: AUTO_WIDTH, FULL_PAGE o un porcentaje ("100").
   string previewZoom = "FULL_PAGE";
@@ -284,6 +294,7 @@ final class Settings {
       case "LEFT": return SignerTextPosition.left;
       case "BOTTOM": return SignerTextPosition.bottom;
       case "TOP": return SignerTextPosition.top;
+      case "CENTER": return SignerTextPosition.overImage;
       default: return SignerTextPosition.right;
     }
   }
@@ -514,8 +525,8 @@ private enum string[2][] propertyKeys = [
   ["cAdESLevel", "cadesLevel"], ["jAdESLevel", "jadesLevel"], ["sofficePath", "sofficePath"],
   ["language", "language"], ["country", "country"], ["startwindowstate", "startwindowstate"],
   ["themeMode", "themeMode"], ["showTrayNotifications", "showTrayNotifications"],
-  ["max_number_process_doc", "max_number_process_doc"], ["signImageWidth", "signImageWidth"],
-  ["signImageHeight", "signImageHeight"], ["startFimadorRemote", "startFimadorRemote"],
+  ["max_number_process_doc", "max_number_process_doc"], ["imageOpacity", "imageOpacity"],
+  ["startFimadorRemote", "startFimadorRemote"],
   ["allowOriginPort", "allowOriginPort"], ["preferredBrowser", "preferredBrowser"],
   ["registeredAllowedOrigins", "registeredAllowedOrigins"],
 ];
@@ -527,7 +538,8 @@ private enum string[2][] propertyKeys = [
  *
  * Returns: el texto de «pdfimgscalefactor» si no es un decimal válido (se usa 1), para que
  *   quien llama lo registre; null si es válido.
- * Throws: ConvException si un número entero no se puede leer, como parseInt en Java.
+ * Throws: ConvException si un número entero no se puede leer, como parseInt en Java;
+ *   Exception si la opacidad de la imagen no está entre 0 y 100.
  */
 string applyProperties(Settings conf, const string[string] props) pure @safe {
   string get(string key, string fallback) {
@@ -551,6 +563,8 @@ string applyProperties(Settings conf, const string[string] props) pure @safe {
       __traits(getMember, conf, entry[0]) = get(entry[1], __traits(getMember, conf, entry[0]));
     }
   }}
+  enforce(conf.imageOpacity >= 0 && conf.imageOpacity <= 100,
+    format("imageOpacity debe ser un porcentaje de 0 a 100, no %d", conf.imageOpacity));
   string advancedLogsRaw = get("advancedlogs", conf.advancedLogs);
   conf.advancedLogs = icmp(advancedLogsRaw, "true") == 0 ? "ALL"
     : icmp(advancedLogsRaw, "false") == 0 ? "INFO" : advancedLogsRaw;
@@ -604,10 +618,11 @@ string[string] settingsToProperties(const Settings conf, const string[string] ex
 }
 
 /**
- * Claves de config.properties que ya no se usan (el ancho y el alto de la firma, que nunca
- * cambiaron el recuadro: lo mide su contenido, escalado por signScale). Se quitan al guardar.
+ * Claves de config.properties que ya no se usan: el ancho y el alto de la firma, que nunca
+ * cambiaron el recuadro (lo mide su contenido, escalado por signScale), y los de la imagen,
+ * que ahora se encaja en la caja del texto. Se quitan al guardar.
  */
-private immutable string[] retiredPropertyKeys = ["signwidth", "signheight"];
+private immutable string[] retiredPropertyKeys = ["signwidth", "signheight", "signImageWidth", "signImageHeight"];
 
 /// Campos que se guardan en la configuración de un documento (docSettingsToProperties).
 immutable string[] documentSettingsFields = [
@@ -706,6 +721,16 @@ unittest {
   auto invalidScale = new Settings();
   assert(applyProperties(invalidScale, ["pdfimgscalefactor": "grande"]) == "grande");
   assert(invalidScale.pDFImgScaleFactor == 1);
+}
+
+@("should read the centered image position and reject an image opacity outside 0 to 100")
+unittest {
+  import std.exception : assertThrown;
+  auto conf = new Settings();
+  assert(applyProperties(conf, ["fontalignment": "CENTER", "imageOpacity": "40"]) is null);
+  assert(conf.getFontAlignment() == SignerTextPosition.overImage && conf.imageOpacity == 40);
+  assertThrown(applyProperties(new Settings(), ["imageOpacity": "101"]));
+  assertThrown(applyProperties(new Settings(), ["imageOpacity": "-1"]));
 }
 
 @("should reproduce the settings when writing and reading config.properties again")

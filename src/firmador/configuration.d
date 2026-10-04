@@ -112,6 +112,12 @@ enum float maxSignatureScale = 4;
 /// Cuánto cambian la escala los botones de tamaño de la firma.
 enum float signatureScaleStep = 0.1;
 
+/// Espera tras la última tecla en un campo de Configuración antes de guardar el cambio, en milisegundos.
+enum long configApplyDelayMilliseconds = 500;
+
+/// Cambios de Configuración que se pueden deshacer.
+enum size_t configHistoryLimit = 100;
+
 /// Longitud máxima del PIN que se lee por la entrada estándar (modo -dargs).
 enum size_t maxPinLength = 128;
 

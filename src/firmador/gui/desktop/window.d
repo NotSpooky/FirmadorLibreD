@@ -273,6 +273,15 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     if (closing) return;
     closing = true;
     info("Cerrando Firmador");
+    // Sin pestañas si se cerró en la pregunta del modo, antes de armarlas.
+    if (configPanel !is null) {
+      try {
+        configPanel.applyPendingChanges();
+      } catch (Exception exception) {
+        // La ventana ya se cierra: no queda dónde mostrarlo.
+        error("No se guardó el último cambio de Configuración al cerrar: ", exception.msg);
+      }
+    }
     shutdownUi();
     signPanel.pageView.stopRendering();
     plugins.stop();
@@ -322,8 +331,11 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     if (target !is null) tabs.selectTab(target.id);
   }
 
-  /// Muestra u oculta la pestaña de bitácoras según la configuración (updateConfig).
-  void applySettings() @trusted {
+  /**
+   * Lleva a la ventana la configuración vigente (updateConfig): muestra u oculta la pestaña
+   * de bitácoras y pasa a la de firmar lo que cambió respecto de `previous`.
+   */
+  void applySettings(const Settings previous) @trusted {
     auto settings = currentSettings();
     if (settings.showLogs && logPanel is null) {
       showLogTab();
@@ -332,7 +344,7 @@ final class DesktopInterface : GuiInterface, ConnectionView {
       tabs.removeTab(logPanel.id);
       logPanel = null;
     }
-    signPanel.updateConfig();
+    signPanel.updateConfig(previous);
     if (documentList !is null) documentList.reloadView();
   }
 
@@ -602,9 +614,14 @@ final class DesktopInterface : GuiInterface, ConnectionView {
 
   void originAuthorized(string origin) @trusted {
     runOnUi(() {
-      configPanel.reload();
+      settingsChanged();
       connectionPanel.refreshAll();
     });
+  }
+
+  /// Vuelve a mostrar en Configuración los ajustes que otra parte de la ventana acaba de guardar.
+  void settingsChanged() @trusted {
+    configPanel.reload();
   }
 
   // ConnectionView --------------------------------------------------------------

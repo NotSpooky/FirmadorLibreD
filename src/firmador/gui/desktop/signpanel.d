@@ -516,17 +516,26 @@ final class SignPanel : VerticalLayout {
     applyControls(SignControls.init);
   }
 
-  /// Vuelve a leer la configuración (updateConfig).
-  void updateConfig() @trusted {
+  /**
+   * Vuelve a leer la configuración (updateConfig). Sólo cambia lo que cambió respecto de
+   * `previous`: lo demás conserva lo que se eligió en la pestaña para el documento (datos,
+   * rotación, escala, posición). La firma se vuelve a dibujar con la apariencia nueva.
+   */
+  void updateConfig(const Settings previous) @trusted {
     auto settings = currentSettings();
-    withoutVisible.checked = settings.withoutVisibleSign;
-    reasonField.text = settings.reason.toUTF32;
-    locationField.text = settings.place.toUTF32;
-    contactField.text = settings.contact.toUTF32;
-    rotationBox.selectedItemIndex = indexIn(rotationValues, settings.signRotation);
-    selectZoomOption(zoomIndexFor(settings.previewZoom));
+    if (settings.withoutVisibleSign != previous.withoutVisibleSign) withoutVisible.checked = settings.withoutVisibleSign;
+    if (settings.reason != previous.reason) reasonField.text = settings.reason.toUTF32;
+    if (settings.place != previous.place) locationField.text = settings.place.toUTF32;
+    if (settings.contact != previous.contact) contactField.text = settings.contact.toUTF32;
+    if (settings.signRotation != previous.signRotation) {
+      rotationBox.selectedItemIndex = indexIn(rotationValues, settings.signRotation);
+    }
+    if (settings.previewZoom != previous.previewZoom) selectZoomOption(zoomIndexFor(settings.previewZoom));
     if (current !is null) {
-      placeConfiguredSignature(settings);
+      if (settings.pageNumber != previous.pageNumber || settings.signX != previous.signX
+          || settings.signY != previous.signY) {
+        placeConfiguredSignature(settings);
+      }
       scheduleSignaturePreview();
     }
   }

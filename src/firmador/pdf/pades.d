@@ -31,6 +31,7 @@ import std.datetime.systime : Clock, SysTime;
 import std.exception : basicExceptionCtors;
 import std.format : format;
 import std.logger : info, warning;
+import std.typecons : Nullable;
 
 import firmador.asn1.oids;
 import firmador.cms.signeddata;
@@ -64,6 +65,10 @@ struct VisibleSignature {
   /// Imagen original (PNG o JPEG) y el tamaño en píxeles con que se dibuja.
   immutable(ubyte)[] image;
   ImageSize imageSize;
+  /// Caja en puntos en que se encaja la imagen sin deformarla (VisibleSignatureInput.imageBounds).
+  Nullable!(float[2]) imageBounds;
+  /// Opacidad de la imagen (255 = opaca).
+  ubyte imageAlpha = 255;
   float originX = 0;
   float originY = 0;
   SignatureRotation rotation = SignatureRotation.automatic;
@@ -121,6 +126,8 @@ VisibleSignatureInput layoutInput(const VisibleSignature visible, const PageGeom
   input.backgroundColor = visible.backgroundColor;
   input.hasImage = visible.image.length > 0;
   input.image = visible.imageSize;
+  input.imageBounds = visible.imageBounds;
+  input.imageAlpha = visible.imageAlpha;
   input.originX = visible.originX;
   input.originY = visible.originY;
   input.rotation = visible.rotation;

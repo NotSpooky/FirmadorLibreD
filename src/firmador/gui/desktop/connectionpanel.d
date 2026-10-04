@@ -111,10 +111,8 @@ final class ConnectionPanel : VerticalLayout {
     }));
     addChild(logHeader);
     log = new LogWidget("registro");
-    log.layoutWidth = FILL_PARENT;
-    log.minHeight = heightForLines(log, 5);
     log.maxHeight = heightForLines(log, 8);
-    addChild(log);
+    addChild(resizable(log, 5));
   }
 
   /// Repinta la lista y el detalle.
@@ -189,6 +187,7 @@ final class ConnectionPanel : VerticalLayout {
         if (remote) {
           settings.startFimadorRemote = checked;
           writeSettings(settings, true);
+          host.settingsChanged();
         } else {
           connection.setStartOn(checked);
           host.connections.save();
@@ -295,6 +294,7 @@ final class ConnectionPanel : VerticalLayout {
         host.showError(exception);
         return;
       }
+      host.settingsChanged();
       host.showNotification(t("connection_panel_delete_connection_done"), NotificationType.success);
       refreshAll();
     });

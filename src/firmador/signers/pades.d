@@ -45,30 +45,15 @@ import firmador.signers.documentsigner;
 import firmador.signers.resources;
 import firmador.util.datetime;
 
-/// Resolución con que se interpreta el tamaño configurado de la imagen (IMAGE_DPI en Java).
-enum int configuredImageDpi = 21;
-
-/// Tamaño en píxeles de la imagen configurada: el natural, o el pedido en ajustes pasado a 96 ppp.
-ImageSize configuredImageSize(immutable(ubyte)[] image, int configuredWidth, int configuredHeight) pure @safe {
-  auto natural = readImageSize(image);
-  if (configuredWidth == 0 || configuredHeight == 0) return natural;
-  // La versión Java reescalaba la imagen a este tamaño y la guardaba como PNG sin
-  // resolución, que DSS interpreta a 96 ppp.
-  ImageSize scaled;
-  scaled.width = cast(int) round(configuredWidth * 72.0 / configuredImageDpi);
-  scaled.height = cast(int) round(configuredHeight * 72.0 / configuredImageDpi);
-  scaled.dpiX = defaultImageDpi;
-  scaled.dpiY = defaultImageDpi;
-  return scaled;
-}
-
 /**
  * Firma visible según los ajustes de la aplicación (fuente, colores, posición del texto y
  * tamaño de imagen) y del documento (texto, imagen, origen, rotación y la escala elegida
  * en la vista previa), como appendVisibleSignature de la versión Java. `pageGeometry`
- * hace falta para corregir el origen con una rotación explícita.
+ * hace falta para corregir el origen con una rotación explícita. La imagen se encaja en la
+ * caja del texto, con la opacidad de los ajustes, en vez de agrandar el recuadro.
  *
- * Throws: Exception si la escala del documento está fuera de los límites de configuration.d.
+ * Throws: Exception si la escala del documento está fuera de los límites de configuration.d
+ *   o la opacidad de la imagen no está entre 0 y 100.
  */
 VisibleSignature visibleSignatureFor(const Settings appSettings, const Settings documentSettings,
     string text, immutable(ubyte)[] image, const PageGeometry pageGeometry) @safe {
@@ -85,10 +70,21 @@ VisibleSignature visibleSignatureFor(const Settings appSettings, const Settings 
   visible.position = appSettings.getFontAlignment();
   if (image.length) {
     visible.image = image;
-    auto imageSize = configuredImageSize(image, appSettings.signImageWidth, appSettings.signImageHeight);
-    imageSize.width = cast(int) round(imageSize.width * scale);
-    imageSize.height = cast(int) round(imageSize.height * scale);
-    visible.imageSize = imageSize;
+    enforce(appSettings.imageOpacity >= 0 && appSettings.imageOpacity <= 100,
+      format("La opacidad de la imagen (%d) debe ser un porcentaje de 0 a 100", appSettings.imageOpacity));
+    visible.imageAlpha = cast(ubyte) round(appSettings.imageOpacity * 255 / 100.0);
+    visible.imageSize = readImageSize(image);
+    string[] lines = javaLines(text);
+    if (lines.length) {
+      // La caja del texto se mide aunque sólo se muestre la imagen; ya crece con la escala por el tamaño de la letra.
+      VisibleSignature measured = visible;
+      measured.text = text;
+      visible.imageBounds = textBoxSize(lines, metricsFor(visible.font), visible.fontSize, encoderFor(measured));
+    } else {
+      // Sin texto que medir, la imagen queda con su tamaño natural por la escala elegida.
+      visible.imageSize.width = cast(int) round(visible.imageSize.width * scale);
+      visible.imageSize.height = cast(int) round(visible.imageSize.height * scale);
+    }
   }
   float originX = documentSettings.signXf.isNull ? documentSettings.signX : documentSettings.signXf.get;
   float originY = documentSettings.signYf.isNull ? documentSettings.signY : documentSettings.signYf.get;
@@ -205,14 +201,4 @@ immutable(ubyte)[] timestampPdf(GuiInterface gui, SigningServices services, immu
     gui.showError(exception);
     return null;
   }
-}
-
-@("should scale the configured image size to 96 dpi pixels like the Java resampling")
-unittest {
-  ubyte[] png = [0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 'I', 'H', 'D', 'R',
-    0, 0, 0, 200, 0, 0, 0, 100, 8, 6, 0, 0, 0, 0, 0, 0, 0];
-  auto natural = configuredImageSize(png.idup, 0, 10);
-  assert(natural.width == 200 && natural.height == 100);
-  auto scaled = configuredImageSize(png.idup, 7, 14);
-  assert(scaled.width == 24 && scaled.height == 48 && scaled.dpiX == 96);
 }

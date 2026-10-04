@@ -73,6 +73,8 @@
     <style id="SCROLLBAR" backgroundColor="#EEF0F3"/>
     <!-- SCROLLBAR_BUTTON es el indicador (la parte que se arrastra); las flechas usan SCROLLBAR_BUTTON_TRANSPARENT. -->
     <style id="SCROLLBAR_BUTTON" backgroundImageId="firmador_scroll_thumb"/>
+    <!-- El deslizador (la opacidad de la imagen en Configuración) usa el mismo indicador sobre el riel de las barras. -->
+    <style id="SLIDER" backgroundColor="#EEF0F3"/>
     <style id="COMBO_BOX"
         backgroundImageId="firmador_button"
         />
