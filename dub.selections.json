@@ -7,7 +7,7 @@
 		"bindbc-loader": "1.1.5",
 		"bindbc-opengl": "1.1.2",
 		"bindbc-sdl": "1.4.8",
-		"dlangui": {"repository":"git+https://github.com/NotSpooky/dlangui.git","version":"7389666fb2b2175b71320e4ed9f5874aeceedde7"},
+		"dlangui": {"repository":"git+https://github.com/NotSpooky/dlangui.git","version":"3d3385ab64c819f3781f258236b7b13cd26d831d"},
 		"dsfml": "2.1.1",
 		"glx-d": "1.1.0",
 		"icontheme": "1.2.3",
