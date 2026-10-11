@@ -13,6 +13,7 @@ compilar están en el [README](README.md#compilación).
 | `dub test` | Ejecuta las pruebas unitarias (bloques `unittest`) |
 | `dub run -- [documento…]` | Compila y abre la ventana |
 | Cambiar de dlangui | Es la copia con los arreglos de Win32 (`NotSpooky/dlangui`, rama `win32-fixes-0.10.8`), una dependencia git que dub clona: se cambia el commit en `dub.json`, `dub.selections.json` y el manifiesto de flatpak (la fuente de dlangui y su carpeta) |
+| `sh tools/macos/bundle.sh firmador.zip` | En macOS, después de `dub build --build=release`: arma `Firmador.app` en `.build/macos` con las bibliotecas de Homebrew adentro (necesita `dylibbundler`, `sdl2-compat` y `freetype` de Homebrew), lo firma ad hoc, prueba que arranque y lo comprime |
 | `sh tools/prebuild.sh` | Paso previo que dub ejecuta solo: cabeceras de C en `src/cinclude`, `.build/libfirmadorshim.a` y, en Windows, el ícono del `.exe` en `.build/firmador.res` (`CC`, `AR` y `RC` cambian el compilador, el archivador y el compilador de recursos) |
 
 
@@ -81,7 +82,7 @@ mismos argumentos; se instala con `flatpak install flathub org.flatpak.Builder`.
 | Linux (pruebas) | `dub test` con DMD y compilación optimizada con LDC, en Arch con los paquetes de su archivo de hace 7 días |
 | Linux (flatpak) | Construye el flatpak con el manifiesto de `packaging/linux/` |
 | Windows | `setup.ps1 -SkipBuild` y `build.ps1 -Test` en `windows-2022`; empaqueta lo de `bin\` sin `.pdb`. Las dependencias quedan guardadas entre ejecuciones mientras no cambien `common.ps1` ni `setup.ps1` |
-| macOS (Apple Silicon) | Pruebas y compilación con LDC y las bibliotecas de Homebrew, que el ejecutable necesita instaladas |
+| macOS (Apple Silicon) | Pruebas y compilación con LDC y las bibliotecas de Homebrew en `macos-26`; `tools/macos/bundle.sh` arma `Firmador.app` con esas bibliotecas (también SDL2, SDL3 y FreeType) adentro, firma ad hoc y prueba que arranque sin Homebrew. Sirve desde macOS 26 |
 
 Los paquetes se llaman `firmador_<linux|windows|macos>_<versión>.<flatpak|zip>`, con la versión
 `v_0_4_0` para la etiqueta `0.4.0` y `dev_<commit>` en las demás ejecuciones. Se descargan:

@@ -109,6 +109,9 @@ jobs:
   macos:
     name: macOS (Apple Silicon)
     needs: version
+    # Las bibliotecas de Homebrew que van en Firmador.app sólo corren desde la versión de
+    # macOS para la que se compilaron, la del runner: el paquete sirve desde macOS 26 (Tahoe).
+    # Con macos-15 serviría desde Sequoia (la más antigua con todas en Homebrew).
     runs-on: macos-26
     timeout-minutes: 45
     env:
@@ -118,7 +121,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Dependencias
-        run: brew install ldc dub mupdf libxml2 libxslt openssl@3 pkgconf
+        # sdl2-compat (SDL2 sobre SDL3) y freetype no se enlazan: dlangui los abre al crear la
+        # ventana y tools/macos/bundle.sh los pone en el paquete, con dylibbundler.
+        run: brew install ldc dub mupdf libxml2 libxslt openssl@3 pkgconf sdl2-compat freetype dylibbundler
       - name: pkg-config
         # mupdf no instala mupdf.pc, que tools/prebuild.sh necesita; libxml2, libxslt y
         # OpenSSL no se enlazan en el prefijo de Homebrew.
@@ -137,17 +142,20 @@ jobs:
             echo 'Cflags: -I${includedir}'
           } > "$RUNNER_TEMP/pkgconfig/mupdf.pc"
           paths="$RUNNER_TEMP/pkgconfig"
-          for formula in libxml2 libxslt openssl@3; do paths="$paths:$(brew --prefix "$formula")/lib/pkgconfig"; done
+          for formula in libxml2 libxslt openssl@3 sdl2-compat sdl3 freetype; do
+            paths="$paths:$(brew --prefix "$formula")/lib/pkgconfig"
+          done
           echo "PKG_CONFIG_PATH=$paths" >> "$GITHUB_ENV"
       - name: Pruebas
         run: dub test --compiler=ldc2
       - name: Compilación optimizada
         run: dub build --compiler=ldc2 --build=release
       - name: Paquete
-        # El ejecutable usa las bibliotecas de Homebrew instaladas arriba.
+        # Firmador.app con las bibliotecas de Homebrew adentro, firma ad hoc y una prueba de
+        # que arranca sin cargar nada de Homebrew.
         env:
           PACKAGE: firmador_macos_${{ needs.version.outputs.label }}
-        run: zip -j "$PACKAGE.zip" bin/firmador
+        run: sh tools/macos/bundle.sh "$PACKAGE.zip"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: firmador_macos_${{ needs.version.outputs.label }}

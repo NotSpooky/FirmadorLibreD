@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Info.plist de Firmador.app. tools/macos/bundle.sh completa CFBundleShortVersionString,
+     CFBundleVersion y LSMinimumSystemVersion a partir de resources/version.txt y de los
+     binarios del paquete. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleIdentifier</key>
+  <string>io.github.notspooky.firmadorlibred</string>
+  <key>CFBundleName</key>
+  <string>Firmador</string>
+  <key>CFBundleDisplayName</key>
+  <string>Firmador Libre</string>
+  <key>CFBundleExecutable</key>
+  <string>firmador</string>
+  <!-- packaging/macos/firmador.icns, el de la versión Java. -->
+  <key>CFBundleIconFile</key>
+  <string>firmador</string>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>es</string>
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright (C) Firmador authors. GPL-3.0-or-later.</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.productivity</string>
+  <!-- Enlaces firmador: de Firmador Remoto (src/firmador/gui/desktop/macurl.d). -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>io.github.notspooky.firmadorlibred</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>firmador</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>

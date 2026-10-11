@@ -28,7 +28,7 @@
   "dependencies": {
     "dlangui": {
       "repository": "git+https://github.com/NotSpooky/dlangui.git",
-      "version": "3d3385ab64c819f3781f258236b7b13cd26d831d"
+      "version": "758d34e2a6e496572c88947e5045d4852ed5630e"
     }
   },
   "subConfigurations": {

@@ -47,11 +47,38 @@ class CryptoException : Exception {
 private __gshared bool providersLoaded;
 
 /**
+ * Carpeta de los módulos de OpenSSL dentro de Firmador.app (tools/macos/bundle.sh), o null
+ * si el ejecutable no está en Contents/MacOS de un paquete.
+ * Params:
+ *   executable = ruta del ejecutable (thisExePath).
+ * Returns: …/Contents/Frameworks/ossl-modules, o null.
+ */
+string bundledOpenSslModules(string executable) pure @safe {
+  import std.path : baseName, buildPath, dirName;
+  string macos = dirName(executable);
+  string contents = dirName(macos);
+  if (baseName(macos) != "MacOS" || baseName(contents) != "Contents") return null;
+  return buildPath(contents, "Frameworks", "ossl-modules");
+}
+
+/**
  * Carga los proveedores default y legacy de OpenSSL 3. legacy hace falta para los
- * almacenes PKCS#12 antiguos (RC2-40); si no está instalado se sigue sin él.
+ * almacenes PKCS#12 antiguos (RC2-40); si no está instalado se sigue sin él. Dentro de
+ * Firmador.app se busca en el paquete y no en la ruta de Homebrew con que se compiló.
+ *
+ * Throws: CryptoException si no se puede cargar el proveedor default o usar la carpeta de
+ *   módulos del paquete.
  */
 void loadOpenSslProviders() @trusted {
   if (providersLoaded) return;
+  version (OSX) {
+    import std.file : thisExePath;
+    string modules = bundledOpenSslModules(thisExePath);
+    if (modules !is null) {
+      enforce!CryptoException(OSSL_PROVIDER_set_default_search_path(null, modules.toStringz) == 1,
+        format("No se pudo usar %s para los módulos de OpenSSL: %s", modules, openSslErrors()));
+    }
+  }
   enforce!CryptoException(OSSL_PROVIDER_load(null, "default") !is null,
     "No se pudo cargar el proveedor «default» de OpenSSL: " ~ openSslErrors());
   if (OSSL_PROVIDER_load(null, "legacy") is null) {
@@ -494,6 +521,16 @@ version (unittest) {
     CRYPTO_free(buffer, __FILE__.ptr, __LINE__);
     identity.key = new OpenSslPrivateKey(key);
     return identity;
+  }
+}
+
+@("should find the OpenSSL modules inside the app bundle only when running from one")
+unittest {
+  version (Posix) {
+    assert(bundledOpenSslModules("/Applications/Firmador.app/Contents/MacOS/firmador")
+      == "/Applications/Firmador.app/Contents/Frameworks/ossl-modules");
+    assert(bundledOpenSslModules("/Users/ana/FirmadorLibreD/bin/firmador") is null);
+    assert(bundledOpenSslModules("/tmp/MacOS/firmador") is null);
   }
 }
 

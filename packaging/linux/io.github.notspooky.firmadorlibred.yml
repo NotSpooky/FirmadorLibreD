@@ -163,8 +163,8 @@ modules:
       - type: git
         url: https://github.com/NotSpooky/dlangui.git
         branch: win32-fixes-0.10.8
-        commit: 3d3385ab64c819f3781f258236b7b13cd26d831d
-        dest: .dub-home/packages/dlangui/3d3385ab64c819f3781f258236b7b13cd26d831d/dlangui
+        commit: 758d34e2a6e496572c88947e5045d4852ed5630e
+        dest: .dub-home/packages/dlangui/758d34e2a6e496572c88947e5045d4852ed5630e/dlangui
       - type: git
         url: https://github.com/Jebbs/DSFML.git
         tag: v2.1.1

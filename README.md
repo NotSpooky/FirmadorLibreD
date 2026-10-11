@@ -182,13 +182,23 @@ los enlaces `firmador:` de Firmador Remoto) y los íconos. El resto de comandos 
 archivo `.flatpak` para publicar, diagnosticar…) está en [COMMANDS.md](COMMANDS.md).
 
 
+## Instalación en macOS
+
+El paquete `firmador_macos_….zip` de las publicaciones trae `Firmador.app` para Macs con
+Apple Silicon y macOS 26 (Tahoe) o posterior, con todas las bibliotecas que necesita.
+Se descomprime y se mueve `Firmador.app` a *Aplicaciones*. Como no lleva la firma de un
+desarrollador de Apple, la primera vez macOS no lo deja abrir: se autoriza en
+*Configuración del Sistema → Privacidad y seguridad → Abrir de todos modos*, o con
+`xattr -dr com.apple.quarantine /Applications/Firmador.app` en la Terminal.
+
+
 ## Pendiente (TODO)
 
 Lo principal; el detalle está en [PENDING.md](PENDING.md). Las mejoras del código
 (duplicados, núcleo funcional, errores que se tragan) están en [IMPROVEMENTS.md](IMPROVEMENTS.md).
 
-* **Empaquetado**: instalador de Windows y paquete `.app` de macOS (con el esquema
-  `firmador:` en su `Info.plist`). El flatpak de Linux está listo, falta publicarlo.
+* **Empaquetado**: instalador de Windows, y firma y notarización de Apple para el paquete
+  de macOS (hoy va con firma ad hoc). El flatpak de Linux está listo, falta publicarlo.
 * **Aviso de actualizaciones**: está desactivado (`releaseCheckEnabled` en
   `configuration.d`) hasta que apunte a las versiones publicadas de este repositorio.
 * **Probar en Windows y macOS**: el código para ambos está escrito (llavero del sistema,
@@ -216,6 +226,7 @@ firmador/
 ├── tools/prebuild.sh        Prepara las cabeceras de C y el puente con mupdf
 ├── packaging/linux/         Flatpak, entrada del menú, AppStream, íconos e instalador
 ├── packaging/windows/       Ícono del ejecutable de Windows
+├── packaging/macos/         Info.plist e ícono de Firmador.app (lo arma tools/macos/bundle.sh)
 └── src/
     ├── c/, shim/            Enlaces a bibliotecas de C (ImportC) y puente con mupdf
     └── firmador/
