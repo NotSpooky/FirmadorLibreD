@@ -61,7 +61,9 @@ import firmador.gui.desktop.window : DesktopInterface;
 import firmador.gui.guiinterface : NotificationType;
 import firmador.i18n : t;
 import firmador.launch : hideSignatureAdviceProperty, launchFlag, launchProperty, signatureImageProperty;
+import firmador.pdf.appearance : naturalBoxSize;
 import firmador.pdf.engine : PageGeometry;
+import firmador.pdf.pades : encoderFor, layoutInput;
 import firmador.pdf.sigpreview : renderSignaturePreview;
 import firmador.settings : Settings;
 import firmador.settingsmanager : currentSettings;
@@ -69,6 +71,37 @@ import firmador.signers.common : signatureTextFor;
 import firmador.signers.detector : SignatureFormat;
 import firmador.signers.pades : visibleSignatureFor;
 import firmador.signers.resources : loadSignatureImage;
+
+/// Firma visible dibujada para mostrarla en la ventana (renderSignature).
+struct RenderedSignature {
+  ColorDrawBuf buffer;
+  /// Tamaño de la caja en puntos visuales de la página.
+  float widthPoints;
+  float heightPoints;
+}
+
+/**
+ * Dibuja la firma visible de unos ajustes como quedará en una página con esa geometría: la
+ * que se coloca en la vista previa del documento (SignPanel) y la de Configuración
+ * (firmador.gui.desktop.configpanel). Lee la imagen de la firma y dibuja con mupdf, así que va
+ * en segundo plano.
+ * Params:
+ *   appSettings = ajustes de la aplicación (fuente, colores, posición y tamaño de la imagen).
+ *   documentSettings = ajustes del documento (imagen, rotación, escala).
+ *   text = texto de la firma (signatureTextFor).
+ *   geometry = geometría de la página.
+ *   scaleFor = píxeles por punto, según el tamaño natural de la caja (ancho y alto en puntos).
+ * Returns: la imagen de la firma y su tamaño.
+ * Throws: Exception si la imagen de la firma no se puede leer o mupdf no puede dibujarla.
+ */
+RenderedSignature renderSignature(const Settings appSettings, const Settings documentSettings, string text,
+    const PageGeometry geometry, scope float delegate(float[2] naturalPoints) scaleFor) @trusted {
+  auto image = loadSignatureImage(documentSettings.image);
+  auto visible = visibleSignatureFor(appSettings, documentSettings, text, image, geometry);
+  float scale = scaleFor(naturalBoxSize(layoutInput(visible, geometry), encoderFor(visible)));
+  auto preview = renderSignaturePreview(visible, geometry, scale);
+  return RenderedSignature(drawBufFromRaster(preview.raster), preview.widthPoints, preview.heightPoints);
+}
 
 /// Valores de rotación de la firma, en el orden del selector (ROTATION_VALUES).
 immutable string[] rotationValues = ["AUTOMATIC", "NONE", "ROTATE_90", "ROTATE_180", "ROTATE_270"];
@@ -745,13 +778,11 @@ final class SignPanel : VerticalLayout {
     int generation = ++previewGeneration;
     // Si falla (por ejemplo, la imagen de la firma no se puede leer) se avisa: la firma fallaría igual.
     runInBackground("No se pudo dibujar la vista previa de la firma", {
-      auto image = loadSignatureImage(documentSettings.image);
-      auto visible = visibleSignatureFor(appSettings, documentSettings, text, image, geometry);
-      auto preview = renderSignaturePreview(visible, geometry, scale);
-      auto buffer = drawBufFromRaster(preview.raster);
+      auto rendered = renderSignature(appSettings, documentSettings, text, geometry, (float[2] natural) => scale);
       runOnUi(() {
         if (generation != previewGeneration) return;
-        pages.setSignatureImage(buffer, preview.widthPoints, preview.heightPoints, documentSettings.signScale);
+        pages.setSignatureImage(rendered.buffer, rendered.widthPoints, rendered.heightPoints,
+          documentSettings.signScale);
         pages.showSignature(!withoutVisible.checked);
       });
     });

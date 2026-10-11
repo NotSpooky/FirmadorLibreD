@@ -118,6 +118,16 @@ enum long configApplyDelayMilliseconds = 500;
 /// Cambios de Configuración que se pueden deshacer.
 enum size_t configHistoryLimit = 100;
 
+/// Límites del tamaño de la imagen de la firma, en porcentaje de la caja del texto (Settings.imageScale).
+enum int minImageScale = 25;
+enum int maxImageScale = 400;
+
+/// Vista previa de la firma en Configuración: su escala respecto del 100 % de la vista previa
+/// de documentos, y el ancho y el alto máximos en puntos de la ventana (se achica para caber).
+enum float configSignaturePreviewZoom = 2;
+enum int configSignaturePreviewMaxWidth = 480;
+enum int configSignaturePreviewMaxHeight = 120;
+
 /// Límites del tamaño de la letra de la ventana, en puntos (Settings.uiFontSize).
 enum int minUiFontSize = 8;
 enum int maxUiFontSize = 20;

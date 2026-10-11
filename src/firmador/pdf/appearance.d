@@ -671,6 +671,30 @@ unittest {
   assert(content.indexOf("q\n/GS3 gs\n") >= 0);
 }
 
+@("should grow the box around an image bigger than the text box and keep the text centered on it")
+unittest {
+  VisibleSignatureInput input;
+  input.text = "LINEA UNO\nDOS";
+  input.fontSize = 10;
+  input.metrics = helveticaLike();
+  input.hasImage = true;
+  input.image = ImageSize(10, 10, 96, 96);
+  input.pageBox = PdfRect(0, 0, 612, 792);
+  float[2] textBox = textBoxSize(javaLines(input.text), input.metrics, input.fontSize, (line) => encodeForTest(line));
+  // Al doble de la caja del texto (55 x 33,12), la imagen cuadrada llega al doble de su alto.
+  input.imageBounds = [textBox[0] * 2, textBox[1] * 2];
+  float side = textBox[1] * 2;
+  input.position = SignerTextPosition.overImage;
+  auto behind = computeLayout(input, (line) => encodeForTest(line));
+  assert(abs(behind.boxWidth - side) < 0.001 && abs(behind.boxHeight - side) < 0.001);
+  assert(abs(behind.textBoxX - (side - 55) / 2) < 0.001 && abs(behind.textBoxY - (side - textBox[1]) / 2) < 0.001);
+  assert(abs(behind.imageX) < 0.001 && abs(behind.imageY) < 0.001);
+  input.position = SignerTextPosition.right;
+  auto beside = computeLayout(input, (line) => encodeForTest(line));
+  assert(abs(beside.boxWidth - (side + 55)) < 0.001 && abs(beside.boxHeight - side) < 0.001);
+  assert(abs(beside.textBoxX - side) < 0.001 && abs(beside.textBoxY - (side - textBox[1]) / 2) < 0.001);
+}
+
 @("should rotate the box around the page when the page itself is rotated")
 unittest {
   VisibleSignatureInput input;

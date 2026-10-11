@@ -38,7 +38,7 @@ import std.typecons : Nullable;
 import std.uni : icmp;
 
 import firmador.configuration : defaultRemotePort, remotePortRange, dummyPluginName, checkUpdatePluginName,
-  documentSignLogsPluginName, maxUiFontSize, minUiFontSize;
+  documentSignLogsPluginName, maxImageScale, maxUiFontSize, minImageScale, minUiFontSize;
 import firmador.i18n : t, translate;
 
 /// Nivel de firma AdES (baseline) que se aplica a cada formato.
@@ -108,6 +108,11 @@ final class Settings {
   int fontSize = 7;
   /// Opacidad de la imagen de la firma, en porcentaje (0 a 100); el texto siempre es opaco.
   int imageOpacity = 22;
+  /**
+   * Tamaño de la imagen de la firma, en porcentaje de la caja del texto en que se encaja: con
+   * 100 cabe en ella; más la agranda, y con ella el recuadro (límites en configuration.d).
+   */
+  int imageScale = 100;
   /**
    * Fuente de la firma visible. Desde Firmador Remoto también puede ser
    * «base64:nombre:datos» o «file:nombre:ruta» con una fuente TrueType.
@@ -527,7 +532,7 @@ private enum string[2][] propertyKeys = [
   ["cAdESLevel", "cadesLevel"], ["jAdESLevel", "jadesLevel"], ["sofficePath", "sofficePath"],
   ["language", "language"], ["country", "country"], ["startwindowstate", "startwindowstate"],
   ["themeMode", "themeMode"], ["uiFontSize", "uiFontSize"], ["showTrayNotifications", "showTrayNotifications"],
-  ["max_number_process_doc", "max_number_process_doc"], ["imageOpacity", "imageOpacity"],
+  ["max_number_process_doc", "max_number_process_doc"], ["imageOpacity", "imageOpacity"], ["imageScale", "imageScale"],
   ["startFimadorRemote", "startFimadorRemote"],
   ["allowOriginPort", "allowOriginPort"], ["preferredBrowser", "preferredBrowser"],
   ["registeredAllowedOrigins", "registeredAllowedOrigins"],
@@ -541,8 +546,9 @@ private enum string[2][] propertyKeys = [
  * Returns: el texto de «pdfimgscalefactor» si no es un decimal válido (se usa 1), para que
  *   quien llama lo registre; null si es válido.
  * Throws: ConvException si un número entero no se puede leer, como parseInt en Java;
- *   Exception si la opacidad de la imagen no está entre 0 y 100 o el tamaño de la letra de
- *   la ventana no está entre minUiFontSize y maxUiFontSize.
+ *   Exception si la opacidad de la imagen no está entre 0 y 100, su tamaño no está entre
+ *   minImageScale y maxImageScale o el de la letra de la ventana no está entre
+ *   minUiFontSize y maxUiFontSize.
  */
 string applyProperties(Settings conf, const string[string] props) pure @safe {
   string get(string key, string fallback) {
@@ -568,6 +574,8 @@ string applyProperties(Settings conf, const string[string] props) pure @safe {
   }}
   enforce(conf.imageOpacity >= 0 && conf.imageOpacity <= 100,
     format("imageOpacity debe ser un porcentaje de 0 a 100, no %d", conf.imageOpacity));
+  enforce(conf.imageScale >= minImageScale && conf.imageScale <= maxImageScale,
+    format("imageScale debe estar entre %d y %d, no %d", minImageScale, maxImageScale, conf.imageScale));
   enforce(conf.uiFontSize >= minUiFontSize && conf.uiFontSize <= maxUiFontSize,
     format("uiFontSize debe estar entre %d y %d puntos, no %d", minUiFontSize, maxUiFontSize, conf.uiFontSize));
   string advancedLogsRaw = get("advancedlogs", conf.advancedLogs);
@@ -736,6 +744,16 @@ unittest {
   assert(conf.getFontAlignment() == SignerTextPosition.overImage && conf.imageOpacity == 40);
   assertThrown(applyProperties(new Settings(), ["imageOpacity": "101"]));
   assertThrown(applyProperties(new Settings(), ["imageOpacity": "-1"]));
+}
+
+@("should read the image size and reject one outside the configured limits")
+unittest {
+  import std.conv : to;
+  import std.exception : assertThrown;
+  auto conf = new Settings();
+  assert(applyProperties(conf, ["imageScale": "250"]) is null && conf.imageScale == 250);
+  assertThrown(applyProperties(new Settings(), ["imageScale": (minImageScale - 1).to!string]));
+  assertThrown(applyProperties(new Settings(), ["imageScale": (maxImageScale + 1).to!string]));
 }
 
 @("should read the window font size and reject one outside the configured limits")

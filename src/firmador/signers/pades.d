@@ -31,7 +31,8 @@ import std.logger : error, info;
 import std.math : round;
 
 import firmador.cards.cardinfo : CardSignInfo;
-import firmador.configuration : maxSignatureScale, minSignatureScale, padesSignatureContentSize;
+import firmador.configuration : maxImageScale, maxSignatureScale, minImageScale, minSignatureScale,
+  padesSignatureContentSize;
 import firmador.gui.guiinterface;
 import firmador.i18n : t;
 import firmador.pdf.appearance;
@@ -50,10 +51,12 @@ import firmador.util.datetime;
  * tamaño de imagen) y del documento (texto, imagen, origen, rotación y la escala elegida
  * en la vista previa), como appendVisibleSignature de la versión Java. `pageGeometry`
  * hace falta para corregir el origen con una rotación explícita. La imagen se encaja en la
- * caja del texto, con la opacidad de los ajustes, en vez de agrandar el recuadro.
+ * caja del texto agrandada o achicada según imageScale (con 100 cabe justo), con la
+ * opacidad de los ajustes.
  *
- * Throws: Exception si la escala del documento está fuera de los límites de configuration.d
- *   o la opacidad de la imagen no está entre 0 y 100.
+ * Throws: Exception si la escala del documento está fuera de los límites de configuration.d,
+ *   la opacidad de la imagen no está entre 0 y 100 o su tamaño fuera de minImageScale y
+ *   maxImageScale.
  */
 VisibleSignature visibleSignatureFor(const Settings appSettings, const Settings documentSettings,
     string text, immutable(ubyte)[] image, const PageGeometry pageGeometry) @safe {
@@ -73,17 +76,21 @@ VisibleSignature visibleSignatureFor(const Settings appSettings, const Settings 
     enforce(appSettings.imageOpacity >= 0 && appSettings.imageOpacity <= 100,
       format("La opacidad de la imagen (%d) debe ser un porcentaje de 0 a 100", appSettings.imageOpacity));
     visible.imageAlpha = cast(ubyte) round(appSettings.imageOpacity * 255 / 100.0);
+    enforce(appSettings.imageScale >= minImageScale && appSettings.imageScale <= maxImageScale, format(
+      "El tamaño de la imagen (%d) debe estar entre %d y %d", appSettings.imageScale, minImageScale, maxImageScale));
+    float imageFactor = appSettings.imageScale / 100f;
     visible.imageSize = readImageSize(image);
     string[] lines = javaLines(text);
     if (lines.length) {
       // La caja del texto se mide aunque sólo se muestre la imagen; ya crece con la escala por el tamaño de la letra.
       VisibleSignature measured = visible;
       measured.text = text;
-      visible.imageBounds = textBoxSize(lines, metricsFor(visible.font), visible.fontSize, encoderFor(measured));
+      float[2] textBox = textBoxSize(lines, metricsFor(visible.font), visible.fontSize, encoderFor(measured));
+      visible.imageBounds = [textBox[0] * imageFactor, textBox[1] * imageFactor];
     } else {
       // Sin texto que medir, la imagen queda con su tamaño natural por la escala elegida.
-      visible.imageSize.width = cast(int) round(visible.imageSize.width * scale);
-      visible.imageSize.height = cast(int) round(visible.imageSize.height * scale);
+      visible.imageSize.width = cast(int) round(visible.imageSize.width * scale * imageFactor);
+      visible.imageSize.height = cast(int) round(visible.imageSize.height * scale * imageFactor);
     }
   }
   float originX = documentSettings.signXf.isNull ? documentSettings.signX : documentSettings.signXf.get;

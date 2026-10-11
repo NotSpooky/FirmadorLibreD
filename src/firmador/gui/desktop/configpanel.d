@@ -31,12 +31,13 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.gui.desktop.configpanel;
 
-import std.algorithm : canFind, clamp, map, remove;
+import std.algorithm : canFind, clamp, map, min, remove;
 import std.array : array, join, replace;
 import std.conv : ConvException, to;
 import std.exception : enforce;
 import std.format : format;
-import std.logger : error, info;
+import std.datetime.systime : Clock;
+import std.logger : error, info, warning;
 import std.path : baseName;
 import std.string : strip;
 import std.utf : toUTF32, toUTF8;
@@ -44,6 +45,8 @@ import std.utf : toUTF32, toUTF8;
 import dlangui.core.events : Action, KeyAction, KeyCode, KeyEvent, KeyFlag, ScrollAction, ScrollEvent;
 import dlangui.core.stdaction : StandardAction;
 import dlangui.core.types;
+import dlangui.graphics.drawbuf : ColorDrawBuf, DrawBufRef;
+import dlangui.graphics.resources : DrawableRef, ImageDrawable;
 import dlangui.widgets.combobox;
 import dlangui.widgets.controls;
 import dlangui.widgets.editors;
@@ -53,21 +56,25 @@ import dlangui.widgets.scrollbar : AbstractSlider, SliderWidget;
 import dlangui.widgets.widget;
 
 import firmador.cards.pkcs12store : normalizeStorePath, Pkcs12CardMetadata, Pkcs12CredentialStore, readPkcs12Metadata;
-import firmador.configuration : configApplyDelayMilliseconds, configHistoryLimit, maxUiFontSize, minUiFontSize;
+import firmador.configuration : configApplyDelayMilliseconds, configHistoryLimit, configSignaturePreviewMaxHeight,
+  configSignaturePreviewMaxWidth, configSignaturePreviewZoom, maxImageScale, maxUiFontSize, minImageScale,
+  minUiFontSize;
 import firmador.crypto.openssl : WrongPasswordException;
 import firmador.gui.desktop.common;
 import firmador.gui.desktop.dialogs;
 import firmador.gui.desktop.secretfield : SecretField;
 import firmador.gui.desktop.theme : ThemeColor, themeColor, themeModes;
 import firmador.gui.desktop.pageview : zoomIndexFor, zoomSettingValues;
-import firmador.gui.desktop.signpanel : rotationLabels, rotationValues, zoomLabels;
+import firmador.gui.desktop.signpanel : renderSignature, RenderedSignature, rotationLabels, rotationValues, zoomLabels;
+import firmador.gui.desktop.uithread : runInBackground, runOnUi;
 import firmador.gui.desktop.window : DesktopInterface;
 import firmador.gui.guiinterface : NotificationType;
 import firmador.i18n : t;
 import firmador.plugins.plugin : knownPluginNames;
 import firmador.settings : parseColor, Settings, settingsToProperties, splitHosts;
 import firmador.settingsmanager : currentSettings, replaceCurrentSettings, writeSettings;
-import firmador.signers.common : rootCause;
+import firmador.pdf.engine : PageGeometry, PdfRect;
+import firmador.signers.common : rootCause, signatureTextFor;
 
 /// Opciones de los selectores (las mismas listas de la versión Java).
 immutable string[] logLevels = ["OFF", "SEVERE", "WARNING", "INFO", "CONFIG", "FINE", "FINER", "FINEST", "ALL"];
@@ -172,9 +179,16 @@ final class ConfigPanel : VerticalLayout {
   private EditLine reason, place, contact, dateFormat, pageNumber, signX, signY, fontSize,
     fontColor, backgroundColor, imagePath, sofficePath, preferredBrowser, scaleFactor, pkcs11Library;
   private EditBox defaultSignMessage, allowedOrigins;
-  private PercentSlider imageOpacity;
-  /// El porcentaje de imageOpacity, a su lado.
-  private TextWidget imageOpacityLabel;
+  private PercentSlider imageOpacity, imageScale;
+  /// Vista previa de la firma (refreshPreview), sobre las opciones básicas.
+  private HorizontalLayout previewStrip;
+  /// Hoja blanca con la imagen de la firma, como en una página.
+  private VerticalLayout previewPaper;
+  private ImageWidget previewImage;
+  /// Por qué no se pudo dibujar la vista previa, en lugar de ella.
+  private TextWidget previewProblem;
+  /// Dibujo pedido más reciente: los anteriores que terminen después se descartan.
+  private int previewGeneration;
   private ComboBox font, fontPosition, rotation, zoom, language, windowState, themeMode, uiFontSize, logLevel,
     padesLevel, xadesLevel, cadesLevel, jadesLevel;
   private string[] pkcs12Files;
@@ -204,6 +218,9 @@ final class ConfigPanel : VerticalLayout {
     });
     top.addChild(switchButton);
     addChild(top);
+    // Fuera del desplazamiento: se ve al cambiar cualquier opción de la firma.
+    previewStrip = buildPreview();
+    addChild(previewStrip);
     basic = buildBasic();
     advanced = buildAdvanced();
     auto content = new VerticalLayout;
@@ -226,10 +243,12 @@ final class ConfigPanel : VerticalLayout {
     watchChanges();
     showProblem(null);
     showView();
+    refreshPreview();
   }
 
   private void showView() {
     basic.visibility = showingAdvanced ? Visibility.Gone : Visibility.Visible;
+    previewStrip.visibility = basic.visibility;
     advanced.visibility = showingAdvanced ? Visibility.Visible : Visibility.Gone;
     switchButton.text = dt(showingAdvanced ? "configpanel_basic_options" : "configpanel_advanced_options");
   }
@@ -245,6 +264,7 @@ final class ConfigPanel : VerticalLayout {
     redoHistory = null;
     load(currentSettings());
     showProblem(null);
+    refreshPreview();
   }
 
   /**
@@ -285,6 +305,93 @@ final class ConfigPanel : VerticalLayout {
     widget.layoutWidth = FILL_PARENT;
     table.addChild(widget);
     return widget;
+  }
+
+  /// Fila con un deslizador de porcentaje entre `minimum` y `maximum` y su valor al lado.
+  private PercentSlider percentRow(TableLayout table, string labelKey, string id, int minimum, int maximum) {
+    auto rowLayout = new HorizontalLayout;
+    auto valueLabel = new TextWidget(null, ""d);
+    valueLabel.minWidth = 48;
+    valueLabel.margins = Rect(8, 0, 0, 0);
+    auto slider = new PercentSlider(id, minimum, maximum, valueLabel);
+    slider.layoutWidth = FILL_PARENT;
+    slider.tooltipText = dt(labelKey);
+    rowLayout.addChild(slider);
+    rowLayout.addChild(valueLabel);
+    row(table, t(labelKey), rowLayout);
+    return slider;
+  }
+
+  /// Franja de la vista previa de la firma: su título y la hoja donde va la imagen.
+  private HorizontalLayout buildPreview() {
+    auto strip = new HorizontalLayout("vista-previa-firma");
+    strip.layoutWidth = FILL_PARENT;
+    strip.padding = Rect(10, 6, 10, 6);
+    auto title = new TextWidget(null, dt("configpanel_signature_preview"));
+    title.minWidth = 220;
+    strip.addChild(title);
+    previewPaper = new VerticalLayout;
+    // Blanca también en el tema oscuro, como las páginas del documento.
+    previewPaper.backgroundImageId = format("#border,#%06X,1,#FFFFFF", themeColor(ThemeColor.pageBorder) & 0xFFFFFF);
+    previewPaper.padding = Rect(8, 8, 8, 8);
+    previewImage = new ImageWidget("firma-vista-previa");
+    previewPaper.addChild(previewImage);
+    strip.addChild(previewPaper);
+    previewProblem = new MultilineTextWidget("firma-vista-previa-problema");
+    previewProblem.textColor = themeColor(ThemeColor.errorText);
+    previewProblem.layoutWidth = FILL_PARENT;
+    previewProblem.visibility = Visibility.Gone;
+    strip.addChild(previewProblem);
+    return strip;
+  }
+
+  /**
+   * Vuelve a dibujar en segundo plano la vista previa con la configuración vigente y los datos
+   * de ejemplo de la pestaña de firmar (sin tarjeta). Se ve a configSignaturePreviewZoom de la
+   * vista previa de documentos, achicada para no pasar de configSignaturePreviewMaxWidth por
+   * configSignaturePreviewMaxHeight. Si no se puede dibujar (una imagen que no se puede leer,
+   * por ejemplo), lo dice en su lugar.
+   */
+  private void refreshPreview() {
+    auto settings = copyOf(currentSettings());
+    string text = signatureTextFor(t("signpanel_name_person"), t("signpanel_type_person"), "XXX-XXXXXXXXXXXX", settings,
+      settings, Clock.currTime);
+    PageGeometry geometry;
+    // Carta: sólo sirve para dibujar la firma, que no depende del tamaño de la página.
+    geometry.mediaBox = PdfRect(0, 0, 612, 792);
+    geometry.cropBox = geometry.mediaBox;
+    float zoomScale = configSignaturePreviewZoom * SCREEN_DPI / 96f;
+    float maxWidth = pointsToPixels(configSignaturePreviewMaxWidth);
+    float maxHeight = pointsToPixels(configSignaturePreviewMaxHeight);
+    int generation = ++previewGeneration;
+    runInBackground("No se pudo dibujar la vista previa de la firma en Configuración", {
+      ColorDrawBuf buffer;
+      string problem;
+      try {
+        buffer = renderSignature(settings, settings, text, geometry, (float[2] natural) =>
+          min(zoomScale, maxWidth / natural[0], maxHeight / natural[1])).buffer;
+      } catch (Exception exception) {
+        problem = rootCause(exception).msg;
+        warning("No se pudo dibujar la vista previa de la firma en Configuración: ", problem);
+      }
+      runOnUi(() {
+        if (generation != previewGeneration) return;
+        showPreview(buffer, problem);
+      });
+    });
+  }
+
+  /// Muestra la firma dibujada, o sin ella el problema que lo impidió.
+  private void showPreview(ColorDrawBuf buffer, string problem) {
+    previewPaper.visibility = problem is null ? Visibility.Visible : Visibility.Gone;
+    previewProblem.visibility = problem is null ? Visibility.Gone : Visibility.Visible;
+    if (problem is null) {
+      DrawBufRef reference = buffer;
+      previewImage.drawable = DrawableRef(new ImageDrawable(reference));
+      previewImage.requestLayout();
+    } else {
+      previewProblem.text = (t("configpanel_signature_preview_error") ~ ": " ~ problem).toUTF32;
+    }
   }
 
   private EditLine field(TableLayout table, string labelKey) {
@@ -364,16 +471,9 @@ final class ConfigPanel : VerticalLayout {
     backgroundColor = field(table, "configpanel_background_color");
     backgroundColor.tooltipText = tip("configpanel_use_the_word_transparent_if_you_do_not_want_a_background_color");
     imagePath = pathField(table, t("configpanel_signature_image"), "configpanel_select_an_image");
-    auto opacityRow = new HorizontalLayout;
-    imageOpacity = new PercentSlider("opacidad-imagen");
-    imageOpacity.layoutWidth = FILL_PARENT;
-    imageOpacity.tooltipText = dt("configpanel_image_opacity");
-    opacityRow.addChild(imageOpacity);
-    imageOpacityLabel = new TextWidget(null, ""d);
-    imageOpacityLabel.minWidth = 48;
-    imageOpacityLabel.margins = Rect(8, 0, 0, 0);
-    opacityRow.addChild(imageOpacityLabel);
-    row(table, t("configpanel_image_opacity"), opacityRow);
+    imageOpacity = percentRow(table, "configpanel_image_opacity", "opacidad-imagen", 0, 100);
+    imageScale = percentRow(table, "configpanel_image_scale", "tamano-imagen", minImageScale, maxImageScale);
+    imageScale.tooltipText = tip("configpanel_image_scale_tooltip");
     rotation = combo(table, t("configpanel_sign_rotation"), rotationLabels());
     zoom = combo(table, t("configpanel_preview_zoom"), zoomLabels());
     language = combo(table, t("configpanel_language"), plain(languages));
@@ -541,7 +641,7 @@ final class ConfigPanel : VerticalLayout {
     backgroundColor.text = settings.backgroundColor.toUTF32;
     imagePath.text = settings.image.toUTF32;
     imageOpacity.value = settings.imageOpacity;
-    showOpacity(settings.imageOpacity);
+    imageScale.value = settings.imageScale;
     select(rotation, rotationValues, settings.signRotation);
     zoom.selectedItemIndex = zoomIndexFor(settings.previewZoom);
     select(language, languages, settings.language);
@@ -597,15 +697,8 @@ final class ConfigPanel : VerticalLayout {
     ComboBox[] combos = [font, fontPosition, rotation, zoom, language, windowState, themeMode, uiFontSize, logLevel,
       padesLevel, xadesLevel, cadesLevel, jadesLevel];
     foreach (box; combos) box.itemClick = (Widget source, int index) { applyChange(); return true; };
-    // Al arrastrarlo llegan muchos valores seguidos: se aplica como lo escrito, al detenerse.
-    imageOpacity.onChange = (int percent) {
-      showOpacity(percent);
-      scheduleApply();
-    };
-  }
-
-  private void showOpacity(int percent) {
-    imageOpacityLabel.text = format("%d %%", percent).toUTF32;
+    // Al arrastrarlos llegan muchos valores seguidos: se aplican como lo escrito, al detenerse.
+    foreach (slider; [imageOpacity, imageScale]) slider.onChange = (int percent) { scheduleApply(); };
   }
 
   /// Aplica lo escrito poco después de la última tecla (configApplyDelayMilliseconds).
@@ -765,6 +858,7 @@ final class ConfigPanel : VerticalLayout {
       host.showNotification(t("configpanel_language_applied_on_restart"), NotificationType.info);
     }
     info("Configuración guardada y aplicada desde la ventana");
+    refreshPreview();
     return ApplyOutcome.applied;
   }
 
@@ -822,6 +916,7 @@ final class ConfigPanel : VerticalLayout {
     settings.signYf.nullify();
     settings.fontSize = integerField(fontSize.text.toUTF8, t("configpanel_font_size"));
     settings.imageOpacity = imageOpacity.position;
+    settings.imageScale = imageScale.position;
     settings.font = valueAt(signatureFonts(), font.selectedItemIndex);
     settings.fontAlignment = valueAt(fontPositions, fontPosition.selectedItemIndex);
     string textColor = fontColor.text.toUTF8.strip;
@@ -892,30 +987,37 @@ final class ConfigPanel : VerticalLayout {
 }
 
 /**
- * Deslizador de porcentaje, de 0 a 100, que también se mueve con el teclado: las flechas de
- * a 1, Re Pág y Av Pág de a 10, Inicio y Fin a los extremos. Los clics a los lados del
- * indicador también lo mueven de a 10.
+ * Deslizador de porcentaje entre un mínimo y un máximo, con su valor en un rótulo aparte, que
+ * también se mueve con el teclado: las flechas de a 1, Re Pág y Av Pág de a 10, Inicio y Fin a
+ * los extremos. Los clics a los lados del indicador también lo mueven de a 10.
  */
 private final class PercentSlider : SliderWidget {
   /// Se llama con el porcentaje cada vez que el usuario lo cambia.
   void delegate(int percent) onChange;
+  private int minimum, maximum;
+  /// Muestra el porcentaje, junto al deslizador.
+  private TextWidget valueLabel;
   /**
    * Último porcentaje avisado o puesto con `value`. Al arrastrar, SliderWidget cambia la
    * posición antes de avisar, así que el cambio se mide contra este y no contra `position`.
    */
   private int lastValue;
 
-  this(string id) @trusted {
+  this(string id, int minimum, int maximum, TextWidget valueLabel) @trusted {
+    assert(minimum < maximum, format("Rango vacío del deslizador %s: %d a %d", id, minimum, maximum));
     super(id, Orientation.Horizontal);
+    this.minimum = minimum;
+    this.maximum = maximum;
+    this.valueLabel = valueLabel;
     // La posición llega hasta maxValue - pageSize, y SliderWidget deja pageSize en 1.
-    minValue = 0;
-    maxValue = 101;
+    minValue = minimum;
+    maxValue = maximum + 1;
     focusable = true;
     scrollEvent = (AbstractSlider source, ScrollEvent event) {
       int target = event.position;
       if (event.action == ScrollAction.PageUp) target -= 10;
       else if (event.action == ScrollAction.PageDown) target += 10;
-      target = clamp(target, 0, 100);
+      target = clamp(target, minimum, maximum);
       // sendScrollEvent toma la posición del evento después de este manejador.
       event.position = target;
       report(target);
@@ -925,15 +1027,21 @@ private final class PercentSlider : SliderWidget {
 
   /// Pone el porcentaje sin avisarlo (al mostrar la configuración).
   void value(int percent) {
-    lastValue = clamp(percent, 0, 100);
+    lastValue = clamp(percent, minimum, maximum);
     position = lastValue;
+    show(lastValue);
   }
 
   /// Avisa el porcentaje si cambió desde el último aviso.
   private void report(int percent) {
     if (percent == lastValue) return;
     lastValue = percent;
+    show(percent);
     if (onChange !is null) onChange(percent);
+  }
+
+  private void show(int percent) {
+    valueLabel.text = format("%d %%", percent).toUTF32;
   }
 
   override bool onKeyEvent(KeyEvent event) {
@@ -944,11 +1052,11 @@ private final class PercentSlider : SliderWidget {
       case RIGHT, UP: target += 1; break;
       case PAGEDOWN: target -= 10; break;
       case PAGEUP: target += 10; break;
-      case HOME: target = 0; break;
-      case END: target = 100; break;
+      case HOME: target = minimum; break;
+      case END: target = maximum; break;
       default: return super.onKeyEvent(event);
     }
-    target = clamp(target, 0, 100);
+    target = clamp(target, minimum, maximum);
     position = target;
     report(target);
     return true;
