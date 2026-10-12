@@ -6,6 +6,10 @@
 build-dir/
 .flatpak-builder/
 *.flatpak
+# Paquetes de Windows y macOS (tools/windows/installer.ps1, tools/macos/bundle.sh, CI)
+*.msi
+*.wixpdb
+/firmador_*.zip
 repository/
 .idea
 *.patch

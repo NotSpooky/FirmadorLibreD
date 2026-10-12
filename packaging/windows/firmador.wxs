@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Instalador de Firmador Libre para Windows (WiX 5). tools/windows/installer.ps1 lo compila con
+  lo que build.ps1 deja en bin\ y la CI lo publica como firmador_windows_<versión>.msi
+  (@contract release-artifacts); la actualización automática (firmador.plugins.checkupdate) lo
+  descarga y lo ejecuta con «msiexec /i … /passive».
+
+  * Se instala para el usuario, sin permisos de administrador: Scope="perUserOrMachine" pone
+    ALLUSERS=2 y MSIINSTALLPERUSER=1, y Windows lleva la carpeta de programas a
+    %LOCALAPPDATA%\Programs\Firmador Libre. Un administrador puede instalarlo para todos con
+    «msiexec /i firmador.msi ALLUSERS=1».
+  * Una versión nueva reemplaza a la anterior (MajorUpgrade); una más vieja no se instala.
+  * Registra el acceso en el menú Inicio, los enlaces firmador: de Firmador Remoto
+    (src/firmador/launch.d recibe «firmador:<origen>» como argumento) y «Abrir con» para los
+    documentos que firma, los mismos que la entrada de Linux
+    (packaging/linux/io.github.notspooky.firmadorlibred.desktop). Lo deshace al desinstalar.
+  * Al terminar abre Firmador, salvo con LAUNCHFIRMADOR=0 (instalaciones desatendidas).
+
+  Variables: Version (X.Y.Z) y la ruta enlazada «bin» (la carpeta con firmador.exe y sus DLL).
+  UpgradeCode identifica al producto en todas sus versiones: si cambia, Windows deja de ver la
+  instalada como versión anterior y no la reemplaza.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package UpgradeCode="33027bde-e6ed-4bc7-9a86-f4ff67345f06"
+           Name="Firmador Libre"
+           Manufacturer="Autores de Firmador"
+           Version="$(Version)"
+           Language="5130"
+           Codepage="1252"
+           Scope="perUserOrMachine">
+    <MajorUpgrade DowngradeErrorMessage="Ya está instalada una versión más nueva de Firmador Libre." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Datos de «Aplicaciones instaladas». -->
+    <Icon Id="firmador.ico" SourceFile="$(sys.SOURCEFILEDIR)firmador.ico" />
+    <Property Id="ARPPRODUCTICON" Value="firmador.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/NotSpooky/FirmadorLibreD" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/NotSpooky/FirmadorLibreD/issues" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <Property Id="LAUNCHFIRMADOR" Value="1" Secure="yes" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="Firmador Libre">
+        <Component Id="FirmadorExecutable">
+          <File Id="FirmadorExe" Source="!(bindpath.bin)\firmador.exe" KeyPath="yes" />
+        </Component>
+        <!-- Las DLL de vcpkg, libcurl y el runtime de Visual C++ que build.ps1 deja junto al programa. -->
+        <Files Include="!(bindpath.bin)\*.dll" />
+        <Files Include="!(bindpath.bin)\curl-ca-bundle.crt" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Lo que se registra en el sistema: va en un componente propio cuya clave es un valor del
+         registro (HKMU: del usuario o de la máquina, según cómo se instaló). La actualización
+         automática lee InstallFolder para saber si Firmador se instaló con este paquete. -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="Integration">
+        <RegistryValue Root="HKMU" Key="Software\Firmador Libre" Name="InstallFolder" Type="string"
+                       Value="[INSTALLFOLDER]" KeyPath="yes" />
+        <Shortcut Id="StartMenuShortcut" Name="Firmador Libre" Description="Firmar y validar documentos"
+                  Target="[#FirmadorExe]" WorkingDirectory="INSTALLFOLDER" />
+
+        <!-- Enlaces firmador: de las páginas que usan Firmador Remoto. -->
+        <RegistryKey Root="HKMU" Key="Software\Classes\firmador">
+          <RegistryValue Type="string" Value="URL:Firmador Remoto" />
+          <RegistryValue Name="URL Protocol" Type="string" Value="" />
+          <RegistryValue Key="DefaultIcon" Type="string" Value="&quot;[#FirmadorExe]&quot;,0" />
+          <RegistryValue Key="shell\open\command" Type="string" Value="&quot;[#FirmadorExe]&quot; &quot;%1&quot;" />
+        </RegistryKey>
+
+        <!-- «Abrir con»: sin quitar el programa que cada tipo de documento ya tiene asignado. -->
+        <RegistryKey Root="HKMU" Key="Software\Classes\FirmadorLibre.Documento">
+          <RegistryValue Type="string" Value="Documento para firmar" />
+          <RegistryValue Key="DefaultIcon" Type="string" Value="&quot;[#FirmadorExe]&quot;,0" />
+          <RegistryValue Key="shell\open\command" Type="string" Value="&quot;[#FirmadorExe]&quot; &quot;%1&quot;" />
+        </RegistryKey>
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\firmador.exe" Name="FriendlyAppName"
+                       Type="string" Value="Firmador Libre" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.pdf\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.odt\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.ods\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.odp\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.odg\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.docx\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.xlsx\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.pptx\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.asice\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.sce\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+      </Component>
+    </StandardDirectory>
+
+    <!-- Abre Firmador al terminar una instalación o una actualización (no al reparar ni al
+         desinstalar), sin que el instalador lo espere. -->
+    <CustomAction Id="LaunchFirmador" Directory="INSTALLFOLDER" ExeCommand="&quot;[#FirmadorExe]&quot;"
+                  Return="asyncNoWait" />
+    <InstallExecuteSequence>
+      <Custom Action="LaunchFirmador" After="InstallFinalize" Condition="LAUNCHFIRMADOR = 1 AND NOT Installed" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

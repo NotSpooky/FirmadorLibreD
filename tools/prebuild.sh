@@ -23,8 +23,9 @@
 # puente con mupdf (src/shim/mupdfshim.c), que usa setjmp/longjmp y por eso no puede
 # compilarse con ImportC. En Windows lo compila clang para MSVC con el runtime de C en DLL
 # (/MD), como libmupdf.lib y las bibliotecas de vcpkg (tools/windows/build.ps1), y compila
-# con llvm-rc los recursos del ejecutable (packaging/windows/firmador.rc, su ícono). CC, AR y
-# RC cambian el compilador, el archivador y el compilador de recursos. Ver COMMANDS.md.
+# con llvm-rc los recursos del ejecutable (packaging/windows/firmador.rc: el ícono y los datos
+# de la versión de resources/version.txt). CC, AR y RC cambian el compilador, el archivador y
+# el compilador de recursos. Ver COMMANDS.md.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -109,8 +110,39 @@ rm -f "$out/libfirmadorshim.a"
 # shellcheck disable=SC2086
 "$ar" rcs $archive_flags "$out/libfirmadorshim.a" "$out/mupdfshim.o"
 
-# El ícono de firmador.exe: dub.json le pasa el .res al enlazador (lflags-windows). Sin
-# preprocesar, el .rc no necesita las cabeceras del SDK de Windows.
+# El ícono y los datos de la versión de firmador.exe: dub.json le pasa el .res al enlazador
+# (lflags-windows). Sin preprocesar, el .rc no necesita las cabeceras del SDK de Windows, así
+# que la versión se escribe en la plantilla antes de compilarla.
 if [ "$windows" = true ]; then
-  "${RC:-llvm-rc}" -no-preprocess -fo "$out/firmador.res" "$root/packaging/windows/firmador.rc"
+  version="$(tr -d '[:space:]' < "$root/resources/version.txt")"
+  case "$version" in
+    *[!0-9A-Za-z.-]*|"")
+      echo "prebuild: resources/version.txt no es una versión X.Y.Z[-sufijo]: '$version'" >&2
+      exit 1
+      ;;
+  esac
+  core="${version%%-*}"
+  case "$core" in
+    *.*.*) ;;
+    *)
+      echo "prebuild: la versión '$version' no empieza con X.Y.Z numéricos" >&2
+      exit 1
+      ;;
+  esac
+  major="${core%%.*}"
+  rest="${core#*.}"
+  minor="${rest%%.*}"
+  patch="${rest#*.}"
+  for part in "$major" "$minor" "$patch"; do
+    case "$part" in
+      ""|*[!0-9]*)
+        echo "prebuild: la versión '$version' no empieza con X.Y.Z numéricos" >&2
+        exit 1
+        ;;
+    esac
+  done
+  # La ruta del ícono es relativa a .build, donde queda el .rc completo.
+  sed -e "s|@ICON@|../packaging/windows/firmador.ico|" -e "s|@VERSION@|$version|g" \
+    -e "s|@VERSION_COMMA@|$major,$minor,$patch,0|g" "$root/packaging/windows/firmador.rc" > "$out/firmador.rc"
+  "${RC:-llvm-rc}" -no-preprocess -fo "$out/firmador.res" "$out/firmador.rc"
 fi

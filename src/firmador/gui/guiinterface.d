@@ -65,6 +65,13 @@ interface GuiInterface {
   /// Aviso breve (en los modos de consola va a la bitácora).
   void showNotification(string message, NotificationType type) @safe;
 
+  /**
+   * Cierra la aplicación aunque esté en segundo plano, por ejemplo para que una actualización
+   * la reemplace (firmador.plugins.checkupdate). Se puede llamar desde cualquier hilo; los
+   * modos sin ventana no tienen nada que cerrar.
+   */
+  void closeApplication() @safe;
+
   /// Terminó la vista previa del documento.
   void previewDone(Document document) @safe;
   /// Terminó la validación del documento.

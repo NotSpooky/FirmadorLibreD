@@ -116,6 +116,11 @@ mixin template ConsoleInterface() {
     return false;
   }
 
+  /// Termina cuando termina la orden: no hay ventana que cerrar.
+  void closeApplication() @safe {
+    info("Sin ventana que cerrar");
+  }
+
   // Sin vista previa, lista ni progreso: no hay nada que actualizar.
   void previewDone(Document document) @safe {}
   void validateDone(Document document) @safe {}

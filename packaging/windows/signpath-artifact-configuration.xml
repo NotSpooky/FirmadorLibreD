@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Configuración de artefacto de SignPath para las versiones de Windows: se copia en el
+  proyecto de SignPath (Artifact configurations) y la CI la usa al firmar
+  (.github/workflows/ci.yml, paso «Firma con SignPath»).
+
+  La CI sube como artefacto el ZIP y el instalador de la versión (GitHub los entrega dentro de
+  otro ZIP): se firma firmador.exe en los dos, y después el instalador. Sólo firmador.exe,
+  que se compila desde este repositorio: las DLL de vcpkg, libcurl y el runtime de Visual C++
+  van como sus autores las publican, como piden las condiciones de SignPath Foundation.
+
+  Los datos que se exigen salen de packaging/windows/firmador.rc (el .exe) y de
+  packaging/windows/firmador.wxs (el instalador); «version» es la versión publicada, que la CI
+  pasa como parámetro.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <zip-file path="firmador_windows_*.zip">
+      <pe-file path="firmador.exe" product-name="Firmador Libre" product-version="${version}"
+               file-version="${version}" company-name="Autores de Firmador" original-filename="firmador.exe">
+        <authenticode-sign />
+      </pe-file>
+    </zip-file>
+    <msi-file path="firmador_windows_*.msi" subject="Firmador Libre" author="Autores de Firmador">
+      <pe-file path="**/firmador.exe" product-name="Firmador Libre" product-version="${version}"
+               file-version="${version}" company-name="Autores de Firmador" original-filename="firmador.exe">
+        <authenticode-sign />
+      </pe-file>
+      <authenticode-sign />
+    </msi-file>
+  </zip-file>
+</artifact-configuration>

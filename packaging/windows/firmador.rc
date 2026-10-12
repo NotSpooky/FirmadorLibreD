@@ -1,6 +1,39 @@
 /* Recursos de Windows de firmador.exe: el ícono de la versión Java (build/windows/firmador.ico
  * de https://codeberg.org/firmador/firmador), que el Explorador y la barra de tareas muestran
- * para el ejecutable. tools/prebuild.sh lo compila con llvm-rc a .build/firmador.res, que dub.json
- * le pasa al enlazador (lflags-windows). */
+ * para el ejecutable, y los datos de la versión que muestran sus propiedades (y que SignPath
+ * exige iguales en cada versión firmada: packaging/windows/signpath-artifact-configuration.xml).
+ * Es una plantilla: tools/prebuild.sh cambia @ICON@, @VERSION@ y @VERSION_COMMA@ según
+ * resources/version.txt, deja el resultado en .build/firmador.rc y lo compila con llvm-rc a
+ * .build/firmador.res, que dub.json le pasa al enlazador (lflags-windows). Sólo ASCII: llvm-rc
+ * no preprocesa el archivo. */
 
-1 ICON "firmador.ico"
+1 ICON "@ICON@"
+
+1 VERSIONINFO
+FILEVERSION @VERSION_COMMA@
+PRODUCTVERSION @VERSION_COMMA@
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS 0x40004L
+FILETYPE 0x1L
+FILESUBTYPE 0x0L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "140a04b0"
+    BEGIN
+      VALUE "CompanyName", "Autores de Firmador"
+      VALUE "FileDescription", "Firmador Libre"
+      VALUE "FileVersion", "@VERSION@"
+      VALUE "InternalName", "firmador"
+      VALUE "LegalCopyright", "Copyright (C) Autores de Firmador. GPL-3.0-or-later"
+      VALUE "OriginalFilename", "firmador.exe"
+      VALUE "ProductName", "Firmador Libre"
+      VALUE "ProductVersion", "@VERSION@"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x140a, 1200
+  END
+END

@@ -19,7 +19,8 @@
 # along with Firmador.  If not, see <http://www.gnu.org/licenses/>.
 
 # Arma Firmador.app a partir de bin/firmador (dub build) y lo comprime en el ZIP que se
-# indica, para que funcione en una Mac sin Homebrew:
+# indica (con Firmador.app/Contents/… adentro, como lo espera la actualización automática:
+# @contract release-artifacts), para que funcione en una Mac sin Homebrew:
 # * Contents/Frameworks: las bibliotecas de Homebrew que el ejecutable enlaza (mupdf,
 #   libxml2, libxslt, OpenSSL y las suyas), con sus rutas cambiadas a @executable_path.
 # * SDL2 (sdl2-compat), SDL3 y FreeType, que dlangui no enlaza sino que abre al arrancar la

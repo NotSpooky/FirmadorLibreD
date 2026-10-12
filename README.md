@@ -1,59 +1,108 @@
-# Firmador Libre (versión en D)
+# Firmador Libre
 
-Herramienta de escritorio para firmar y validar documentos según la [Política de
-Formatos Oficiales de los Documentos Electrónicos Firmados Digitalmente](https://www.mifirmadigital.go.cr/)
-de Costa Rica: PDF (PAdES), XML (XAdES), JSON (JAdES), contenedores ASiC-E, OpenDocument,
-Office (OOXML) y firmas CMS (CAdES), con tarjetas de firma digital o almacenes PKCS#12.
+[![CI](https://github.com/NotSpooky/FirmadorLibreD/actions/workflows/ci.yml/badge.svg)](https://github.com/NotSpooky/FirmadorLibreD/actions/workflows/ci.yml)
 
-Esta es una migración del programa original de Java a [D](https://dlang.org/), sin
-máquina virtual de Java: un solo ejecutable nativo que usa bibliotecas de C conocidas
-(mupdf, OpenSSL, libxml2, libcurl, PC/SC) y una interfaz gráfica hecha con
-[dlangui](https://github.com/buggins/dlangui).
+Firme y valide documentos con su tarjeta de firma digital de Costa Rica, en Windows, macOS
+y Linux. Firmador Libre firma según la [Política de Formatos Oficiales de los Documentos
+Electrónicos Firmados Digitalmente](https://www.mifirmadigital.go.cr/): PDF (PAdES), XML
+(XAdES), JSON (JAdES), contenedores ASiC-E, OpenDocument, Office (OOXML) y firmas CMS
+(CAdES), con tarjetas de firma digital o con almacenes PKCS#12 (`.p12`/`.pfx`).
+
+Es una versión de [Firmador](https://firmador.libre.cr) reescrita en
+[D](https://dlang.org/): un programa nativo, sin Java, más rápido y con una interfaz
+renovada, que usa la misma configuración y atiende a las mismas páginas que la versión en
+Java.
+
+![Firmador Libre con un contrato abierto: la firma, con el nombre de la persona, la fecha, la razón y el lugar, quedó dentro del campo de firma «La Contratista» del PDF](screenshots/firma-en-campo.png)
 
 
-## Créditos
+## Descargar e instalar
 
-Firmador fue creado y es mantenido por sus autores originales:
+Los paquetes de cada versión están en
+[Releases](https://github.com/NotSpooky/FirmadorLibreD/releases). Para firmar hace falta
+además la tarjeta con su lector y los controladores de
+[Soporte Firma Digital](https://soportefirmadigital.com/sfdj/dl.aspx), o un almacén PKCS#12.
 
-* Francisco de la Peña Fernández
-* Luis Zárate Montero
-* Victor Jiménez
+**Windows 10 u 11 (64 bits).** Descargue `firmador_windows_….msi` y ábralo: se instala
+para su usuario, sin pedir permisos de administrador, y queda en el menú Inicio. Desde ahí
+Firmador se actualiza solo: cuando sale una versión nueva, pregunta si instalarla y vuelve
+a abrirse con ella. También registra los enlaces `firmador:` de Firmador Remoto y la opción
+*Abrir con → Firmador Libre* para los documentos que firma. Se desinstala desde
+*Configuración → Aplicaciones*. Si prefiere no instalar nada, el `firmador_windows_….zip`
+trae el mismo programa para usarlo desde una carpeta.
 
-y por quienes han contribuido al proyecto a lo largo de los años (ver [AUTHORS.md](AUTHORS.md)).
-La versión en D es obra de Christian Durán Carvajal.
+**macOS 26 o posterior (Apple Silicon).** Descargue `firmador_macos_….zip`, descomprímalo
+y mueva `Firmador.app` a *Aplicaciones*. Como no lleva la firma de un desarrollador de
+Apple, la primera vez macOS no lo deja abrir: autorícelo en *Configuración del Sistema →
+Privacidad y seguridad → Abrir de todos modos* (o con
+`xattr -dr com.apple.quarantine /Applications/Firmador.app` en la Terminal). También se
+actualiza solo.
 
-* Sitio del proyecto: <https://firmador.libre.cr>
-* Código original (Java): <https://codeberg.org/firmador/firmador>
+**Linux.** Descargue `firmador_linux_….flatpak` e instálelo; usa el runtime de
+freedesktop de Flathub:
 
-Esta versión conserva el comportamiento, los textos, la configuración
-(`config.properties`) y el protocolo de Firmador Remoto de la versión Java, de modo que
-las páginas y los programas que ya lo usan sigan funcionando. El diseño de las firmas
-sigue lo que hacía la biblioteca [DSS](https://github.com/esig/dss) de la Comisión
-Europea, que la versión Java usaba.
+```sh
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user ./firmador_linux_*.flatpak
+flatpak run io.github.notspooky.firmadorlibred
+```
 
-Firmador es software libre bajo la licencia **GPL versión 3 o posterior** (ver
-[COPYING](COPYING)).
+Dentro de flatpak, Firmador usa el `pcscd` del sistema para los lectores y las bibliotecas
+de las tarjetas instaladas en él (Athena o JCOP4). Cuando hay una versión nueva, avisa con
+un enlace a la descarga. También se puede [compilar e instalar en el sistema](#compilar).
+
+
+## Qué hay de nuevo respecto de la versión en Java
+
+* **Firma sobre los campos del formulario.** Si el PDF ya trae campos de firma vacíos, al
+  soltar el recuadro sobre uno se ajusta a él, y la firma ocupa ese campo en vez de agregar
+  otro. Si el recuadro tapa anotaciones del documento, Firmador lo advierte antes de firmar.
+* **Más rápido y liviano.** Es un solo programa nativo, sin máquina virtual de Java: abre
+  en un momento y dibuja en segundo plano sólo las páginas que se están viendo.
+* **Desplazamiento continuo por las páginas.** El documento se recorre con la rueda del
+  ratón o el touchpad, como en un visor de PDF, en vez de pasar de página con un botón.
+  Ctrl y la rueda (en Windows, también pellizcando el touchpad) acercan y alejan alrededor
+  del puntero.
+* **Una interfaz que se adapta.** La letra de la ventana se agranda o achica con Ctrl y
+  más o menos (⌘ en macOS), los cuadros de texto largos se estiran arrastrando su borde, y
+  hay tema claro y oscuro, que sigue al del sistema.
+* **Vista previa de la firma.** La firma se ve sobre la página tal como quedará en el PDF,
+  y también en *Configuración*, donde cada cambio se ve en el acto.
+* **Más fácil trabajar con imágenes.** La imagen se ajusta sola al recuadro de la firma; se
+  elige si va a la izquierda, a la derecha, arriba, abajo o detrás del texto, su opacidad y
+  su tamaño.
+* **Configuración sin botones de guardar.** Los cambios se guardan al hacerlos, y Ctrl+Z
+  los deshace.
+* **Instalador y actualizaciones automáticas**, y los selectores de archivos propios de
+  cada sistema.
+
+<p>
+  <img src="screenshots/vista-previa-e-imagen.png" width="49%"
+       alt="Configuración: arriba, la vista previa de la firma con una firma manuscrita a la izquierda del texto; abajo, la posición, la opacidad y el tamaño de la imagen">
+  <img src="screenshots/tema-oscuro.png" width="49%"
+       alt="Tema oscuro: la firma con la imagen manuscrita, ajustada al campo «Por la Contratante», y el paso continuo de la página 1 a la 2">
+</p>
+
+Lo que no cambió: la configuración (`config.properties`), los textos y el protocolo de
+Firmador Remoto son los de la versión Java, así que las páginas y los programas que ya lo
+usan siguen funcionando, y las firmas se arman como las armaba la biblioteca
+[DSS](https://github.com/esig/dss) de la Comisión Europea que usaba esa versión.
 
 
 ## Uso
 
 ### Interfaz gráfica
 
+Abra Firmador desde el menú de su sistema, o con los documentos que quiere firmar:
+
 ```sh
 firmador [documento…]
 ```
 
-Se abre la ventana; los documentos indicados (o arrastrados sobre ella) quedan listos
-para firmar. La primera vez pregunta si usar el **modo simplificado** (una sola vista
-para firmar) o el **completo** (lista de documentos, carpetas, conexiones).
-
-Para firmar hace falta la tarjeta de firma digital con su lector y los controladores de
-[Soporte Firma Digital](https://soportefirmadigital.com/sfdj/dl.aspx), o un almacén
-PKCS#12 (`.p12`/`.pfx`) agregado en *Configuración → Opciones avanzadas*.
-
-Ctrl y más o menos (⌘ en macOS) agrandan o achican la letra de la ventana, igual que su
-selector en *Configuración*; en la vista previa del documento cambian su escala, como Ctrl y
-la rueda del ratón.
+Los documentos indicados, o arrastrados sobre la ventana, quedan listos para firmar. La
+primera vez pregunta si usar el **modo simplificado** (una sola vista para firmar) o el
+**completo** (lista de documentos, carpetas y conexiones). Los almacenes PKCS#12 se agregan
+en *Configuración → Opciones avanzadas*.
 
 `--background` arranca con la ventana minimizada. Si Firmador ya está abierto, abrirlo
 otra vez le pasa los documentos a la ventana existente.
@@ -89,12 +138,12 @@ Las páginas web autorizadas pueden pedir firmas al Firmador abierto en la compu
 *Conexión* o con enlaces `firmador:`.
 
 
-## Compilación
+## Compilar
 
 Se necesita un compilador de D ([DMD](https://dlang.org/download.html) 2.113 o posterior,
-o LDC), `dub`, `git` (dub descarga con él la copia de dlangui con los arreglos para Windows,
-[NotSpooky/dlangui](https://github.com/NotSpooky/dlangui)), un compilador de C, `pkg-config` y
-las bibliotecas de desarrollo:
+o LDC), `dub`, `git` (dub descarga con él la copia de dlangui con los arreglos para Windows
+y macOS, [NotSpooky/dlangui](https://github.com/NotSpooky/dlangui)), un compilador de C,
+`pkg-config` y las bibliotecas de desarrollo:
 
 | Biblioteca | Arch / Manjaro | Debian / Ubuntu |
 |---|---|---|
@@ -120,6 +169,18 @@ dub build -b release        # versión optimizada
 
 El paso previo (`tools/prebuild.sh`) reúne las cabeceras de C que ImportC necesita
 según `pkg-config` y compila el puente con mupdf.
+
+Para instalarlo en el sistema, después de `dub build --build=release`:
+
+```sh
+sudo packaging/linux/install.sh          # en /usr/local
+packaging/linux/install.sh ~/.local      # sólo para el usuario
+```
+
+Instala el ejecutable, la entrada del menú (abre PDF, OpenDocument, Office y ASiC-E, y
+los enlaces `firmador:` de Firmador Remoto) y los íconos. El flatpak se arma con
+`flatpak-builder` y el manifiesto de `packaging/linux/`; ese y el resto de comandos están en
+[COMMANDS.md](COMMANDS.md).
 
 ### Windows
 
@@ -152,63 +213,52 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows\build.ps1
 Deja `bin\firmador.exe` junto con las DLL que necesita, incluido el runtime de Visual C++,
 así que la carpeta `bin\` (sin `firmador.pdb`, que sólo sirve para depurar) funciona en
 otro Windows sin instalar nada más. Con `-Build debug` compila con información de
-depuración; si se usó `-DepsRoot` en la instalación, va también aquí.
+depuración; si se usó `-DepsRoot` en la instalación, va también aquí. El instalador se arma
+después con `tools\windows\installer.ps1`, que necesita [WiX 5](https://wixtoolset.org/)
+(ver [COMMANDS.md](COMMANDS.md)).
 
 
-## Instalación en Linux
+## Política de firma de código (Code signing policy)
 
-**Flatpak** (no necesita las bibliotecas de arriba: compila mupdf y el cliente de PC/SC,
-y usa el runtime de freedesktop 26.08):
-
-```sh
-flatpak-builder --user --install --install-deps-from=flathub --force-clean \
-  build-dir packaging/linux/io.github.notspooky.firmadorlibred.yml
-flatpak run io.github.notspooky.firmadorlibred
-```
-
-Dentro de flatpak, Firmador usa el `pcscd` del sistema para los lectores y las
-bibliotecas de las tarjetas instaladas en el sistema (Athena o JCOP4), y guarda su
-configuración en `~/.config/firmadorlibre/config-flatpak-properties`.
-
-**En el sistema**, después de `dub build --build=release`:
-
-```sh
-sudo packaging/linux/install.sh          # en /usr/local
-packaging/linux/install.sh ~/.local      # sólo para el usuario
-```
-
-Instala el ejecutable, la entrada del menú (abre PDF, OpenDocument, Office y ASiC-E, y
-los enlaces `firmador:` de Firmador Remoto) y los íconos. El resto de comandos (armar el
-archivo `.flatpak` para publicar, diagnosticar…) está en [COMMANDS.md](COMMANDS.md).
+Los paquetes de Windows se firman con un certificado de
+[SignPath Foundation](https://signpath.org/), mediante
+[SignPath.io](https://about.signpath.io/): *free code signing provided by SignPath.io,
+certificate by SignPath Foundation*. Qué se firma, quiénes lo aprueban y cómo están en la
+[política de firma de código](CODE_SIGNING_POLICY.md), y lo que Firmador envía a otros
+sistemas (sólo lo necesario para firmar, validar y buscar actualizaciones) en
+[PRIVACY.md](PRIVACY.md).
 
 
-## Instalación en macOS
+## Créditos
 
-El paquete `firmador_macos_….zip` de las publicaciones trae `Firmador.app` para Macs con
-Apple Silicon y macOS 26 (Tahoe) o posterior, con todas las bibliotecas que necesita.
-Se descomprime y se mueve `Firmador.app` a *Aplicaciones*. Como no lleva la firma de un
-desarrollador de Apple, la primera vez macOS no lo deja abrir: se autoriza en
-*Configuración del Sistema → Privacidad y seguridad → Abrir de todos modos*, o con
-`xattr -dr com.apple.quarantine /Applications/Firmador.app` en la Terminal.
+Firmador fue creado y es mantenido por sus autores originales:
+
+* Francisco de la Peña Fernández
+* Luis Zárate Montero
+* Victor Jiménez
+
+y por quienes han contribuido al proyecto a lo largo de los años (ver [AUTHORS.md](AUTHORS.md)).
+La versión en D es obra de Christian Durán Carvajal.
+
+* Sitio del proyecto: <https://firmador.libre.cr>
+* Código original (Java): <https://codeberg.org/firmador/firmador>
+
+Firmador es software libre bajo la licencia **GPL versión 3 o posterior** (ver
+[COPYING](COPYING)).
 
 
 ## Pendiente (TODO)
 
-Lo principal; el detalle está en [PENDING.md](PENDING.md). Las mejoras del código
-(duplicados, núcleo funcional, errores que se tragan) están en [IMPROVEMENTS.md](IMPROVEMENTS.md).
-
-* **Empaquetado**: instalador de Windows, y firma y notarización de Apple para el paquete
-  de macOS (hoy va con firma ad hoc). El flatpak de Linux está listo, falta publicarlo.
-* **Aviso de actualizaciones**: está desactivado (`releaseCheckEnabled` en
-  `configuration.d`) hasta que apunte a las versiones publicadas de este repositorio.
-* **Probar en Windows y macOS**: el código para ambos está escrito (llavero del sistema,
-  enlaces `firmador:` en macOS, consola en Windows) pero sólo se ha probado en Linux.
+* **Firma de los paquetes**: la de Windows espera la aprobación de SignPath Foundation; la
+  de macOS necesita una cuenta de desarrollador de Apple para firmar y notarizar (hoy va con
+  firma ad hoc). El flatpak de Linux está listo, falta publicarlo en Flathub.
+* **Probar en macOS**: el paquete se arma y se prueba en la CI, pero falta usarlo en una
+  Mac (llavero, enlaces `firmador:`, actualización).
 * **Ícono en la bandeja del sistema**: dlangui no lo ofrece; hoy los avisos con la
   ventana oculta usan las notificaciones del escritorio.
 * **Accesibilidad**: dlangui no expone la interfaz a lectores de pantalla como lo hacía
   Swing; la navegación con teclado sí funciona.
-* **Documentación**: `CONTRACTS.md`, y portar el manual de usuario y las preguntas
-  frecuentes.
+* **Documentación**: portar el manual de usuario y las preguntas frecuentes.
 * **Pruebas**: una configuración de `dub test` sin el aviso del archivo principal, y
   portar las pruebas de la versión Java que falten.
 * **Migración de sesiones**: los tokens de las conexiones externas se guardaban en
@@ -223,10 +273,13 @@ firmador/
 ├── dub.json                 Proyecto de dub (dependencias, bibliotecas de C)
 ├── resources/               Lo que va dentro del ejecutable: textos traducidos,
 │                            certificados de la jerarquía nacional, plantillas
-├── tools/prebuild.sh        Prepara las cabeceras de C y el puente con mupdf
+├── tools/                   prebuild.sh (cabeceras de C y puente con mupdf),
+│                            set-version.sh, y los scripts de Windows y macOS
 ├── packaging/linux/         Flatpak, entrada del menú, AppStream, íconos e instalador
-├── packaging/windows/       Ícono del ejecutable de Windows
+├── packaging/windows/       Instalador (WiX), recursos del ejecutable y la
+│                            configuración de firma de SignPath
 ├── packaging/macos/         Info.plist e ícono de Firmador.app (lo arma tools/macos/bundle.sh)
+├── screenshots/             Capturas de pantalla de este README
 └── src/
     ├── c/, shim/            Enlaces a bibliotecas de C (ImportC) y puente con mupdf
     └── firmador/
@@ -252,4 +305,6 @@ firmador/
 ```
 
 Cada archivo empieza con una descripción de lo que hace y de qué parte de la versión
-Java proviene. El mapa completo está en [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md).
+Java proviene. Los acuerdos entre archivos que el compilador no revisa están en
+[CONTRACTS.md](CONTRACTS.md), y los comandos para compilar, empaquetar y publicar, en
+[COMMANDS.md](COMMANDS.md).

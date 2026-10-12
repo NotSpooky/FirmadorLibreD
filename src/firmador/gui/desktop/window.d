@@ -338,10 +338,12 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     }
   }
 
-  /// Cierra la aplicación aunque esté en segundo plano.
+  /// Cierra la aplicación aunque esté en segundo plano (en el hilo de la ventana).
   void closeApplication() @trusted {
-    closing = true;
-    window.close();
+    runOnUi(() {
+      closing = true;
+      window.close();
+    });
   }
 
   // Pestañas y avisos -----------------------------------------------------------

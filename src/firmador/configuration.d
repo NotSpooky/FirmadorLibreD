@@ -73,27 +73,24 @@ enum int remoteMaxConnections = 16;
 enum string remoteUrlScheme = "firmador:";
 
 /**
- * El aviso de actualizaciones (firmador.plugins.checkupdate) consulta y descarga las
- * versiones publicadas. Desactivado hasta que las URL de abajo apunten a las versiones
- * publicadas de este proyecto (@contract release-artifacts): las de la versión Java no
- * son ejecutables de esta.
+ * El aviso de actualizaciones (firmador.plugins.checkupdate) consulta la última versión
+ * publicada en GitHub al abrir la ventana y, con permiso del usuario, la instala. Se desactiva
+ * aquí para todas las compilaciones (por ejemplo, las de una distribución que actualiza por su
+ * cuenta) o en Configuración, quitando el plugin.
  */
-enum bool releaseCheckEnabled = false;
+enum bool releaseCheckEnabled = true;
 
-/// Consulta de la última versión publicada.
-enum string releaseUrlCheck = baseUrl ~ "/version.txt";
+/// Repositorio cuyas versiones publicadas son las de este programa (@contract release-artifacts).
+enum string releaseRepository = "NotSpooky/FirmadorLibreD";
 
-/// Artefactos nativos publicados por sistema, con su suma SHA-256 en «<artefacto>.sha256».
-enum string releaseLinuxUrl = baseUrl ~ "/firmador-linux-x86_64";
-enum string releaseMacUrl = baseUrl ~ "/Firmador.zip";
-enum string releaseWindowsUrl = baseUrl ~ "/Instalar%20Firmador.exe";
+/// Consulta de la última versión publicada (API de GitHub).
+enum string latestReleaseApiUrl = "https://api.github.com/repos/" ~ releaseRepository ~ "/releases/latest";
 
-/// Compilación de desarrollo más reciente (versiones «SNAPSHOT»).
-enum string releaseSnapshotUrl =
-  "https://integracion.libre.cr/job/firmador/job/firmador/job/fixes/lastSuccessfulBuild/artifact/firmador-linux-x86_64";
+/// Los paquetes de las versiones publicadas se descargan sólo de aquí.
+enum string releaseDownloadPrefix = "https://github.com/" ~ releaseRepository ~ "/releases/download/";
 
-/// Sufijo de las sumas de verificación que acompañan a cada artefacto.
-enum string checksumSuffix = ".sha256";
+/// Página de las versiones publicadas.
+enum string releasesPageUrl = "https://github.com/" ~ releaseRepository ~ "/releases";
 
 /// Tiempo de caché de la lista de certificados leída de la tarjeta.
 enum long pkcs11CertificateCacheMilliseconds = 30_000;
