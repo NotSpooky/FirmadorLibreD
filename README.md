@@ -9,9 +9,8 @@ Electrónicos Firmados Digitalmente](https://www.mifirmadigital.go.cr/): PDF (PA
 (CAdES), con tarjetas de firma digital o con almacenes PKCS#12 (`.p12`/`.pfx`).
 
 Es una versión de [Firmador](https://firmador.libre.cr) reescrita en
-[D](https://dlang.org/): un programa nativo, sin Java, más rápido y con una interfaz
-renovada, que usa la misma configuración y atiende a las mismas páginas que la versión en
-Java.
+[D](https://dlang.org/): un programa nativo más rápido y con una interfaz
+renovada, que usa la misma configuración con algunas mejoras que la versión Java.
 
 ![Firmador Libre con un contrato abierto: la firma, con el nombre de la persona, la fecha, la razón y el lugar, quedó dentro del campo de firma «La Contratista» del PDF](screenshots/firma-en-campo.png)
 
@@ -24,14 +23,13 @@ además la tarjeta con su lector y los controladores de
 [Soporte Firma Digital](https://soportefirmadigital.com/sfdj/dl.aspx), o un almacén PKCS#12.
 
 **Windows 10 u 11 (64 bits).** Descargue `firmador_windows_….msi` y ábralo: se instala
-para su usuario, sin pedir permisos de administrador, y queda en el menú Inicio. Desde ahí
-Firmador se actualiza solo: cuando sale una versión nueva, pregunta si instalarla y vuelve
-a abrirse con ella. También registra los enlaces `firmador:` de Firmador Remoto y la opción
+para su usuario sin pedir permisos de administrador, y queda en el menú Inicio. Desde ahí
+Firmador se actualiza solo. También registra los enlaces `firmador:` de Firmador Remoto y la opción
 *Abrir con → Firmador Libre* para los documentos que firma. Se desinstala desde
 *Configuración → Aplicaciones*. Si prefiere no instalar nada, el `firmador_windows_….zip`
 trae el mismo programa para usarlo desde una carpeta.
 
-**macOS 26 o posterior (Apple Silicon).** Descargue `firmador_macos_….zip`, descomprímalo
+**macOS 26 o posterior (Apple Silicon).** (Por probar) Descargue `firmador_macos_….zip`, descomprímalo
 y mueva `Firmador.app` a *Aplicaciones*. Como no lleva la firma de un desarrollador de
 Apple, la primera vez macOS no lo deja abrir: autorícelo en *Configuración del Sistema →
 Privacidad y seguridad → Abrir de todos modos* (o con
@@ -56,18 +54,18 @@ un enlace a la descarga. También se puede [compilar e instalar en el sistema](#
 
 * **Firma sobre los campos del formulario.** Si el PDF ya trae campos de firma vacíos, al
   soltar el recuadro sobre uno se ajusta a él, y la firma ocupa ese campo en vez de agregar
-  otro. Si el recuadro tapa anotaciones del documento, Firmador lo advierte antes de firmar.
-* **Más rápido y liviano.** Es un solo programa nativo, sin máquina virtual de Java: abre
-  en un momento y dibuja en segundo plano sólo las páginas que se están viendo.
+  otro. Si el recuadro tapa anotaciones del documento, Firmador lo advierte antes de firmar
+  pero sí permite la firma.
+* **Más rápido y liviano.** Es un solo programa nativo, sin máquina virtual de Java.
 * **Desplazamiento continuo por las páginas.** El documento se recorre con la rueda del
-  ratón o el touchpad, como en un visor de PDF, en vez de pasar de página con un botón.
-  Ctrl y la rueda (en Windows, también pellizcando el touchpad) acercan y alejan alrededor
+  ratón o el touchpad, como en un visor de PDF, en vez de requerir pasar de página con un botón.
+  Ctrl y la rueda (en Windows, también con el scroll del touchpad) acercan y alejan alrededor
   del puntero.
-* **Una interfaz que se adapta.** La letra de la ventana se agranda o achica con Ctrl y
-  más o menos (⌘ en macOS), los cuadros de texto largos se estiran arrastrando su borde, y
-  hay tema claro y oscuro, que sigue al del sistema.
+* **Interfaz adaptable.** La letra de la ventana se agranda o achica con Ctrl y
+  más o menos (⌘ en macOS), los cuadros de texto largos se pueden estirar arrastrando su borde, y
+  hay tema claro y oscuro según la configuración del Sistema Operativo.
 * **Vista previa de la firma.** La firma se ve sobre la página tal como quedará en el PDF,
-  y también en *Configuración*, donde cada cambio se ve en el acto.
+  y también en la sección de Configuración.
 * **Más fácil trabajar con imágenes.** La imagen se ajusta sola al recuadro de la firma; se
   elige si va a la izquierda, a la derecha, arriba, abajo o detrás del texto, su opacidad y
   su tamaño.
@@ -83,7 +81,7 @@ un enlace a la descarga. También se puede [compilar e instalar en el sistema](#
        alt="Tema oscuro: la firma con la imagen manuscrita, ajustada al campo «Por la Contratante», y el paso continuo de la página 1 a la 2">
 </p>
 
-Lo que no cambió: la configuración (`config.properties`), los textos y el protocolo de
+Igual que en la versión de Java: la configuración (`config.properties`), los textos y el protocolo de
 Firmador Remoto son los de la versión Java, así que las páginas y los programas que ya lo
 usan siguen funcionando, y las firmas se arman como las armaba la biblioteca
 [DSS](https://github.com/esig/dss) de la Comisión Europea que usaba esa versión.
@@ -93,7 +91,9 @@ usan siguen funcionando, y las firmas se arman como las armaba la biblioteca
 
 ### Interfaz gráfica
 
-Abra Firmador desde el menú de su sistema, o con los documentos que quiere firmar:
+Abra Firmador desde el menú de su sistema, o con los documentos que quiere firmar.
+
+Para el caso de línea de comandos:
 
 ```sh
 firmador [documento…]
@@ -126,7 +126,7 @@ firmador -dshell       # escriba «help» para ver los comandos
 ```
 
 En Windows el ejecutable es de ventana, así que no abre una consola al usarlo con el
-ratón. La consola no espera a que termine: para que no se mezcle con sus preguntas,
+ratón. Para que no espere una acción del usuario
 láncelo con `start /wait /b firmador.exe -dargs …` (cmd) o
 `Start-Process -Wait -NoNewWindow firmador.exe -ArgumentList '-dargs', …` (PowerShell).
 Un programa que lo use con `-dshell` por tuberías no necesita nada de esto.
@@ -135,7 +135,7 @@ Un programa que lo use con `-dshell` por tuberías no necesita nada de esto.
 
 Las páginas web autorizadas pueden pedir firmas al Firmador abierto en la computadora
 (puerto 3516 en `127.0.0.1`), igual que con la versión Java. Se activa desde la pestaña
-*Conexión* o con enlaces `firmador:`.
+Conexión o con enlaces `firmador:`.
 
 
 ## Compilar
