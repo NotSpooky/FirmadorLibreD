@@ -42,8 +42,40 @@
 
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="INSTALLFOLDER" Name="Firmador Libre">
+        <!-- El programa y lo que se registra con su ruta, en el mismo componente: HKMU es del
+             usuario o de la máquina, según cómo se instaló. La actualización automática lee
+             InstallFolder para saber si Firmador se instaló con este paquete. -->
         <Component Id="FirmadorExecutable">
           <File Id="FirmadorExe" Source="!(bindpath.bin)\firmador.exe" KeyPath="yes" />
+          <RegistryValue Root="HKMU" Key="Software\Firmador Libre" Name="InstallFolder" Type="string"
+                         Value="[INSTALLFOLDER]" />
+
+          <!-- Enlaces firmador: de las páginas que usan Firmador Remoto. -->
+          <RegistryKey Root="HKMU" Key="Software\Classes\firmador">
+            <RegistryValue Type="string" Value="URL:Firmador Remoto" />
+            <RegistryValue Name="URL Protocol" Type="string" Value="" />
+            <RegistryValue Key="DefaultIcon" Type="string" Value="&quot;[#FirmadorExe]&quot;,0" />
+            <RegistryValue Key="shell\open\command" Type="string" Value="&quot;[#FirmadorExe]&quot; &quot;%1&quot;" />
+          </RegistryKey>
+
+          <!-- «Abrir con»: sin quitar el programa que cada tipo de documento ya tiene asignado. -->
+          <RegistryKey Root="HKMU" Key="Software\Classes\FirmadorLibre.Documento">
+            <RegistryValue Type="string" Value="Documento para firmar" />
+            <RegistryValue Key="DefaultIcon" Type="string" Value="&quot;[#FirmadorExe]&quot;,0" />
+            <RegistryValue Key="shell\open\command" Type="string" Value="&quot;[#FirmadorExe]&quot; &quot;%1&quot;" />
+          </RegistryKey>
+          <RegistryValue Root="HKMU" Key="Software\Classes\Applications\firmador.exe" Name="FriendlyAppName"
+                         Type="string" Value="Firmador Libre" />
+          <RegistryValue Root="HKMU" Key="Software\Classes\.pdf\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+          <RegistryValue Root="HKMU" Key="Software\Classes\.odt\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+          <RegistryValue Root="HKMU" Key="Software\Classes\.ods\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+          <RegistryValue Root="HKMU" Key="Software\Classes\.odp\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+          <RegistryValue Root="HKMU" Key="Software\Classes\.odg\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+          <RegistryValue Root="HKMU" Key="Software\Classes\.docx\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+          <RegistryValue Root="HKMU" Key="Software\Classes\.xlsx\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+          <RegistryValue Root="HKMU" Key="Software\Classes\.pptx\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+          <RegistryValue Root="HKMU" Key="Software\Classes\.asice\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+          <RegistryValue Root="HKMU" Key="Software\Classes\.sce\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
         </Component>
         <!-- Las DLL de vcpkg, libcurl y el runtime de Visual C++ que build.ps1 deja junto al programa. -->
         <Files Include="!(bindpath.bin)\*.dll" />
@@ -51,42 +83,15 @@
       </Directory>
     </StandardDirectory>
 
-    <!-- Lo que se registra en el sistema: va en un componente propio cuya clave es un valor del
-         registro (HKMU: del usuario o de la máquina, según cómo se instaló). La actualización
-         automática lee InstallFolder para saber si Firmador se instaló con este paquete. -->
+    <!-- El acceso del menú Inicio, que es del perfil del usuario: su componente tiene como clave
+         un valor de HKCU (ICE38 e ICE57), y apunta a la carpeta y no al archivo de otro
+         componente (ICE69). -->
     <StandardDirectory Id="ProgramMenuFolder">
-      <Component Id="Integration">
-        <RegistryValue Root="HKMU" Key="Software\Firmador Libre" Name="InstallFolder" Type="string"
-                       Value="[INSTALLFOLDER]" KeyPath="yes" />
+      <Component Id="StartMenuShortcut">
         <Shortcut Id="StartMenuShortcut" Name="Firmador Libre" Description="Firmar y validar documentos"
-                  Target="[#FirmadorExe]" WorkingDirectory="INSTALLFOLDER" />
-
-        <!-- Enlaces firmador: de las páginas que usan Firmador Remoto. -->
-        <RegistryKey Root="HKMU" Key="Software\Classes\firmador">
-          <RegistryValue Type="string" Value="URL:Firmador Remoto" />
-          <RegistryValue Name="URL Protocol" Type="string" Value="" />
-          <RegistryValue Key="DefaultIcon" Type="string" Value="&quot;[#FirmadorExe]&quot;,0" />
-          <RegistryValue Key="shell\open\command" Type="string" Value="&quot;[#FirmadorExe]&quot; &quot;%1&quot;" />
-        </RegistryKey>
-
-        <!-- «Abrir con»: sin quitar el programa que cada tipo de documento ya tiene asignado. -->
-        <RegistryKey Root="HKMU" Key="Software\Classes\FirmadorLibre.Documento">
-          <RegistryValue Type="string" Value="Documento para firmar" />
-          <RegistryValue Key="DefaultIcon" Type="string" Value="&quot;[#FirmadorExe]&quot;,0" />
-          <RegistryValue Key="shell\open\command" Type="string" Value="&quot;[#FirmadorExe]&quot; &quot;%1&quot;" />
-        </RegistryKey>
-        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\firmador.exe" Name="FriendlyAppName"
-                       Type="string" Value="Firmador Libre" />
-        <RegistryValue Root="HKMU" Key="Software\Classes\.pdf\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-        <RegistryValue Root="HKMU" Key="Software\Classes\.odt\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-        <RegistryValue Root="HKMU" Key="Software\Classes\.ods\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-        <RegistryValue Root="HKMU" Key="Software\Classes\.odp\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-        <RegistryValue Root="HKMU" Key="Software\Classes\.odg\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-        <RegistryValue Root="HKMU" Key="Software\Classes\.docx\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-        <RegistryValue Root="HKMU" Key="Software\Classes\.xlsx\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-        <RegistryValue Root="HKMU" Key="Software\Classes\.pptx\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-        <RegistryValue Root="HKMU" Key="Software\Classes\.asice\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-        <RegistryValue Root="HKMU" Key="Software\Classes\.sce\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
+                  Target="[INSTALLFOLDER]firmador.exe" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="Software\Firmador Libre" Name="StartMenuShortcut" Type="integer"
+                       Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>
 

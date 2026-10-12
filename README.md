@@ -126,8 +126,8 @@ firmador -dshell       # escriba «help» para ver los comandos
 ```
 
 En Windows el ejecutable es de ventana, así que no abre una consola al usarlo con el
-ratón. Para que no espere una acción del usuario
-láncelo con `start /wait /b firmador.exe -dargs …` (cmd) o
+ratón. Desde una consola, para que esta espere a que Firmador termine y su salida no se
+mezcle con la pregunta del PIN, láncelo con `start /wait /b firmador.exe -dargs …` (cmd) o
 `Start-Process -Wait -NoNewWindow firmador.exe -ArgumentList '-dargs', …` (PowerShell).
 Un programa que lo use con `-dshell` por tuberías no necesita nada de esto.
 
