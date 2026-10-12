@@ -78,6 +78,25 @@ string localPathArgument(string argument) pure @safe {
 }
 
 /**
+ * Argumentos de la ventana con los documentos como rutas absolutas respecto de `base`, el
+ * directorio de trabajo con que se lanzó Firmador: así siguen valiendo para la instancia que
+ * ya estaba abierta (firmador.util.singleinstance) y, en Windows, después de que la ventana
+ * pasa a trabajar desde el directorio de configuración (main en firmador.app).
+ *
+ * Params:
+ *   arguments = argumentos sin propiedades de lanzamiento; las opciones («-…») quedan igual.
+ *   base = directorio absoluto contra el que se resuelven las rutas relativas.
+ * Returns: los argumentos, con cada documento como ruta local absoluta.
+ */
+string[] withAbsoluteDocuments(const string[] arguments, string base) pure @safe {
+  string[] result;
+  foreach (argument; arguments) {
+    result ~= argument.startsWith("-") ? argument : absolutePath(localPathArgument(argument), base);
+  }
+  return result;
+}
+
+/**
  * Interpreta los argumentos (setArgs): los que empiezan con «-» son opciones, el resto
  * entrada, salida y almacén en ese orden.
  */
@@ -253,4 +272,19 @@ unittest {
   assert(parseArgsOptions(["-dargs", "solo.pdf"]).usageError == argsUsage);
   assert(parseArgsOptions(["-slotx", "a", "b"]).usageError.startsWith("Slot inválido: -slotx"));
   assert(parseArgsOptions(["-slot-1", "a", "b"]).usageError !is null);
+}
+
+@("should resolve relative and file URI documents against the launch directory when preparing window arguments")
+unittest {
+  import std.path : buildPath, isAbsolute;
+  version (Windows) string base = `C:\Usuarios\ana`;
+  else string base = "/home/ana";
+  auto prepared = withAbsoluteDocuments(["--background", "contrato.pdf", "file:///tmp/a%20b.pdf"], base);
+  assert(prepared[0] == "--background");
+  assert(prepared[1] == buildPath(base, "contrato.pdf"));
+  assert(isAbsolute(prepared[2]));
+  version (Windows) {
+  } else {
+    assert(prepared[2] == "/tmp/a b.pdf");
+  }
 }

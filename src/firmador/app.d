@@ -37,7 +37,7 @@ import std.logger : error, info, warning;
 import firmador.cards.detector : SmartCardDetector;
 import firmador.configuration : checkUpdatePluginName, firmadorVersion;
 import firmador.connections.passwordprovider : systemCredentialStore;
-import firmador.gui.args : localPathArgument, runArgsMode;
+import firmador.gui.args : localPathArgument, runArgsMode, withAbsoluteDocuments;
 import firmador.gui.console : ConsoleInterface;
 import firmador.gui.guiinterface : GuiInterface;
 import firmador.gui.shell : runShellMode;
@@ -82,7 +82,20 @@ version (unittest) {
       return mode == "args" ? runArgsMode(remaining, detector) : runShellMode(detector);
     }
     if (mode != "swing") warning("Interfaz desconocida «", mode, "»: se usa la ventana");
-    windowArguments = remaining;
+    import std.file : getcwd;
+    windowArguments = withAbsoluteDocuments(remaining, getcwd());
+    version (Windows) {
+      // dlangui escribe su bitácora (ui.log) en el directorio de trabajo, que al abrir un
+      // documento desde el Explorador es el de ese documento y puede ser de sólo lectura; y
+      // Windows no deja borrar ni renombrar el directorio de trabajo de un programa abierto.
+      // La ventana trabaja desde el directorio de configuración, que siempre se puede escribir.
+      import std.file : chdir;
+      import firmador.logging : withContext;
+      import firmador.settingsmanager : configDirectory;
+      string workDirectory = configDirectory();
+      withContext("No se pudo pasar al directorio de configuración " ~ workDirectory, { chdir(workDirectory); });
+      info("Directorio de trabajo de la ventana: ", workDirectory);
+    }
     version (OSX) {
       // Antes de iniciar la ventana, para no perder el enlace con que se lanzó.
       import firmador.gui.desktop.macurl : installUrlHandler;

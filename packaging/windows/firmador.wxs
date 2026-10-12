@@ -13,7 +13,8 @@
   * Registra el acceso en el menú Inicio, los enlaces firmador: de Firmador Remoto
     (src/firmador/launch.d recibe «firmador:<origen>» como argumento) y «Abrir con» para los
     documentos que firma, los mismos que la entrada de Linux
-    (packaging/linux/io.github.notspooky.firmadorlibred.desktop). Lo deshace al desinstalar.
+    (packaging/linux/io.github.notspooky.firmadorlibred.desktop), sin volverse el programa
+    predeterminado de ninguno. Lo deshace al desinstalar.
   * Al terminar abre Firmador, salvo con LAUNCHFIRMADOR=0 (instalaciones desatendidas).
 
   Variables: Version (X.Y.Z) y la ruta enlazada «bin» (la carpeta con firmador.exe y sus DLL).
@@ -58,24 +59,24 @@
             <RegistryValue Key="shell\open\command" Type="string" Value="&quot;[#FirmadorExe]&quot; &quot;%1&quot;" />
           </RegistryKey>
 
-          <!-- «Abrir con»: sin quitar el programa que cada tipo de documento ya tiene asignado. -->
-          <RegistryKey Root="HKMU" Key="Software\Classes\FirmadorLibre.Documento">
-            <RegistryValue Type="string" Value="Documento para firmar" />
+          <!-- «Abrir con»: Applications\firmador.exe con SupportedTypes, que sólo agrega Firmador a esa
+               lista. No se escribe en las claves de cada extensión (OpenWithProgids): con eso Windows
+               puede elegir a Firmador para abrir esos documentos cuando el usuario no eligió otro. -->
+          <RegistryKey Root="HKMU" Key="Software\Classes\Applications\firmador.exe">
+            <RegistryValue Name="FriendlyAppName" Type="string" Value="Firmador Libre" />
             <RegistryValue Key="DefaultIcon" Type="string" Value="&quot;[#FirmadorExe]&quot;,0" />
             <RegistryValue Key="shell\open\command" Type="string" Value="&quot;[#FirmadorExe]&quot; &quot;%1&quot;" />
+            <RegistryValue Key="SupportedTypes" Name=".pdf" Type="string" Value="" />
+            <RegistryValue Key="SupportedTypes" Name=".odt" Type="string" Value="" />
+            <RegistryValue Key="SupportedTypes" Name=".ods" Type="string" Value="" />
+            <RegistryValue Key="SupportedTypes" Name=".odp" Type="string" Value="" />
+            <RegistryValue Key="SupportedTypes" Name=".odg" Type="string" Value="" />
+            <RegistryValue Key="SupportedTypes" Name=".docx" Type="string" Value="" />
+            <RegistryValue Key="SupportedTypes" Name=".xlsx" Type="string" Value="" />
+            <RegistryValue Key="SupportedTypes" Name=".pptx" Type="string" Value="" />
+            <RegistryValue Key="SupportedTypes" Name=".asice" Type="string" Value="" />
+            <RegistryValue Key="SupportedTypes" Name=".sce" Type="string" Value="" />
           </RegistryKey>
-          <RegistryValue Root="HKMU" Key="Software\Classes\Applications\firmador.exe" Name="FriendlyAppName"
-                         Type="string" Value="Firmador Libre" />
-          <RegistryValue Root="HKMU" Key="Software\Classes\.pdf\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-          <RegistryValue Root="HKMU" Key="Software\Classes\.odt\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-          <RegistryValue Root="HKMU" Key="Software\Classes\.ods\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-          <RegistryValue Root="HKMU" Key="Software\Classes\.odp\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-          <RegistryValue Root="HKMU" Key="Software\Classes\.odg\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-          <RegistryValue Root="HKMU" Key="Software\Classes\.docx\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-          <RegistryValue Root="HKMU" Key="Software\Classes\.xlsx\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-          <RegistryValue Root="HKMU" Key="Software\Classes\.pptx\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-          <RegistryValue Root="HKMU" Key="Software\Classes\.asice\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
-          <RegistryValue Root="HKMU" Key="Software\Classes\.sce\OpenWithProgids" Name="FirmadorLibre.Documento" Type="string" Value="" />
         </Component>
         <!-- Las DLL de vcpkg, libcurl y el runtime de Visual C++ que build.ps1 deja junto al programa. -->
         <Files Include="!(bindpath.bin)\*.dll" />

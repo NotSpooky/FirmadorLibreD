@@ -108,9 +108,9 @@ Para revisar el flujo antes de subirlo: `actionlint .github/workflows/ci.yml`.
 * Las etiquetas son la versión: `X.Y.Z`, sin `v`. La CI la pone en el programa, el `.exe`, el
   instalador y Firmador.app (`tools/set-version.sh`), y rechaza etiquetas con otra forma.
 * `resources/version.txt` lleva la versión de desarrollo, la última publicada con `-dev`
-  (`0.7.4-dev`); las compilaciones que no son de una etiqueta salen como
-  `0.7.4-dev.<commit>`. Después de publicar una versión, se pone ahí la nueva con `-dev`
-  (`sh tools/set-version.sh 0.8.0-dev`).
+  (`0.8.0-dev`); las compilaciones que no son de una etiqueta salen como
+  `0.8.0-dev.<commit>`. Después de publicar una versión, se pone ahí la nueva con `-dev`
+  (`sh tools/set-version.sh 0.8.1-dev` después de publicar 0.8.1).
 * La actualización automática consulta la última versión **publicada** (no los borradores)
   en GitHub y sólo instala lo que coincide con su `SHA256SUMS`. En Windows instala el `.msi`
   si Firmador se instaló con él; en macOS reemplaza Firmador.app; en Linux, en flatpak y con
