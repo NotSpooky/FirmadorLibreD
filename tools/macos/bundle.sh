@@ -125,7 +125,9 @@ for library in $(find "$frameworks" -type f -name '*.dylib' -exec basename {} \;
   [ -d "$licenses/$formula" ] && continue
   keg="$cellar/$formula/$keg_version"
   mkdir -p "$licenses/$formula"
-  find "$keg" -maxdepth 1 -type f \( -iname 'LICEN[CS]E*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) \
+  # Los nombres varían: LICENSE.txt, COPYING, Copyright (libxml2, libxslt), leptonica-license.txt…
+  find "$keg" -maxdepth 1 -type f \( -iname '*licen[cs]e*' -o -iname '*copying*' -o -iname '*copyright*' \
+    -o -iname '*notice*' \) \
     -exec cp {} "$licenses/$formula/" \;
   [ -n "$(ls "$licenses/$formula")" ] || fail "el keg de $formula ($keg) no trae su licencia"
 done
