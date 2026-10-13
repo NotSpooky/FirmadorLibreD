@@ -129,7 +129,22 @@ for library in $(find "$frameworks" -type f -name '*.dylib' -exec basename {} \;
   find "$keg" -maxdepth 1 -type f \( -iname '*licen[cs]e*' -o -iname '*copying*' -o -iname '*copyright*' \
     -o -iname '*notice*' \) \
     -exec cp {} "$licenses/$formula/" \;
-  [ -n "$(ls "$licenses/$formula")" ] || fail "el keg de $formula ($keg) no trae su licencia"
+  if [ -z "$(ls "$licenses/$formula")" ]; then
+    # Sin archivo en el keg (glib): el texto de la licencia que declara la fórmula, de
+    # packaging/licenses/textos (un archivo por licencia, sin -only ni -or-later).
+    spdx="$(brew info --json=v2 --formula "$formula" |
+      python3 -I -c 'import json, sys; print(json.load(sys.stdin)["formulae"][0]["license"] or "")')"
+    [ -n "$spdx" ] || fail "el keg de $formula ($keg) no trae su licencia ni Homebrew la declara"
+    printf '%s\n' "$spdx" > "$licenses/$formula/SPDX.txt"
+    for id in $(printf '%s' "$spdx" | tr '()' '  ' | sed -e 's/ WITH [^ ]*//g' -e 's/ AND / /g' -e 's/ OR / /g'); do
+      base="${id%-or-later}"
+      base="${base%-only}"
+      base="${base%+}"
+      [ -f "$root/packaging/licenses/textos/$base.txt" ] ||
+        fail "falta el texto de $id (licencia de $formula) en packaging/licenses/textos/$base.txt"
+      cp "$root/packaging/licenses/textos/$base.txt" "$licenses/$formula/$base.txt"
+    done
+  fi
 done
 
 # Versión: la de resources/version.txt sin el sufijo (-SNAPSHOT), la misma que muestra el

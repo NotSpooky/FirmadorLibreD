@@ -293,7 +293,8 @@ firmador/
 │                            configuración de firma de SignPath
 ├── packaging/macos/         Info.plist e ícono de Firmador.app (lo arma tools/macos/bundle.sh)
 ├── packaging/licenses/      Avisos de licencias de AccessKit (tools/accesskit-notices.sh) y
-│                            de los certificados raíz de Windows
+│                            de los certificados raíz de Windows, y textos de licencias
+│                            de bibliotecas de Homebrew que no traen el suyo
 ├── screenshots/             Capturas de pantalla de este README
 └── src/
     ├── c/, shim/            Enlaces a bibliotecas de C (ImportC) y puente con mupdf
