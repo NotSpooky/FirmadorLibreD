@@ -52,7 +52,10 @@ modules:
       - /sbin
       - /lib/libpcscspy*
       - /lib/systemd
-      - /share
+      - /share/doc
+      - /share/man
+    post-install:
+      - install -Dm644 COPYING "${FLATPAK_DEST}/share/licenses/${FLATPAK_ID}/pcsc-lite-COPYING"
     sources:
       - type: archive
         url: https://pcsclite.apdu.fr/files/pcsc-lite-2.5.1.tar.xz
@@ -81,6 +84,16 @@ modules:
         Libs: -L${libdir} -lmupdf
         Cflags: -I${includedir}
         PC
+      # Su licencia y las de las bibliotecas que trae (thirdparty), con las del paquete.
+      - |
+        licenses="${FLATPAK_DEST}/share/licenses/${FLATPAK_ID}/mupdf"
+        install -Dm644 COPYING "$licenses/COPYING"
+        for file in thirdparty/*/*; do
+          [ -f "$file" ] || continue
+          case "$(basename "$file" | tr '[:upper:]' '[:lower:]')" in
+            *copying*|*license*|*licence*|*notice*) install -Dm644 "$file" "$licenses/$(basename "$(dirname "$file")")-$(basename "$file")" ;;
+          esac
+        done
     sources:
       - type: archive
         url: https://mupdf.com/downloads/archive/mupdf-1.28.4-source.tar.gz

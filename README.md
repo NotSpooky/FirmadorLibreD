@@ -251,7 +251,13 @@ La versión en D es obra de Christian Durán Carvajal.
 * Código original (Java): <https://codeberg.org/firmador/firmador>
 
 Firmador es software libre bajo la licencia **GPL versión 3 o posterior** (ver
-[COPYING](COPYING)).
+[COPYING](COPYING)), la misma de la versión Java. Usa bibliotecas de otros proyectos con
+licencias compatibles: MuPDF (AGPL 3), OpenSSL 3 (Apache 2.0), libxml2, libxslt y libcurl
+(MIT y similares), SDL y FreeType (zlib y FTL), pcsc-lite (BSD), libsecret (LGPL), AccessKit
+(MIT o Apache 2.0) y dlangui y las bibliotecas de D (Boost). Sus licencias van con cada
+paquete: en la carpeta `licencias` del programa en Windows, en `Firmador.app/Contents/Resources/licencias`
+en macOS y en `share/licenses` en Linux. Portions of this software are copyright © The
+FreeType Project (www.freetype.org). All rights reserved.
 
 
 ## Pendiente (TODO)
@@ -286,7 +292,8 @@ firmador/
 ├── packaging/windows/       Instalador (WiX), recursos del ejecutable y la
 │                            configuración de firma de SignPath
 ├── packaging/macos/         Info.plist e ícono de Firmador.app (lo arma tools/macos/bundle.sh)
-├── packaging/licenses/      Aviso de licencias de AccessKit (tools/accesskit-notices.sh)
+├── packaging/licenses/      Avisos de licencias de AccessKit (tools/accesskit-notices.sh) y
+│                            de los certificados raíz de Windows
 ├── screenshots/             Capturas de pantalla de este README
 └── src/
     ├── c/, shim/            Enlaces a bibliotecas de C (ImportC) y puente con mupdf

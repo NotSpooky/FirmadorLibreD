@@ -31,7 +31,7 @@ Desde la carpeta del repositorio, en PowerShell. Los detalles están en el
 | `… build.ps1 -Build debug` | Lo mismo, con información de depuración |
 | `… setup.ps1 -DepsRoot D:\firmador-deps` | Deja las dependencias en esa carpeta (sin espacios) en vez de `.build\windows`; `build.ps1` la recibe igual |
 | `… setup.ps1 -SkipBuild` | Sólo prepara las dependencias, sin compilar |
-| `… build.ps1 -Test` | Compila y además corre las pruebas (`dub test`) con el mismo entorno |
+| `… build.ps1 -Test` | Compila y además corre las pruebas (`dub test`) con el mismo entorno. Como `build.ps1`, deja en `bin\licencias` las licencias de Firmador y de lo que lleva (puertos de vcpkg, mupdf, AccessKit, certificados raíz), que van en el `.zip` y en el instalador |
 | `dotnet tool install --global wix --version 5.0.2` | Una vez: instala WiX 5, con el que se arma el instalador (no uno más nuevo: desde WiX 6 la licencia agrega la Open Source Maintenance Fee) |
 | `… -File tools\windows\installer.ps1` | Después de `build.ps1`: arma `firmador.msi` con lo de `bin\` y lo valida (ICE); `-Output` cambia la ruta y `-Version` la versión, que por omisión es la de `resources\version.txt` |
 | `msiexec /i firmador.msi` | Instala para el usuario, sin administrador (en `%LOCALAPPDATA%\Programs\Firmador Libre`), y abre Firmador al terminar |

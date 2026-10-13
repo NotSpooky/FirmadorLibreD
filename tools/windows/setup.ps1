@@ -218,7 +218,7 @@ function Install-Mupdf {
   # mupdf, que se borran con el código: link.exe no tiene que buscarlos (LNK4099) y el
   # .pdb de Firmador incluye a mupdf.
   $debugFormat = 'OldStyle'
-  $recipe = "$version $($properties -join ' ') DebugInformationFormat=$debugFormat"
+  $recipe = "$version $($properties -join ' ') DebugInformationFormat=$debugFormat licencias"
   if (Test-Prepared $layout.MupdfMarker $recipe) {
     Write-Host "mupdf $version ya está."
     return
@@ -256,6 +256,16 @@ function Install-Mupdf {
   New-Item -ItemType Directory -Force $pkgconfig | Out-Null
   Copy-Item -LiteralPath (Join-Path $source 'include') -Destination $layout.Mupdf -Recurse -Force
   Copy-Item -LiteralPath $built -Destination (Join-Path $layout.Mupdf 'lib\libmupdf.lib') -Force
+  # Su licencia y las de las bibliotecas que trae (thirdparty), que build.ps1 pone junto al
+  # programa: libmupdf.lib las lleva adentro.
+  $licenses = Join-Path $layout.Mupdf 'licencias'
+  New-Item -ItemType Directory -Force $licenses | Out-Null
+  Copy-Item -LiteralPath (Join-Path $source 'COPYING') -Destination (Join-Path $licenses 'mupdf-COPYING.txt') -Force
+  foreach ($library in Get-ChildItem -LiteralPath (Join-Path $source 'thirdparty') -Directory) {
+    foreach ($file in Get-ChildItem -LiteralPath $library.FullName -File | Where-Object { $_.Name -match '(?i)copying|licen[cs]e|notice' }) {
+      Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $licenses "$($library.Name)-$($file.Name).txt") -Force
+    }
+  }
   @(
     'prefix=${pcfiledir}/../..'
     'libdir=${prefix}/lib'

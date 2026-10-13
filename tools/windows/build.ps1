@@ -25,9 +25,10 @@
   Carga el entorno x64 de Visual Studio sólo para este proceso (ImportC y el enlazador lo
   necesitan), pone en el PATH LDC, LLVM, el sh de Git y pkg-config, apunta PKG_CONFIG_PATH
   y LIB a las bibliotecas de -DepsRoot y compila con dub. Deja bin\firmador.exe junto con
-  las DLL que necesita para ejecutarse: las de vcpkg, libcurl de LDC y las del runtime de
-  Visual C++ que se usan, así que bin\ funciona en un Windows sin nada más instalado. No
-  cambia variables de entorno del sistema ni requiere administrador.
+  las DLL que necesita para ejecutarse: las de vcpkg (libcurl incluida) y las del runtime de
+  Visual C++ que se usan, así que bin\ funciona en un Windows sin nada más instalado, y en
+  bin\licencias las licencias de Firmador y de lo que lleva. No cambia variables de entorno
+  del sistema ni requiere administrador.
 
 .PARAMETER DepsRoot
   Carpeta de las dependencias que usó setup.ps1. Por omisión, .build\windows dentro del
@@ -88,9 +89,29 @@ try {
 
 $bin = Join-Path $packageDir 'bin'
 Copy-Item -Path (Join-Path $layout.VcpkgTriplet 'bin\*.dll') -Destination $bin -Force
-foreach ($file in @('libcurl.dll', 'curl-ca-bundle.crt')) {
-  Copy-Item -LiteralPath (Join-Path $layout.LdcBin $file) -Destination $bin -Force
+# Los certificados raíz de Mozilla para libcurl (MPL 2.0: su aviso va en licencias).
+Copy-Item -LiteralPath (Join-Path $layout.LdcBin 'curl-ca-bundle.crt') -Destination $bin -Force
+if (-not (Test-Path -LiteralPath (Join-Path $bin 'libcurl.dll'))) {
+  throw 'vcpkg no dejó libcurl.dll: vuelva a ejecutar setup.ps1, que la compila con OpenSSL.'
 }
+
+# Licencias que los paquetes llevan junto al programa: la de Firmador, el aviso de AccessKit,
+# el de los certificados raíz, la de cada puerto de vcpkg (sus DLL) y las de mupdf y lo que
+# trae (libmupdf.lib).
+$licenses = Join-Path $bin 'licencias'
+if (Test-Path -LiteralPath $licenses) { Remove-Item -LiteralPath $licenses -Recurse -Force }
+New-Item -ItemType Directory -Force $licenses | Out-Null
+Copy-Item -LiteralPath (Join-Path $packageDir 'COPYING') -Destination (Join-Path $licenses 'firmador-COPYING.txt')
+Copy-Item -LiteralPath (Join-Path $packageDir 'packaging\licenses\accesskit.txt') -Destination $licenses
+Copy-Item -LiteralPath (Join-Path $packageDir 'packaging\licenses\curl-ca-bundle.txt') -Destination $licenses
+foreach ($copyright in Get-ChildItem -Path (Join-Path $layout.VcpkgTriplet 'share\*\copyright') -File) {
+  Copy-Item -LiteralPath $copyright.FullName -Destination (Join-Path $licenses "$($copyright.Directory.Name).txt")
+}
+$mupdfLicenses = Join-Path $layout.Mupdf 'licencias'
+if (-not (Test-Path -LiteralPath $mupdfLicenses)) {
+  throw 'Faltan las licencias de mupdf: vuelva a ejecutar setup.ps1.'
+}
+Copy-Item -Path (Join-Path $mupdfLicenses '*') -Destination $licenses
 
 # Runtime de Visual C++ junto al programa (Microsoft permite copiar lo de VC\Redist): lo usan
 # el ejecutable, las DLL de vcpkg y el C++ que mupdf lleva adentro, y un Windows sin el

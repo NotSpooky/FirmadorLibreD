@@ -20,8 +20,8 @@
 
 # Instala Firmador ya compilado (bin/firmador) en el prefijo indicado (por omisión
 # /usr/local; DESTDIR para armar paquetes): el ejecutable, la entrada del menú con los
-# tipos de documento y el esquema firmador:, los datos de AppStream, los íconos y el aviso de
-# licencias de AccessKit, que va dentro del ejecutable (packaging/licenses). Lo usan
+# tipos de documento y el esquema firmador:, los datos de AppStream, los íconos, la licencia y
+# el aviso de licencias de AccessKit, que va dentro del ejecutable (packaging/licenses). Lo usan
 # el flatpak (io.github.notspooky.firmadorlibred.yml) y los paquetes de cada
 # distribución. Ver COMMANDS.md.
 #
@@ -45,5 +45,6 @@ install -D -m 644 "$here/$appId.metainfo.xml" "$destination/share/metainfo/$appI
 for size in 128x128 256x256 512x512; do
   install -D -m 644 "$here/icons/$size.png" "$destination/share/icons/hicolor/$size/apps/$appId.png"
 done
+install -D -m 644 "$root/COPYING" "$destination/share/licenses/$appId/COPYING"
 install -D -m 644 "$root/packaging/licenses/accesskit.txt" "$destination/share/licenses/$appId/accesskit.txt"
 echo "Firmador instalado en $destination"

@@ -1,0 +1,7 @@
+curl-ca-bundle.crt (Windows): los certificados raíz que libcurl usa para verificar los
+sitios, extraídos por el proyecto curl (https://curl.se/docs/caextract.html) de la lista de
+Mozilla (certdata.txt de NSS).
+
+Esa lista se distribuye bajo la Mozilla Public License 2.0; el archivo es su forma de código
+fuente. El texto de la licencia está en https://mozilla.org/MPL/2.0/ y el original de los
+datos, en https://hg.mozilla.org/mozilla-central/file/tip/security/nss/lib/ckfw/builtins/certdata.txt

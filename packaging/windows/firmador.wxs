@@ -78,10 +78,10 @@
             <RegistryValue Key="SupportedTypes" Name=".sce" Type="string" Value="" />
           </RegistryKey>
         </Component>
-        <!-- Aviso de licencias de AccessKit, que va dentro del ejecutable (packaging/licenses). -->
-        <Component Id="Licenses">
-          <File Id="AccessKitLicenses" Source="$(sys.SOURCEFILEDIR)..\licenses\accesskit.txt" KeyPath="yes" />
-        </Component>
+        <!-- Las licencias de Firmador y de lo que lleva, que build.ps1 reúne en bin\licencias. -->
+        <Directory Id="LicensesFolder" Name="licencias">
+          <Files Include="!(bindpath.bin)\licencias\**" />
+        </Directory>
         <!-- Las DLL de vcpkg, libcurl y el runtime de Visual C++ que build.ps1 deja junto al programa. -->
         <Files Include="!(bindpath.bin)\*.dll" />
         <Files Include="!(bindpath.bin)\curl-ca-bundle.crt" />

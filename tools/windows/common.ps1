@@ -38,8 +38,10 @@ $FirmadorChecksums = @{
   Mupdf = '37c3209dc0e06fa4f3781ed44839ad933a9e6143eb4731f99e069204715bcef2'
 }
 
-# Bibliotecas de C que se compilan con vcpkg (triplet x64-windows: DLL con /MD).
-$FirmadorVcpkgPorts = @('libxml2', 'libxslt', 'openssl', 'sdl2', 'freetype', 'pkgconf')
+# Bibliotecas de C que se compilan con vcpkg (triplet x64-windows: DLL con /MD). libcurl
+# (std.net.curl) es la de vcpkg con OpenSSL 3, compatible con la GPL: la que trae LDC lleva
+# LibreSSL adentro, con las licencias de OpenSSL y SSLeay anteriores a la 3, que no lo son.
+$FirmadorVcpkgPorts = @('libxml2', 'libxslt', 'openssl', 'sdl2', 'freetype', 'pkgconf', 'curl[core,openssl]')
 
 <#
 .SYNOPSIS

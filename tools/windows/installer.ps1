@@ -62,7 +62,7 @@ if ([int] $Matches[1] -gt 255 -or [int] $Matches[2] -gt 255 -or [int] $Matches[3
 }
 $core = "$($Matches[1]).$($Matches[2]).$($Matches[3])"
 
-foreach ($required in @('firmador.exe', 'curl-ca-bundle.crt')) {
+foreach ($required in @('firmador.exe', 'curl-ca-bundle.crt', 'libcurl.dll', 'licencias\firmador-COPYING.txt')) {
   if (-not (Test-Path -LiteralPath (Join-Path $bin $required))) {
     throw "Falta bin\$required. Compile antes con tools\windows\build.ps1."
   }

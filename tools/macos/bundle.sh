@@ -108,8 +108,27 @@ if otool -L $machos | grep -E '^[[:space:]]+(/opt/homebrew|/usr/local|@rpath)/';
 fi
 
 cp "$root/packaging/macos/firmador.icns" "$contents/Resources/firmador.icns"
-# Aviso de licencias de AccessKit, que va dentro del ejecutable.
-cp "$root/packaging/licenses/accesskit.txt" "$contents/Resources/accesskit-licenses.txt"
+# Licencias: la de Firmador, el aviso de AccessKit (va dentro del ejecutable) y las de cada
+# biblioteca de Homebrew del paquete, que Homebrew guarda en la raíz del keg de su fórmula.
+licenses="$contents/Resources/licencias"
+mkdir -p "$licenses"
+cp "$root/COPYING" "$licenses/firmador-COPYING.txt"
+cp "$root/packaging/licenses/accesskit.txt" "$licenses/accesskit.txt"
+cellar="$(brew --cellar)"
+for library in $(find "$frameworks" -type f -name '*.dylib' -exec basename {} \;); do
+  original="$(find "$cellar" -name "$library" \( -type f -o -type l \) | head -n 1)"
+  [ -n "$original" ] || fail "no se encontró $library en $cellar para copiar su licencia"
+  relative="${original#"$cellar"/}"
+  formula="${relative%%/*}"
+  keg_version="${relative#*/}"
+  keg_version="${keg_version%%/*}"
+  [ -d "$licenses/$formula" ] && continue
+  keg="$cellar/$formula/$keg_version"
+  mkdir -p "$licenses/$formula"
+  find "$keg" -maxdepth 1 -type f \( -iname 'LICEN[CS]E*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) \
+    -exec cp {} "$licenses/$formula/" \;
+  [ -n "$(ls "$licenses/$formula")" ] || fail "el keg de $formula ($keg) no trae su licencia"
+done
 
 # Versión: la de resources/version.txt sin el sufijo (-SNAPSHOT), la misma que muestra el
 # programa. Versión mínima de macOS: la más alta que pide alguno de los binarios.
