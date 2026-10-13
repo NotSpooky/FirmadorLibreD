@@ -108,6 +108,8 @@ if otool -L $machos | grep -E '^[[:space:]]+(/opt/homebrew|/usr/local|@rpath)/';
 fi
 
 cp "$root/packaging/macos/firmador.icns" "$contents/Resources/firmador.icns"
+# Aviso de licencias de AccessKit, que va dentro del ejecutable.
+cp "$root/packaging/licenses/accesskit.txt" "$contents/Resources/accesskit-licenses.txt"
 
 # Versión: la de resources/version.txt sin el sufijo (-SNAPSHOT), la misma que muestra el
 # programa. Versión mínima de macOS: la más alta que pide alguno de los binarios.

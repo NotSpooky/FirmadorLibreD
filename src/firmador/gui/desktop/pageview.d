@@ -50,6 +50,7 @@ import dlangui.widgets.widget;
 import firmador.configuration : maxSignatureScale, minSignatureScale;
 import firmador.gui.desktop.common : fontZoomStep, indexIn;
 import firmador.gui.desktop.theme : ThemeColor, themeColor;
+import firmador.i18n : t;
 import firmador.gui.desktop.uithread : runOnUi;
 import firmador.pdf.engine : PageGeometry, PageRaster, PdfAnnotation, PdfRect;
 import firmador.pdf.sigpreview : VisualRect, visualRect, visualSize;
@@ -743,6 +744,28 @@ final class PageView : ScrollWidgetBase {
     if (page == reportedPage) return;
     reportedPage = page;
     if (onCurrentPage !is null) onCurrentPage(page);
+  }
+
+  // Lectores de pantalla ------------------------------------------------------
+
+  /// La vista previa con la página que ocupa su centro; el recuadro de la firma es su hijo.
+  override void describeAccessibility(ref AccessibleNode node) {
+    import std.format : format;
+    node.role = AccessibleRole.group;
+    node.label = t("pageview_accessible");
+    if (!source.isNull && reportedPage >= 0) node.description = format(t("pageview_page_accessible"), reportedPage + 1, pageCount());
+  }
+
+  /// El recuadro de la firma, mientras se muestra; se mueve con el botón de posición de la firma.
+  override AccessibleNode[] accessibleVirtualChildren() {
+    import std.format : format;
+    if (!signatureShown) return null;
+    AccessibleNode box;
+    box.role = AccessibleRole.image;
+    box.label = t("pageview_signature_accessible");
+    box.description = format(t("pageview_signature_position_accessible"), placement.page + 1);
+    box.bounds = signatureBox();
+    return [box];
   }
 
   // Ratón y teclado ---------------------------------------------------------

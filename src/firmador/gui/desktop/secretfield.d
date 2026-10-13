@@ -118,6 +118,13 @@ final class SecretField : Widget {
     clickable = true;
   }
 
+  /// Para los lectores de pantalla es un campo de contraseña: no se publica lo escrito.
+  override void describeAccessibility(ref AccessibleNode node) {
+    node.role = AccessibleRole.passwordInput;
+    node.actions = 0;
+    node.addAction(AccessibleAction.focus);
+  }
+
   /// Cantidad de caracteres escritos.
   size_t length() const pure @safe {
     return secret.characterCount;

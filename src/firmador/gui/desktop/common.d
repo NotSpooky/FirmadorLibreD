@@ -53,7 +53,7 @@ import firmador.gui.desktop.dialogs : showConfirmDialog;
 import firmador.gui.desktop.filepicker : nearestExistingDirectory, pickPaths, PickKind, PickRequest, usableDirectory;
 import firmador.gui.desktop.theme : ThemeColor, themeColor;
 import firmador.gui.desktop.uithread : reportUiFailure;
-import firmador.i18n : htmlToText, t;
+import firmador.i18n : htmlToText, optionalText, t;
 import firmador.settings : Settings;
 import firmador.settingsmanager : lastDirectory, rememberDirectory;
 import firmador.xml.dom : escapeXml;
@@ -143,10 +143,64 @@ void allowMultilineTooltips() @trusted {
   style.maxLines = 0;
 }
 
+/**
+ * Pone a un control la ayuda emergente de `key` y, para los lectores de pantalla, la
+ * descripción de `key_accessible` cuando messages.properties la trae (escrita para ellos
+ * desde la versión Java y sin HTML); sin ella leen la misma ayuda (dlangui.widgets.accessibility).
+ */
+void setTip(Widget widget, string key) @trusted {
+  widget.tooltipText = tip(key);
+  string accessible = optionalText(key ~ "_accessible");
+  if (accessible !is null) widget.accessibleDescription = htmlToText(accessible.replace("<br>", " ")).strip.toUTF32;
+}
+
+/**
+ * Letra del atajo Alt+letra de una tecla (los mnemónicos de la versión Java, que anuncian las
+ * descripciones *_accessible), o 0 si no es uno: Alt sin Ctrl, Mayúscula ni ⌘, y una letra.
+ *
+ * Params:
+ *   keyCode = código de la tecla (KeyEvent.keyCode).
+ *   flags = modificadores (KeyEvent.flags).
+ * Returns: la letra en mayúscula, de la A a la Z, o 0.
+ */
+dchar mnemonicLetter(uint keyCode, uint flags) pure nothrow @nogc @safe {
+  if ((flags & KeyFlag.Alt) == 0 || (flags & (KeyFlag.Control | KeyFlag.Shift | KeyFlag.Menu)) != 0) return 0;
+  if (keyCode < KeyCode.KEY_A || keyCode > KeyCode.KEY_Z) return 0;
+  return cast(dchar) ('A' + (keyCode - KeyCode.KEY_A));
+}
+
+/// Atajos Alt+letra de una ventana o diálogo, cada uno con lo que hace.
+struct Mnemonics {
+  private bool delegate()[dchar] actions;
+
+  /// El atajo pulsa el botón mientras se ve y está habilitado.
+  void add(dchar letter, Widget button) @safe {
+    addAction(letter, () @trusted {
+      if (!button.visible || !button.enabled) return false;
+      button.performAccessibleClick();
+      return true;
+    });
+  }
+
+  /// El atajo llama a `action`, que dice si hizo algo. Una letra repetida es un error de programación.
+  void addAction(dchar letter, bool delegate() action) @safe {
+    assert(letter >= 'A' && letter <= 'Z', format("Atajo Alt+%s fuera de la A a la Z", letter));
+    assert((letter in actions) is null, format("El atajo Alt+%s ya está en uso", letter));
+    actions[letter] = action;
+  }
+
+  /// Hace lo del atajo del evento; true si el evento era uno y se usó.
+  bool handle(KeyEvent event) @trusted {
+    if (event.action != KeyAction.KeyDown) return false;
+    if (auto action = mnemonicLetter(event.keyCode, event.flags) in actions) return (*action)();
+    return false;
+  }
+}
+
 /// Botón con texto, ayuda y acción.
 Button makeButton(string id, string labelKey, string tooltipKey, void delegate() action) @trusted {
   auto button = new Button(id, dt(labelKey));
-  if (tooltipKey.length) button.tooltipText = tip(tooltipKey);
+  if (tooltipKey.length) setTip(button, tooltipKey);
   button.click = (Widget source) {
     action();
     return true;
@@ -375,7 +429,7 @@ final class ResizeGrip : Widget {
     minHeight = makePointSize(7);
     focusable = true;
     trackHover = true;
-    tooltipText = tip("resize_grip_tooltip");
+    setTip(this, "resize_grip_tooltip");
   }
 
   override uint getCursorType(int x, int y) {
@@ -404,17 +458,35 @@ final class ResizeGrip : Widget {
   /// Las flechas arriba y abajo cambian el alto de a una línea.
   override bool onKeyEvent(KeyEvent event) {
     if (event.action == KeyAction.KeyDown && event.modifiers == 0) {
-      int line = box.font.height;
       if (event.keyCode == KeyCode.UP) {
-        resizeBox(box.height - line);
+        resizeByLines(-1);
         return true;
       }
       if (event.keyCode == KeyCode.DOWN) {
-        resizeBox(box.height + line);
+        resizeByLines(1);
         return true;
       }
     }
     return super.onKeyEvent(event);
+  }
+
+  /// Para los lectores de pantalla es un separador que, como con las flechas, se mueve de a una línea.
+  override void describeAccessibility(ref AccessibleNode node) {
+    node.role = AccessibleRole.splitter;
+    node.label = t("resize_grip_accessible");
+    node.addAction(AccessibleAction.increment);
+    node.addAction(AccessibleAction.decrement);
+  }
+
+  override bool onAccessibleAction(AccessibleAction action, dstring value, double numericValue) {
+    if (action != AccessibleAction.increment && action != AccessibleAction.decrement) return false;
+    resizeByLines(action == AccessibleAction.increment ? 1 : -1);
+    return true;
+  }
+
+  /// Agranda (o achica, con `lines` negativo) el cuadro en líneas de su letra.
+  private void resizeByLines(int lines) {
+    resizeBox(box.height + lines * box.font.height);
   }
 
   /// Fija el alto del cuadro sin bajar de su mínimo; ya no lo limita el tope que tuviera por su contenido.
@@ -465,12 +537,14 @@ final class PageSelector : HorizontalLayout {
   this(string id) @trusted {
     super(id);
     auto previous = new Button(null, "−"d);
+    previous.accessibleName = dt("signpanel_page_previous_accessible");
     previous.click = (Widget source) { set(value_ - 1, true); return true; };
     field = new TextField(id ~ "-valor", "1"d);
     field.minWidth = 56;
     field.enterKey = (EditWidgetBase source) { parseField(); return true; };
     field.focusChange = (Widget source, bool focused) { if (!focused) parseField(); return true; };
     auto next = new Button(null, "+"d);
+    next.accessibleName = dt("signpanel_page_next_accessible");
     next.click = (Widget source) { set(value_ + 1, true); return true; };
     addChild(previous);
     addChild(field);
@@ -541,4 +615,14 @@ unittest {
   assert(fontZoomStep(minusKey, modifier) == -1 && fontZoomStep(padMinus, modifier) == -1);
   assert(fontZoomStep(minusKey, 0) == 0 && fontZoomStep(minusKey, modifier | KeyFlag.Alt) == 0);
   assert(fontZoomStep(KeyCode.KEY_Z, modifier) == 0);
+}
+
+@("should recognize Alt with a letter as a mnemonic and reject other modifiers and keys")
+unittest {
+  assert(mnemonicLetter(KeyCode.KEY_S, KeyFlag.Alt) == 'S');
+  assert(mnemonicLetter(KeyCode.KEY_A, KeyFlag.Alt | KeyFlag.LAlt) == 'A');
+  assert(mnemonicLetter(KeyCode.KEY_S, 0) == 0);
+  assert(mnemonicLetter(KeyCode.KEY_S, KeyFlag.Alt | KeyFlag.Control) == 0);
+  assert(mnemonicLetter(KeyCode.KEY_S, KeyFlag.Alt | KeyFlag.Shift) == 0);
+  assert(mnemonicLetter(KeyCode.KEY_1, KeyFlag.Alt) == 0);
 }

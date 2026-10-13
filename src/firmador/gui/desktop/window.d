@@ -121,6 +121,8 @@ final class DesktopInterface : GuiInterface, ConnectionView {
   private ConnectionPanel connectionPanel;
   private ConfigPanel configPanel;
   private AboutPanel aboutPanel;
+  /// Atajos Alt+letra de la ventana (common.Mnemonics).
+  private Mnemonics mnemonics;
   private LogBuffer logBuffer;
   /// Pestaña de bitácoras; null mientras no se muestra (dlangui la destruye al quitarla).
   private LogPanel logPanel;
@@ -212,14 +214,16 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     fileField = new TextField("archivo", dt("document_selection_filefield"));
     fileField.readOnly = true;
     fileField.layoutWidth = FILL_PARENT;
-    fileField.tooltipText = tip("document_selection_filefield_tooltip");
+    setTip(fileField, "document_selection_filefield_tooltip");
     selection.addChild(fileField);
-    selection.addChild(makeButton("elegir", "document_selection_btn", "document_selection_btn_tooltip", () {
+    auto choose = makeButton("elegir", "document_selection_btn", "document_selection_btn_tooltip", () {
       chooseFiles(window, t("document_selection_filedialog_title"), true, null, (string[] paths) {
         if (paths.length == 0) return;
         addFiles(paths, true);
       });
-    }));
+    });
+    selection.addChild(choose);
+    mnemonics.add('N', choose);
     root.addChild(selection);
 
     tabs = new TabWidget("pestanas");
@@ -228,6 +232,8 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     connectionPanel = new ConnectionPanel(this);
     configPanel = new ConfigPanel(this);
     aboutPanel = new AboutPanel(this);
+    signPanel.addMnemonics(mnemonics);
+    aboutPanel.addMnemonics(mnemonics);
     if (simplified) {
       tabs.addTab(signPanel, dt("guiswing_tab_sign"), null, false, tip("guiswing_tab_sign_tooltip"));
       validateView = new RichText("reporte", t("guiswing_dialog_document_not_signed"));
@@ -251,10 +257,11 @@ final class DesktopInterface : GuiInterface, ConnectionView {
     root.addChild(tabs);
     notifications = new NotificationBar;
     auto overlay = new NotificationOverlay(root, notifications);
-    // Ctrl y más o menos (⌘ en macOS) cambian la letra de la ventana como el selector de
-    // Configuración. Llegan aquí desde cualquier control salvo la vista previa del PDF, que los
-    // toma antes para su escala.
+    // Los atajos Alt+letra de los botones, y Ctrl y más o menos (⌘ en macOS), que cambian la
+    // letra de la ventana como el selector de Configuración. Llegan aquí desde cualquier control
+    // salvo, Ctrl y más o menos, la vista previa del PDF, que los toma antes para su escala.
     overlay.keyEvent = (Widget source, KeyEvent event) {
+      if (mnemonics.handle(event)) return true;
       int step = event.action == KeyAction.KeyDown ? fontZoomStep(event.keyCode, event.flags) : 0;
       if (step == 0) return false;
       configPanel.stepUiFontSize(step);

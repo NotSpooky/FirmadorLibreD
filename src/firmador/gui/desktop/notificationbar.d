@@ -43,6 +43,9 @@ final class NotificationBar : VerticalLayout {
   private RichText message;
   private ulong hideTimer;
   private uint frameColor;
+  private NotificationType type;
+  /// Cuenta los avisos mostrados: cada uno es un nodo nuevo para los lectores de pantalla.
+  private ulong shownCount;
 
   this() @trusted {
     super("avisos");
@@ -52,10 +55,29 @@ final class NotificationBar : VerticalLayout {
     message.alignment = Align.Center;
     addChild(message);
     visibility = Visibility.Gone;
+    // Los lectores de pantalla lo reciben como la región que publica NotificationOverlay.
+    accessibleHidden = true;
+  }
+
+  /// Texto del aviso que se muestra, o vacío si no hay.
+  dstring visibleText() {
+    return visibility == Visibility.Visible ? message.text : ""d;
+  }
+
+  /// Número del aviso que se muestra (cuántos se mostraron hasta él).
+  ulong noticeNumber() const pure @safe {
+    return shownCount;
+  }
+
+  /// Si el aviso que se muestra es un error.
+  bool showsError() const pure @safe {
+    return type == NotificationType.error;
   }
 
   /// Muestra el aviso con el color de su tipo; se oculta solo a los cinco segundos.
   void show(string html, NotificationType type) @trusted {
+    this.type = type;
+    shownCount++;
     ThemeColor background, foreground;
     final switch (type) {
       case NotificationType.success:
@@ -161,6 +183,24 @@ final class NotificationOverlay : WidgetGroup {
     super.onDraw(buf);
     content.onDraw(buf);
     bar.onDraw(buf);
+  }
+
+  /**
+   * Para los lectores de pantalla, el aviso que se muestra es una región viva, con prioridad si
+   * es un error. Cada aviso es un nodo nuevo (su clave es su número): los lectores anuncian las
+   * regiones vivas al aparecer, aunque el aviso anterior siga a la vista.
+   */
+  override AccessibleNode[] accessibleVirtualChildren() {
+    import std.utf : toUTF8;
+    dstring text = bar.visibleText;
+    if (text.length == 0) return null;
+    AccessibleNode notice;
+    notice.id = bar.noticeNumber % maxAccessibleVirtualKey;
+    notice.role = AccessibleRole.label;
+    notice.value = text.toUTF8;
+    notice.live = bar.showsError ? AccessibleLive.assertive : AccessibleLive.polite;
+    notice.bounds = bar.pos;
+    return [notice];
   }
 
   private static int barWidthLimit(int width) pure {

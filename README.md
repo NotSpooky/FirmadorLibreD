@@ -73,6 +73,11 @@ un enlace a la descarga. También se puede [compilar e instalar en el sistema](#
   los deshace.
 * **Instalador y actualizaciones automáticas**, y los selectores de archivos propios de
   cada sistema.
+* **Lectores de pantalla.** La ventana y los diálogos se exponen a los lectores de pantalla
+  (UI Automation en Windows, NSAccessibility en macOS y AT-SPI en Linux): cada control con su
+  nombre y su descripción, el texto de los campos con el cursor, los avisos al aparecer y el
+  recuadro de la firma. Los atajos Alt+letra de la versión Java (Alt+S firma, Alt+N elige
+  documentos…) también funcionan.
 
 <p>
   <img src="screenshots/vista-previa-e-imagen.png" width="49%"
@@ -168,7 +173,9 @@ dub build -b release        # versión optimizada
 ```
 
 El paso previo (`tools/prebuild.sh`) reúne las cabeceras de C que ImportC necesita
-según `pkg-config` y compila el puente con mupdf.
+según `pkg-config`, compila el puente con mupdf y descarga, la primera vez, la biblioteca
+de [AccessKit](https://accesskit.dev) con la que la ventana se expone a los lectores de
+pantalla (verificada con su SHA-256; para abrirla hace falta `unzip` o `bsdtar`).
 
 Para instalarlo en el sistema, después de `dub build --build=release`:
 
@@ -256,8 +263,8 @@ Firmador es software libre bajo la licencia **GPL versión 3 o posterior** (ver
   Mac (llavero, enlaces `firmador:`, actualización).
 * **Ícono en la bandeja del sistema**: dlangui no lo ofrece; hoy los avisos con la
   ventana oculta usan las notificaciones del escritorio.
-* **Accesibilidad**: dlangui no expone la interfaz a lectores de pantalla como lo hacía
-  Swing; la navegación con teclado sí funciona.
+* **Accesibilidad**: probar con NVDA, JAWS, VoiceOver y Orca. En Linux, Orca no recibe la
+  opción elegida de las listas desplegables (AccessKit no la publica por AT-SPI).
 * **Documentación**: portar el manual de usuario y las preguntas frecuentes.
 * **Pruebas**: una configuración de `dub test` sin el aviso del archivo principal, y
   portar las pruebas de la versión Java que falten.
@@ -279,6 +286,7 @@ firmador/
 ├── packaging/windows/       Instalador (WiX), recursos del ejecutable y la
 │                            configuración de firma de SignPath
 ├── packaging/macos/         Info.plist e ícono de Firmador.app (lo arma tools/macos/bundle.sh)
+├── packaging/licenses/      Aviso de licencias de AccessKit (tools/accesskit-notices.sh)
 ├── screenshots/             Capturas de pantalla de este README
 └── src/
     ├── c/, shim/            Enlaces a bibliotecas de C (ImportC) y puente con mupdf

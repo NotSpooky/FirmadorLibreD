@@ -186,7 +186,7 @@ final class DocumentListPanel : HorizontalLayout {
     auto search = new HorizontalLayout;
     auto searchField = new TextField("buscar");
     searchField.minWidth = 220;
-    searchField.tooltipText = tip("list_document_search_field_tooltip");
+    setTip(searchField, "list_document_search_field_tooltip");
     auto runSearch = () {
       string query = searchField.text.toUTF8;
       auto sorted = visibleDocuments.dup;
@@ -455,7 +455,7 @@ final class DocumentListPanel : HorizontalLayout {
     row.tooltipText = (t("list_document_docPanel_accessible") ~ document.name).toUTF32;
     auto check = new CheckBox(null, ""d);
     check.checked = selected.canFind(document);
-    check.tooltipText = tip("list_document_checkbox_accessible");
+    setTip(check, "list_document_checkbox_accessible");
     check.checkChange = (Widget source, bool checked) {
       if (checked && !selected.canFind(document)) selected ~= document;
       else if (!checked) selected = selected.remove!(existing => existing is document);
@@ -473,7 +473,7 @@ final class DocumentListPanel : HorizontalLayout {
       info.addChild(new TextWidget(null, (t("list_document_panel_origin") ~ document.origin).toUTF32));
     } else {
       auto output = new Button(null, (t("list_document_panel_exit_path") ~ document.pathToSave).toUTF32);
-      output.tooltipText = tip("list_document_save_button_accessible_description_local");
+      setTip(output, "list_document_save_button_accessible_description_local");
       output.click = (Widget source) { chooseOutput(document); return true; };
       info.addChild(output);
     }

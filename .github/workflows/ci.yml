@@ -130,7 +130,7 @@ jobs:
         run: ./tools/windows/build.ps1 -Test
       - name: Paquete
         run: |
-          $files = @(Get-Item bin/firmador.exe, bin/curl-ca-bundle.crt) + @(Get-ChildItem bin -Filter *.dll)
+          $files = @(Get-Item bin/firmador.exe, bin/curl-ca-bundle.crt, packaging/licenses/accesskit.txt) + @(Get-ChildItem bin -Filter *.dll)
           Compress-Archive -Path $files.FullName -DestinationPath "$env:PACKAGE.zip"
       - name: Instalador
         run: |

@@ -92,6 +92,27 @@ string t(string key) @trusted {
 
 /// Como t, pero para un idioma y país concretos (el mensaje de firma por omisión va siempre en es_CR).
 string translate(string key, string language, string country) @trusted {
+  string text = lookup(key, language, country);
+  if (text is null) throw new Exception(format("No existe el texto «%s» para el idioma %s_%s", key, language, country));
+  return text;
+}
+
+/**
+ * Texto traducido de una clave que puede no existir, como las descripciones para lectores de
+ * pantalla que sólo algunas ayudas tienen (claves *_accessible).
+ *
+ * Returns: el texto para el idioma actual, o null si no está en ningún paquete.
+ */
+string optionalText(string key) @trusted {
+  bundleLock.lock();
+  string language = currentLanguage;
+  string country = currentCountry;
+  bundleLock.unlock();
+  return lookup(key, language, country);
+}
+
+/// Texto de la clave en el paquete más específico del idioma que la tenga, o null.
+private string lookup(string key, string language, string country) @trusted {
   bundleLock.lock();
   scope (exit) bundleLock.unlock();
   foreach (suffix; ["_" ~ language ~ "_" ~ country, "_" ~ language, ""]) {
@@ -99,7 +120,7 @@ string translate(string key, string language, string country) @trusted {
     if (bundle is null) continue;
     if (auto value = key in *bundle) return *value;
   }
-  throw new Exception(format("No existe el texto «%s» para el idioma %s_%s", key, language, country));
+  return null;
 }
 
 /**
@@ -153,6 +174,13 @@ unittest {
   assert(t("configpanel_save") != "Guardar");
   assert(t("connection_panel_error_token").length > 0);
   setMessagesLocale("es", "CR");
+}
+
+@("should return the text of an optional key and null instead of throwing when it is missing")
+unittest {
+  setMessagesLocale("es", "CR");
+  assert(optionalText("signpanel_reason_tooltip_accessible").length > 0);
+  assert(optionalText("clave_que_no_existe_accessible") is null);
 }
 
 @("should throw with the key when a text does not exist")

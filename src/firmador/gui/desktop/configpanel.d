@@ -335,6 +335,7 @@ final class ConfigPanel : VerticalLayout {
     previewPaper.backgroundImageId = format("#border,#%06X,1,#FFFFFF", themeColor(ThemeColor.pageBorder) & 0xFFFFFF);
     previewPaper.padding = Rect(8, 8, 8, 8);
     previewImage = new ImageWidget("firma-vista-previa");
+    previewImage.accessibleName = dt("configpanel_signature_preview");
     previewPaper.addChild(previewImage);
     strip.addChild(previewPaper);
     previewProblem = new MultilineTextWidget("firma-vista-previa-problema");
@@ -356,6 +357,8 @@ final class ConfigPanel : VerticalLayout {
     auto settings = copyOf(currentSettings());
     string text = signatureTextFor(t("signpanel_name_person"), t("signpanel_type_person"), "XXX-XXXXXXXXXXXX", settings,
       settings, Clock.currTime);
+    // Lo que dice la firma, para los lectores de pantalla.
+    previewImage.accessibleDescription = text.toUTF32;
     PageGeometry geometry;
     // Carta: sólo sirve para dibujar la firma, que no depende del tamaño de la página.
     geometry.mediaBox = PdfRect(0, 0, 612, 792);
@@ -436,7 +439,7 @@ final class ConfigPanel : VerticalLayout {
     withoutVisibleSign = new CheckBox("sin-firma-visible-config", dt("configpanel_without_visible_signature"));
     showLogs = new CheckBox("ver-bitacoras", dt("configpanel_view_logs"));
     startRemoteBasic = new CheckBox("iniciar-remoto-basico", dt("configpanel_start_fimador_remote"));
-    startRemoteBasic.tooltipText = tip("configpanel_start_fimador_remote_tooltip");
+    setTip(startRemoteBasic, "configpanel_start_fimador_remote_tooltip");
     foreach (check; [simplifiedMode, withoutVisibleSign, showLogs, startRemoteBasic]) {
       check.margins = Rect(0, 0, 16, 0);
       checks.addChild(check);
@@ -445,7 +448,7 @@ final class ConfigPanel : VerticalLayout {
     auto checksDown = new HorizontalLayout;
     overwriteSourceFile = new CheckBox("sobrescribir", dt("configpanel_rewrite_original_file"));
     showTrayNotifications = new CheckBox("notificaciones", dt("configpanel_show_tray_notifications"));
-    showTrayNotifications.tooltipText = tip("configpanel_show_tray_notifications_tooltip");
+    setTip(showTrayNotifications, "configpanel_show_tray_notifications_tooltip");
     foreach (check; [overwriteSourceFile, showTrayNotifications]) {
       check.margins = Rect(0, 4, 16, 0);
       checksDown.addChild(check);
@@ -456,10 +459,10 @@ final class ConfigPanel : VerticalLayout {
     place = field(table, "configpanel_place");
     contact = field(table, "configpanel_contact");
     dateFormat = field(table, "configpanel_date_format");
-    dateFormat.tooltipText = tip("configpanel_must_be_compatible_with_java_date_formats");
+    setTip(dateFormat, "configpanel_must_be_compatible_with_java_date_formats");
     defaultSignMessage = new EditBox;
     row(table, t("configpanel_signature_message"), resizable(defaultSignMessage, 4));
-    defaultSignMessage.tooltipText = tip("configpanel_default_sign_message_help");
+    setTip(defaultSignMessage, "configpanel_default_sign_message_help");
     pageNumber = field(table, "configpanel_initial_page");
     signX = field(table, "configpanel_initial_position_x");
     signY = field(table, "configpanel_initial_position_y");
@@ -467,13 +470,13 @@ final class ConfigPanel : VerticalLayout {
     font = combo(table, t("configpanel_font"), plain(signatureFonts()));
     fontPosition = combo(table, t("configpanel_image_position"), fontPositionKeys.map!(key => dt(key)).array);
     fontColor = field(table, "configpanel_font_color");
-    fontColor.tooltipText = tip("configpanel_use_the_word_transparent_if_you_do_not_want_a_color");
+    setTip(fontColor, "configpanel_use_the_word_transparent_if_you_do_not_want_a_color");
     backgroundColor = field(table, "configpanel_background_color");
-    backgroundColor.tooltipText = tip("configpanel_use_the_word_transparent_if_you_do_not_want_a_background_color");
+    setTip(backgroundColor, "configpanel_use_the_word_transparent_if_you_do_not_want_a_background_color");
     imagePath = pathField(table, t("configpanel_signature_image"), "configpanel_select_an_image");
     imageOpacity = percentRow(table, "configpanel_image_opacity", "opacidad-imagen", 0, 100);
     imageScale = percentRow(table, "configpanel_image_scale", "tamano-imagen", minImageScale, maxImageScale);
-    imageScale.tooltipText = tip("configpanel_image_scale_tooltip");
+    setTip(imageScale, "configpanel_image_scale_tooltip");
     rotation = combo(table, t("configpanel_sign_rotation"), rotationLabels());
     zoom = combo(table, t("configpanel_preview_zoom"), zoomLabels());
     language = combo(table, t("configpanel_language"), plain(languages));
@@ -519,10 +522,10 @@ final class ConfigPanel : VerticalLayout {
 
     section(panel, "configpanel_section_remote");
     startRemote = new CheckBox("iniciar-remoto", dt("configpanel_start_fimador_remote"));
-    startRemote.tooltipText = tip("configpanel_start_fimador_remote_tooltip");
+    setTip(startRemote, "configpanel_start_fimador_remote_tooltip");
     panel.addChild(startRemote);
     allowOriginPort = new CheckBox("puerto-del-sitio", dt("configpanel_allow_origin_port"));
-    allowOriginPort.tooltipText = tip("configpanel_allow_origin_port_tooltip");
+    setTip(allowOriginPort, "configpanel_allow_origin_port_tooltip");
     panel.addChild(allowOriginPort);
     auto remote = form(panel);
     allowedOrigins = new EditBox;
@@ -531,7 +534,7 @@ final class ConfigPanel : VerticalLayout {
     section(panel, "configpanel_section_preview_apps");
     auto apps = form(panel);
     scaleFactor = field(apps, "configpanel_pdf_preview_scale");
-    scaleFactor.tooltipText = tip("configpanel_scale_factor_to_present_the_pdf_page_preview");
+    setTip(scaleFactor, "configpanel_scale_factor_to_present_the_pdf_page_preview");
     sofficePath = pathField(apps, t("configpanel_libreoffice_route") ~ ":", "configpanel_select_a_file");
     preferredBrowser = pathField(apps, t("configpanel_preferred_browser") ~ ":", "configpanel_select_browser");
 

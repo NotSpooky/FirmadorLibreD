@@ -39,6 +39,8 @@ import firmador.util.desktop : openUrl;
 
 /// Pestaña «Acerca de».
 final class AboutPanel : VerticalLayout {
+  private Button website;
+
   this(DesktopInterface host) @trusted {
     super("acerca-de");
     fillParent();
@@ -53,7 +55,7 @@ final class AboutPanel : VerticalLayout {
     description.layoutWidth = FILL_PARENT;
     description.margins = Rect(0, 16, 0, 16);
     addChild(description);
-    auto website = makeButton("sitio-web", "about_website_link", "about_website_link_accesible", () {
+    website = makeButton("sitio-web", "about_website_link", "about_website_link_accesible", () {
       try {
         openUrl(baseUrl, currentSettings().preferredBrowser);
       } catch (Exception exception) {
@@ -63,5 +65,10 @@ final class AboutPanel : VerticalLayout {
     });
     website.alignment = Align.Center;
     addChild(website);
+  }
+
+  /// El atajo de la versión Java que anuncia la descripción del botón del sitio (about_website_link_accesible).
+  void addMnemonics(ref Mnemonics mnemonics) @safe {
+    mnemonics.add('O', website);
   }
 }

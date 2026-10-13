@@ -28,17 +28,20 @@
   "dependencies": {
     "dlangui": {
       "repository": "git+https://github.com/NotSpooky/dlangui.git",
-      "version": "758d34e2a6e496572c88947e5045d4852ed5630e"
+      "version": "af9ab22d8d8e1bb8798ce83d17ba145f3eea40c7"
     }
   },
   "subConfigurations": {
-    "dlangui": "minimal"
+    "dlangui": "minimal-accesskit"
   },
   "preBuildCommands": [
     "sh \"$PACKAGE_DIR/tools/prebuild.sh\""
   ],
   "lflags": [
     "$PACKAGE_DIR/.build/libfirmadorshim.a"
+  ],
+  "lflags-posix": [
+    "-L$PACKAGE_DIR/.build/accesskit/lib"
   ],
   "libs-linux": [
     "mupdf",
@@ -82,7 +85,8 @@
   "lflags-windows": [
     "/SUBSYSTEM:WINDOWS",
     "/ENTRY:wmainCRTStartup",
-    "$PACKAGE_DIR/.build/firmador.res"
+    "$PACKAGE_DIR/.build/firmador.res",
+    "/LIBPATH:$PACKAGE_DIR/.build/accesskit/lib"
   ],
   "buildTypes": {
     "release": {

@@ -26,12 +26,12 @@ along with Firmador.  If not, see <http://www.gnu.org/licenses/>.  */
  */
 module firmador.gui.desktop.richtext;
 
-import std.algorithm : canFind, max, startsWith;
+import std.algorithm : canFind, max, min, startsWith;
 import std.array : appender;
 import std.conv : ConvException, to;
 import std.string : indexOf, strip, toLower;
 import std.uni : isWhite;
-import std.utf : toUTF32;
+import std.utf : toUTF32, toUTF8;
 
 import dlangui.core.events;
 import dlangui.core.types;
@@ -49,6 +49,33 @@ struct TextRun {
   bool italic;
   /// Destino del enlace (vacío si no es enlace).
   string link;
+}
+
+/// Enlace de un texto con formato, como lo reciben los lectores de pantalla.
+struct RichLink {
+  dstring text;
+  string target;
+}
+
+/**
+ * Enlaces de los bloques, en orden: los trozos seguidos de un bloque con el mismo destino son
+ * un solo enlace (el formato puede partirlo en varios).
+ *
+ * Params:
+ *   blocks = texto ya interpretado (parseRichText).
+ * Returns: el texto y el destino de cada enlace.
+ */
+RichLink[] richLinks(const RichBlock[] blocks) pure @safe {
+  RichLink[] links;
+  foreach (ref block; blocks) {
+    string previous;
+    foreach (ref run; block.runs) {
+      if (run.link.length && run.link == previous) links[$ - 1].text ~= run.text;
+      else if (run.link.length) links ~= RichLink(run.text.idup, run.link);
+      previous = run.link;
+    }
+  }
+  return links;
 }
 
 /// Bloque de texto: párrafo, título, elemento de lista o definición.
@@ -470,6 +497,59 @@ final class RichText : Widget {
     }
   }
 
+  /// Para los lectores de pantalla: el texto se lee entero y cada enlace es un nodo que se activa.
+  override void describeAccessibility(ref AccessibleNode node) {
+    node.role = AccessibleRole.label;
+    node.label = null;
+    node.value = text.toUTF8;
+  }
+
+  override AccessibleNode[] accessibleVirtualChildren() {
+    Rect[] areas = linkAreas();
+    AccessibleNode[] nodes;
+    foreach (index, link; richLinks(blocks)) {
+      AccessibleNode node;
+      // La clave de cada enlace es su posición.
+      node.id = index;
+      node.role = AccessibleRole.link;
+      node.label = link.text.toUTF8;
+      // Si el ajuste de líneas no permite asociar los trozos con los enlaces, el del control.
+      node.bounds = areas.length == richLinks(blocks).length ? areas[index] : _pos;
+      node.addAction(AccessibleAction.click);
+      nodes ~= node;
+    }
+    return nodes;
+  }
+
+  override bool onAccessibleVirtualAction(ulong key, AccessibleAction action, dstring value, double numericValue) {
+    RichLink[] links = richLinks(blocks);
+    if (action != AccessibleAction.click || key >= links.length || onLink is null) return false;
+    onLink(links[cast(size_t) key].target);
+    return true;
+  }
+
+  /// Área en la ventana de cada enlace dibujado: la de sus trozos seguidos con el mismo destino.
+  private Rect[] linkAreas() {
+    Rect rc = _pos;
+    applyMargins(rc);
+    applyPadding(rc);
+    Rect[] areas;
+    string previous;
+    foreach (piece; placed) {
+      Rect area = Rect(rc.left + piece.x, rc.top + piece.y, rc.left + piece.x + piece.width,
+        rc.top + piece.y + piece.height);
+      if (piece.link.length && piece.link == previous) {
+        Rect joined = areas[$ - 1];
+        areas[$ - 1] = Rect(min(joined.left, area.left), min(joined.top, area.top), max(joined.right, area.right),
+          max(joined.bottom, area.bottom));
+      } else if (piece.link.length) {
+        areas ~= area;
+      }
+      previous = piece.link;
+    }
+    return areas;
+  }
+
   /// Enlace bajo el punto (coordenadas de la ventana), o null.
   private string linkAt(int x, int y) {
     Rect rc = _pos;
@@ -521,6 +601,17 @@ unittest {
   assert(blocks[1].runs[1].text == "ANA"d && blocks[1].runs[2].text == "\nFecha"d);
   assert(blocks[2].indent == 1 && blocks[3].indent == 2);
   assert(blocks[3].runs[1].text == "x & y"d);
+}
+
+@("should join the consecutive runs of a link and keep separate links apart when listing them for screen readers")
+unittest {
+  auto links = richLinks(parseRichText(`Abra <a href="https://a.example"><b>el</b> sitio</a> o <a href="file:///tmp/x.pdf">x.pdf</a>`
+    ~ `<p><a href="https://a.example">otra vez</a></p>`));
+  assert(links.length == 3);
+  assert(links[0] == RichLink("el sitio"d, "https://a.example"));
+  assert(links[1] == RichLink("x.pdf"d, "file:///tmp/x.pdf"));
+  assert(links[2] == RichLink("otra vez"d, "https://a.example"));
+  assert(richLinks(parseRichText("Sin enlaces")).length == 0);
 }
 
 @("should keep link targets and decode entities when parsing messages")

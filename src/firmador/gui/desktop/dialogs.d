@@ -57,6 +57,7 @@ import dlangui.widgets.widget;
 import firmador.cards.cardinfo : CardSignInfo;
 import firmador.cards.detector : SmartCardDetector, UnsupportedArchitectureException;
 import firmador.connections.connection : PinAndCode;
+import firmador.gui.desktop.common : Mnemonics;
 import firmador.gui.desktop.richtext : RichText;
 import firmador.gui.desktop.secretfield : SecretField;
 import firmador.gui.desktop.theme : ThemeColor, themeColor;
@@ -122,6 +123,8 @@ private FirmadorDialog[][void*] dialogQueues;
 
 /// Base de los diálogos: Escape cancela, cerrar la ventana también y se muestran de a uno por ventana.
 class FirmadorDialog : Dialog {
+  /// Atajos Alt+letra del diálogo (common.Mnemonics).
+  protected Mnemonics mnemonics;
   private bool finished;
   private void delegate(const Action result) resultHandler;
   protected Action cancelAction;
@@ -187,6 +190,7 @@ class FirmadorDialog : Dialog {
       close(cancelAction);
       return true;
     }
+    if (mnemonics.handle(event)) return true;
     return super.onKeyEvent(event);
   }
 
@@ -229,6 +233,8 @@ private final class MessageDialog : FirmadorDialog {
   this(string title, string html, Window parent, Action[] actions, int defaultIndex, Action cancel) @trusted {
     super(title, parent);
     auto body = new RichText(null, html);
+    // Los lectores de pantalla leen el mensaje al abrirse el diálogo.
+    accessibleDescription = body.text;
     body.maxWidth = 560;
     body.onLink = (string link) { openMessageLink(link); };
     body.margins = Rect(0, 0, 0, 12);
@@ -316,6 +322,7 @@ final class PinDialog : FirmadorDialog {
     auto refresh = new Button("refresh", t("pin_dialog_reload_cards").toUTF32);
     refresh.tooltipText = t("pin_dialog_reload_cards_accesible").toUTF32;
     refresh.click = (Widget source) { reloadCards(); return true; };
+    mnemonics.add('R', refresh);
     table.addChild(refresh);
     table.addChild(new TextWidget(null, t("pin_dialog_requestpin").toUTF32));
     pin = pinField();
@@ -616,6 +623,11 @@ final class ProgressDialog : FirmadorDialog {
     addChild(bar);
     auto close_ = dialogAction(StandardAction.Close, "progress_dialog_btn_close");
     addButtons([close_], 0, close_);
+    // El atajo que anuncia la descripción del botón (progress_dialog_btn_close_tooltip_accesible).
+    mnemonics.addAction('X', () {
+      close(close_);
+      return true;
+    });
   }
 
   /// Muestra el diálogo; `closed` se llama al cerrarse, con finish o por el usuario.

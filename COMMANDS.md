@@ -14,7 +14,8 @@ compilar están en el [README](README.md#compilar).
 | `dub run -- [documento…]` | Compila y abre la ventana |
 | Cambiar de dlangui | Es la copia con los arreglos de Windows y macOS (`NotSpooky/dlangui`, rama `win32-fixes-0.10.8`), una dependencia git que dub clona: se cambia el commit en `dub.json`, `dub.selections.json` y el manifiesto de flatpak (la fuente de dlangui y su carpeta) |
 | `sh tools/macos/bundle.sh firmador.zip` | En macOS, después de `dub build --build=release`: arma `Firmador.app` en `.build/macos` con las bibliotecas de Homebrew adentro (necesita `dylibbundler`, `sdl2-compat` y `freetype` de Homebrew), lo firma ad hoc, prueba que arranque y lo comprime |
-| `sh tools/prebuild.sh` | Paso previo que dub ejecuta solo: cabeceras de C en `src/cinclude`, `.build/libfirmadorshim.a` y, en Windows, el ícono y los datos de la versión del `.exe` en `.build/firmador.res` (`CC`, `AR` y `RC` cambian el compilador, el archivador y el compilador de recursos) |
+| `sh tools/prebuild.sh` | Paso previo que dub ejecuta solo: cabeceras de C en `src/cinclude`, `.build/libfirmadorshim.a`, la biblioteca de AccessKit (lectores de pantalla) en `.build/accesskit`, descargada una vez por versión y verificada con su SHA-256, y, en Windows, el ícono y los datos de la versión del `.exe` en `.build/firmador.res` (`CC`, `AR` y `RC` cambian el compilador, el archivador y el compilador de recursos) |
+| `sh tools/accesskit-notices.sh` | Después de compilar, al cambiar la versión de AccessKit: rehace `packaging/licenses/accesskit.txt`, el aviso de licencias de AccessKit y de los paquetes de Rust que lleva su biblioteca (descarga cada uno de crates.io y lo verifica con el SHA-256 de su Cargo.lock) |
 | `sh tools/set-version.sh 0.8.0` | Pone esa versión (X.Y.Z, con un sufijo como `-dev` si no es publicada) en `resources/version.txt` y en la entrada de AppStream; la CI lo hace en cada compilación |
 
 

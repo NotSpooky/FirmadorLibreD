@@ -259,7 +259,7 @@ final class SignPanel : VerticalLayout {
     topBar.styleId = "FIRMADOR_TOOLBAR";
     topBar.addChild(new TextWidget(null, dt("signpanel_page")));
     pageSelector = new PageSelector("pagina");
-    pageSelector.tooltipText = tip("signpanel_page_tooltip");
+    setTip(pageSelector, "signpanel_page_tooltip");
     pageSelector.onChange = (int value) {
       int index = pageIndexFor(value, pages.pageCount);
       pages.moveSignature(index, pages.signaturePlacement.x, pages.signaturePlacement.y);
@@ -268,7 +268,7 @@ final class SignPanel : VerticalLayout {
     topBar.addChild(pageSelector);
     topBar.addChild(new TextWidget(null, dt("signpanel_zoom"))).margins = Rect(12, 0, 0, 0);
     zoomBox = new ComboBox("escala", zoomLabels());
-    zoomBox.tooltipText = tip("signpanel_zoom_tooltip");
+    setTip(zoomBox, "signpanel_zoom_tooltip");
     zoomBox.selectedItemIndex = zoomIndexFor(settings.previewZoom);
     zoomBox.itemClick = (Widget source, int index) {
       // La última opción puede ser la escala de Ctrl y la rueda, que ya es la que se ve.
@@ -278,7 +278,7 @@ final class SignPanel : VerticalLayout {
     topBar.addChild(zoomBox);
     topBar.addChild(new TextWidget(null, dt("signpanel_rotation"))).margins = Rect(12, 0, 0, 0);
     rotationBox = new ComboBox("rotacion", rotationLabels());
-    rotationBox.tooltipText = tip("signpanel_rotation_tooltip");
+    setTip(rotationBox, "signpanel_rotation_tooltip");
     rotationBox.selectedItemIndex = indexIn(rotationValues, settings.signRotation);
     rotationBox.itemClick = (Widget source, int index) {
       scheduleSignaturePreview();
@@ -292,10 +292,10 @@ final class SignPanel : VerticalLayout {
     topBar.addChild(positionButton);
     sizeGroup = new HorizontalLayout("tamano-firma");
     sizeGroup.margins = Rect(12, 0, 0, 0);
-    sizeGroup.tooltipText = tip("signpanel_signature_size_tooltip");
+    setTip(sizeGroup, "signpanel_signature_size_tooltip");
     sizeGroup.addChild(new TextWidget(null, dt("signpanel_signature_size")));
     auto smaller = new Button("firma-menor", "−"d);
-    smaller.tooltipText = tip("signpanel_signature_smaller");
+    setTip(smaller, "signpanel_signature_smaller");
     smaller.click = (Widget source) {
       pages.scaleSignature(steppedSignatureScale(signScale, -1));
       return true;
@@ -306,7 +306,7 @@ final class SignPanel : VerticalLayout {
     sizeLabel.alignment = Align.Center;
     sizeGroup.addChild(sizeLabel);
     auto larger = new Button("firma-mayor", "+"d);
-    larger.tooltipText = tip("signpanel_signature_larger");
+    setTip(larger, "signpanel_signature_larger");
     larger.click = (Widget source) {
       pages.scaleSignature(steppedSignatureScale(signScale, 1));
       return true;
@@ -382,7 +382,7 @@ final class SignPanel : VerticalLayout {
     secondaryActions = new HorizontalLayout("acciones");
     secondaryActions.margins = Rect(0, 4, 0, 0);
     withoutVisible = new CheckBox("sin-firma-visible", dt("signpanel_visible_checkbox"));
-    withoutVisible.tooltipText = tip("signpanel_visible_checkbox_tooltip");
+    setTip(withoutVisible, "signpanel_visible_checkbox_tooltip");
     withoutVisible.checked = settings.withoutVisibleSign;
     withoutVisible.checkChange = (Widget source, bool checked) {
       pages.showSignature(!checked);
@@ -421,6 +421,14 @@ final class SignPanel : VerticalLayout {
     applyControls(SignControls.init);
   }
 
+  /// Atajos de la versión Java que anuncian las descripciones de sus botones (signpanel_*_tooltip_accessible).
+  void addMnemonics(ref Mnemonics mnemonics) @safe {
+    mnemonics.add('S', signButton);
+    mnemonics.add('C', cancelButton);
+    mnemonics.add('G', saveButton);
+    mnemonics.add('V', validateButton);
+  }
+
   /// Elige una de las opciones fijas del selector de escala y quita la de Ctrl y la rueda, si la había.
   private void selectZoomOption(int index) {
     replaceZoomItems(zoomLabels(), index);
@@ -452,7 +460,7 @@ final class SignPanel : VerticalLayout {
   private EditLine addField(string id, string labelKey, string tooltipKey, string value) {
     fieldsColumn.addChild(new TextWidget(null, dt(labelKey)));
     auto field = new TextField(id, value.toUTF32);
-    field.tooltipText = tip(tooltipKey);
+    setTip(field, tooltipKey);
     field.layoutWidth = FILL_PARENT;
     field.minWidth = 240;
     fieldsColumn.addChild(field);
@@ -498,7 +506,7 @@ final class SignPanel : VerticalLayout {
   private void applyFooterState(bool collapsed) {
     footerCollapsed = collapsed;
     collapseButton.text = dt(collapsed ? "signpanel_expand_footer" : "signpanel_collapse_footer");
-    collapseButton.tooltipText = tip(collapsed ? "signpanel_expand_footer" : "signpanel_collapse_footer");
+    setTip(collapseButton, collapsed ? "signpanel_expand_footer" : "signpanel_collapse_footer");
     secondaryActions.visibility = collapsed ? Visibility.Gone : Visibility.Visible;
     if (current !is null && isPdf(current.mimeType)) {
       fieldsColumn.visibility = collapsed ? Visibility.Gone : Visibility.Visible;
@@ -510,7 +518,7 @@ final class SignPanel : VerticalLayout {
     size_t count = current is null ? 0 : current.signatureCount;
     validateButton.text = format(t("signpanel_validate_btn"), count).toUTF32;
     validateButton.enabled = count > 0;
-    validateButton.tooltipText = tip(count > 0 ? "signpanel_validate_tooltip" : "signpanel_validate_tooltip_empty");
+    setTip(validateButton, count > 0 ? "signpanel_validate_tooltip" : "signpanel_validate_tooltip_empty");
   }
 
   // Documento -----------------------------------------------------------------
